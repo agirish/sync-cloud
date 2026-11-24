@@ -16240,7 +16240,9 @@ a passphrase backup is never written over another and Back Up Now carries the co
 files are flushed to the disk, the daily backups go by the most recent days with backups, more
 types print nothing they hold, and a failed passphrase change or Replace leaves things as they were. Batch 16:
 the Vault's sheets, popovers and Quick Look panel that draw a secret are kept out of screen sharing,
-a copied number is cleared at a lock, and People masks document names until shown.
+a copied number is cleared at a lock, and People masks document names until shown. Batch 17:
+a choice made during a read holds for the rest of it, waiting IDs follow a change to People, and
+People gives an unmatched person one section by first and last name.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

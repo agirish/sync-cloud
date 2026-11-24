@@ -50,6 +50,50 @@ import Testing
         #expect(model.finds.allSatisfy { $0.value != "1102462401" })
     }
 
+    /// A reader that runs `before` as it opens the first file other than `except`.
+    final class Hooked: VaultDocumentReading, @unchecked Sendable {
+        let inner: VaultFakeDocuments
+        let except: String
+        let before: @MainActor () async -> Void
+        private(set) var opened: [String] = []
+        private var hooked = false
+        init(_ inner: VaultFakeDocuments, except: String, before: @escaping @MainActor () async -> Void) {
+            self.inner = inner
+            self.except = except
+            self.before = before
+        }
+        /// `except` last, so it is opened after the hook has run.
+        func files() async -> [URL] {
+            let all = await inner.files()
+            return all.filter { $0.path != except } + all.filter { $0.path == except }
+        }
+        func pages(in file: URL) async -> [[String]] {
+            if !hooked, file.path != except {
+                hooked = true
+                await before()
+            }
+            opened.append(file.path)
+            return await inner.pages(in: file)
+        }
+        func stamp(of file: URL) -> String? { inner.stamp(of: file) }
+        func size(of file: URL) -> Int? { inner.size(of: file) }
+        func contentKey(of file: URL) async -> String? { await inner.contentKey(of: file) }
+    }
+
+    /// Not for This ID chosen while a read runs holds for the files it has yet to open: the read
+    /// does not put the file back on the ID (the 2026-11-23 review).
+    @Test func aFileTakenOffDuringAReadStaysOffForTheRestOfIt() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let (model, id, readFrom, other) = try await Self.rig(rig)
+        let pages = [Self.card: VaultMergeTests.page("1102462401"), Self.claim: Self.claimPage]
+        let reader = Hooked(Self.documents(pages), except: other) {
+            #expect(await model.notForThisID(id, path: other))
+        }
+        await model.readDocuments(with: reader, again: true)
+        #expect(reader.opened.last == other, "the file taken off was not opened after the choice: \(reader.opened)")
+        #expect(model.rows.first { $0.id == id }?.documents.map(\.path) == [readFrom], "the read put the file back")
+    }
+
     @Test func aFileACorrectionNotedOffersWhatItReadsOnceTakenOff() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let model = rig.model()

@@ -406,7 +406,13 @@ public final class VaultModel: ObservableObject {
 
     /// The household's people, from Settings ▸ Organize: who a read number belongs to, and the
     /// person filter's names. Set by the panel.
-    public var people: [Person] = [] { didSet { rowsRevision &+= 1; keepSelectionVisible() } }
+    public var people: [Person] = [] {
+        didSet {
+            rowsRevision &+= 1
+            resplitWaiting()
+            keepSelectionVisible()
+        }
+    }
 
     /// Current, Archive or Other Finds.
     @Published public var tab: VaultStanding.Tab = .current { didSet { keepSelectionVisible() } }
@@ -1034,6 +1040,7 @@ public final class VaultModel: ObservableObject {
     func correctEverywhere(_ key: String, to name: String?) {
         guard !key.isEmpty else { return }
         names[key] = name
+        resplitWaiting()
     }
 
     /// `draft` as Edit opens it: its Name holding the correction in force (this ID's own, else
@@ -1082,6 +1089,7 @@ public final class VaultModel: ObservableObject {
     private func apply(_ correction: NameCorrection?) {
         guard let correction else { return }
         names[correction.key] = correction.name
+        resplitWaiting()
         readingChanged = true
         saveReading()
     }
@@ -2089,11 +2097,24 @@ public final class VaultModel: ObservableObject {
             return
         }
         let sharedSizes = Set(Dictionary(grouping: sizes.values, by: { $0 }).filter { $0.value.count > 1 }.keys)
-        // What a corrected ID's documents read for it (``VaultReadAs``): checked before anything
-        // else is taken from a file. Only a file as big as one of them is hashed to be compared.
-        let readAs = readAsByContents()
-        let notOn = notOnByContents()
-        let notedSizes = Set((Array(readAs.keys) + Array(notOn.keys)).compactMap(VaultFileContents.size(of:)))
+        // What a corrected ID's documents read for it (``VaultReadAs``), and the files an ID was
+        // taken off (Not for This ID): checked before anything else is taken from a file. Only a
+        // file as big as one of them is hashed to be compared. Worked out again before each file
+        // whenever the IDs changed since: a correction, a merge or a Not for This ID made while the
+        // read runs holds for the files it has yet to open.
+        var readAs: [String: [String: String]] = [:]
+        var notOn: [String: Set<String>] = [:]
+        var notedSizes: Set<Int> = []
+        var notesAt: Int?
+        func refreshNotes() {
+            // The rows' revision moves with every change to the IDs (and more): a few loops over
+            // the saved IDs' notes, never a comparison of the IDs themselves.
+            guard notesAt != rowsRevision else { return }
+            notesAt = rowsRevision
+            readAs = readAsByContents()
+            notOn = notOnByContents()
+            notedSizes = Set((Array(readAs.keys) + Array(notOn.keys)).compactMap(VaultFileContents.size(of:)))
+        }
         /// Files read with a page left out this time: what they gave asks no Keep Mine question.
         var incomplete = Set<String>()
         var readNow: [String: [VaultFind]] = [:]
@@ -2110,6 +2131,7 @@ public final class VaultModel: ObservableObject {
         func look(at step: VaultReadPlan.Step, _ index: Int) async -> Bool {
             let file = step.file
             if run.passesOver(step) { return true }
+            refreshNotes()
             let stamp = stamps[file.path]
             if let stamp, readIndex[file.path] == stamp {
                 settle(step)
@@ -2121,7 +2143,7 @@ public final class VaultModel: ObservableObject {
             // Only a file another one planned is as big as can be a copy of it: those alone are
             // hashed and kept. And within one area: how a page is read depends on where it is.
             let size = sizes[file.path] ?? -1
-            let bytes = sharedSizes.contains(size) || notedSizes.contains(size) ? await reader.contentKey(of: file) : nil
+            var bytes = sharedSizes.contains(size) || notedSizes.contains(size) ? await reader.contentKey(of: file) : nil
             let content = sharedSizes.contains(size)
                 ? bytes.map { VaultReadPlan.area(of: file.path, under: roots).description + " " + $0 }
                 : nil
@@ -2145,6 +2167,11 @@ public final class VaultModel: ObservableObject {
             // A changed file is read afresh: what it said before is let go first. A number it
             // still carries keeps its row and any choice made about it, as does one chosen
             // about under an older build's rules.
+            // A choice made about this very file while its pages were read (Not for This ID, a
+            // correction) holds for it too: the notes again, and its bytes when it now needs them.
+            refreshNotes()
+            if bytes == nil, notedSizes.contains(size) { bytes = await reader.contentKey(of: file) }
+            guard !Task.isCancelled, contents == .loaded else { return false }
             var before = Dictionary(finds.filter { $0.facts.sources.contains { $0.path == file.path } }
                 .map { (VaultReading.normalized($0.value), VaultChoice($0)) },
                 uniquingKeysWith: { a, _ in a })
@@ -2389,6 +2416,17 @@ public final class VaultModel: ObservableObject {
         holders.rebuilt(find, from: copies[value])
     }
 
+    /// Every waiting ID worked out again from its copies with the people and names as they now
+    /// are: whose papers speak for one (``VaultHolders/split(_:owner:)``) turns on both, as a
+    /// saved ID's does at every rows rebuild. Only while loaded, and only what changed is set: the
+    /// next load works them out again anyway, so nothing is sealed for it.
+    private func resplitWaiting() {
+        guard contents == .loaded, !finds.isEmpty else { return }
+        let holders = self.holders
+        let again = finds.map { holders.rebuilt($0, from: copies[VaultReading.normalized($0.value)]) }
+        if again != finds { finds = again }
+    }
+
     /// Lets go of what `path` said: as a source of a waiting number (the number goes when it was
     /// its only document, and is rebuilt from the others when it was not) and as a document
     /// naming one.
@@ -2509,13 +2547,20 @@ public final class VaultModel: ObservableObject {
     }
 
     private func confirming(_ findID: UUID, as draft: Draft) -> UUID? {
-        guard let find = finds.first(where: { $0.id == findID }) else { return nil }
+        guard var find = finds.first(where: { $0.id == findID }) else { return nil }
         var draft = draft
-        // What was read stays with the number, whatever the editor changed about its name, and
-        // whichever copy it is read from: ``prepared(_:for:)`` puts a chosen copy's name in the
-        // editor, and saved here it would outlive the choice.
-        if draft.facts == nil { draft.facts = find.facts }
-        draft.facts?.holder = find.facts.holder
+        // Whose the editor says it is, when that is not what it waited as: worked out again for
+        // that person, as Belongs To does, so that person's papers speak for it. The name, the
+        // person and the documents saved then agree, though People changed while the editor was
+        // up (Add to People re-splits every waiting ID).
+        if draft.assignment != find.assignment, draft.assignment != nil {
+            find.assignment = draft.assignment
+            find = rebuilt(find, VaultReading.normalized(find.value))
+        }
+        // What was read stays with the number as it reads now, whatever the editor changed about
+        // its name, and whichever copy it is read from: ``prepared(_:for:)`` puts a chosen copy's
+        // name in the editor, and saved here it would outlive the choice.
+        draft.facts = find.facts
         // Corrected into a number another waiting ID has: adding drops that one. What both numbers'
         // documents said, and it, are kept from before, for Undo.
         let correcting = VaultReading.normalized(draft.value) != VaultReading.normalized(find.value)

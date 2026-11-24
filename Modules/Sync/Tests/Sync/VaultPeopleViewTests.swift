@@ -356,15 +356,21 @@ import Testing
         #expect(VaultPersonText.tidied(" \n ") == "")
     }
 
-    @Test func aNameNobodyInPeopleAnswersToGetsItsOwnSection() async throws {
+    /// One section for a name nobody in People answers to, however its middle name is printed:
+    /// first and last name, as the rest of the Vault weighs names, titled with the fullest spelling
+    /// (owner, 2026-11-23; it was one section per spelling).
+    @Test func aNameNobodyInPeopleAnswersToGetsOneSection() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let model = await Self.model(rig)
         // Only someone with another surname is in People now. (A shared surname alone would give
         // Anna's papers to the one person who has it, which is the People list's rule, not this view's.)
         model.people = [Person(id: "erik", displayName: "Erik", fullNames: ["Erik Lindqvist"])]
         let titles = model.peopleSections.map(\.title)
-        #expect(titles == ["Erik", "Anna Eriksson", "Anna Maria Eriksson", "Household"], "\(titles)")
-        #expect(model.peopleSections.contains { $0.id == .unnamed("Anna Maria Eriksson") })
+        #expect(titles == ["Erik", "Anna Maria Eriksson", "Household"], "\(titles)")
+        let anna = try #require(model.peopleSections.first { $0.title == "Anna Maria Eriksson" })
+        #expect(anna.id == .unnamed("name:anna eriksson"))
+        let printed = Set(anna.rows.compactMap { $0.facts?.holder.map(VaultPersonText.tidied) })
+        #expect(printed.isSuperset(of: ["Anna Eriksson", "Anna Maria Eriksson"]), "both spellings, one person: \(printed)")
     }
 
     @Test func theFiltersAndTheTabNarrowTheSectionsAndTheOtherTabIsCounted() async throws {

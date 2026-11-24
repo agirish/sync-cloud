@@ -100,9 +100,21 @@ folded card's summary; use in Quick Look's panel keeps the Vault awake. Left: co
 phone or an address are plain (VT35), so a lock leaves them; a popover that holds no secret is kept
 out of capture too, with the setting on.
 
-Still open from this review: the model's reading notes taken
-before a read and the waiting IDs' split after People changes (batch 17), and the readers' (batch
-18; the license barcode's DAQ line and a TIFF's later pages are reader accuracy, the owner's call).
+Batch 17 fixed the model's: a read works out what corrected IDs' documents read for them and the
+files an ID was taken off (Not for This ID) again before each file whenever the IDs changed
+meanwhile, so a choice made during a read holds for the files it has yet to open; a waiting ID is
+worked out again from its copies when People or a name corrected everywhere changes, as a saved
+one is at every rows rebuild, so the member's own card speaks for it and a confirm keeps the right
+person; People gives a name nobody in People answers to one section by first and last name,
+titled with the spelling taken for the legal one, as its Name tile leads (two different people
+whose first and last words match, neither in People, show together until one is added: a
+hyphenated or suffixed name counts by its first and last words); and Confirm, when the editor
+names a person the waiting ID was not given (Add to People re-splits it under the editor), works it
+out for that person first, so the saved name, person and documents agree. The notes are worked out
+again once the file being read has given its pages, so a choice about that very file holds too.
+
+Still open from this review: the readers' (batch 18; the license barcode's DAQ line and a TIFF's
+later pages are reader accuracy, the owner's call).
 
 ## Owed before the next cut
 

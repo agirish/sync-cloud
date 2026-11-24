@@ -610,6 +610,55 @@ import Testing
         #expect(model.otherHolder(of: Self.livCard, for: row) == "Liv Eriksson", "and says whose card it is")
     }
 
+    /// The dependent added to People while the Vault is open: the waiting ID is worked out again at
+    /// once, so the member's own card speaks for it, not the dependent's newer one (the 2026-11-23
+    /// review). It waited for the next relock, and a confirm meanwhile kept the wrong person.
+    @Test func aWaitingIDIsSplitAgainWhenPeopleChange() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add(Self.root, in: rig.defaults)
+        let model = rig.model()
+        model.people = [Person(id: "anna", displayName: "Anna Eriksson")]
+        await model.opened()
+        await model.readDocuments(with: PlannedDocuments(pages: [
+            Self.annaCard: ["Delta Dental", "Member Name: ANNA ERIKSSON", "Member ID: XZB123456789"],
+            Self.livCard: ["Delta Dental", "Member Name: LIV ERIKSSON", "Subscriber ID: XZB123456789"],
+        ]))
+        let before = try #require(model.finds.first { $0.value == "XZB123456789" })
+        #expect(before.facts.primary?.path == Self.livCard, "with Liv not in People, her newer card spoke")
+        model.people = [Person(id: "anna", displayName: "Anna Eriksson"), Person(id: "liv", displayName: "Liv Eriksson")]
+        let after = try #require(model.finds.first { $0.id == before.id })
+        #expect(after.holder == "Anna Eriksson" && after.facts.primary?.path == Self.annaCard)
+        #expect(after.facts.sources.first { $0.path == Self.livCard }?.rank == VaultReading.Rank.mention)
+        #expect(model.rows.first { $0.id == before.id }?.personID == "anna")
+    }
+
+    /// Confirmed as Liv's after Add to People re-split it under the editor: the saved ID is worked
+    /// out for the person chosen, so its name, person and documents agree (the 2026-11-23 review).
+    @Test func aConfirmForAPersonAddedMeanwhileSavesThatPersonsReading() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add(Self.root, in: rig.defaults)
+        let model = rig.model()
+        model.people = [Person(id: "anna", displayName: "Anna Eriksson")]
+        await model.opened()
+        await model.readDocuments(with: PlannedDocuments(pages: [
+            Self.annaCard: ["Delta Dental", "Member Name: ANNA ERIKSSON", "Member ID: XZB123456789"],
+            Self.livCard: ["Delta Dental", "Member Name: LIV ERIKSSON", "Subscriber ID: XZB123456789"],
+        ]))
+        let find = try #require(model.finds.first { $0.value == "XZB123456789" })
+        var draft = model.prepared(VaultModel.Draft(find, people: model.people), for: find.id)
+        // The editor's Add to People, then its choice of her.
+        model.people = [Person(id: "anna", displayName: "Anna Eriksson"), Person(id: "liv", displayName: "Liv Eriksson")]
+        draft.personID = "liv"
+        let saved = try #require(model.confirm(find.id, as: draft))
+        let row = try #require(model.rows.first { $0.id == saved })
+        #expect(row.personID == "liv")
+        #expect(row.facts?.holder == "Liv Eriksson", "named for one person, assigned to another")
+        #expect(row.facts?.primary?.path == Self.livCard)
+        // As stored, not only as drawn: the row is worked out again from the copies.
+        let entry = try #require(model.entries.first { $0.id == saved })
+        #expect(entry.facts?.holder == "Liv Eriksson" && entry.facts?.primary?.path == Self.livCard)
+    }
+
     /// Both cards print the number as the subscriber's: whose it is cannot be told, so it shows
     /// no one's name until the person is chosen, and then that person's card speaks.
     @Test func aWaitingIDWhoseCardsCannotTellShowsNoNameUntilChosen() async throws {

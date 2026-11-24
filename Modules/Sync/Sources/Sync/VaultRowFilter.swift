@@ -129,7 +129,17 @@ struct VaultRowFilter: Equatable {
         func owner(_ row: Row) -> VaultPersonSection.Owner {
             if row.isHousehold { return .household }
             if let id = row.personID { return .person(id) }
-            return .unnamed(row.facts?.holder ?? row.whose)
+            // By first and last name, as the rest of the Vault weighs names: "Anna M Larsen" on a
+            // passport and "Anna Larsen" on a visa are one person (owner, 2026-11-23).
+            return .unnamed(row.facts?.nameKey ?? row.facts?.holder ?? row.whose)
+        }
+        /// An unnamed section's title: the fullest spelling its papers print, most words first.
+        func fullestName(_ rows: [Row], key: String) -> String {
+            let names = rows.compactMap { $0.facts?.holder.map(VaultPersonText.tidied) }.filter { !$0.isEmpty }
+            return names.max { a, b in
+                let (wa, wb) = (a.split(separator: " ").count, b.split(separator: " ").count)
+                return wa != wb ? wa < wb : a.count != b.count ? a.count < b.count : a > b
+            } ?? rows.first?.whose ?? key
         }
         let all = Dictionary(grouping: rows, by: owner)
         // A phone is whoever's name it is printed under, on anyone's paper.
@@ -164,6 +174,10 @@ struct VaultRowFilter: Equatable {
                 }
             }
             names = roled(names, for: id, roles: roles)
+            // A name nobody in People answers to is titled as its Name tile leads: the spelling
+            // taken for the legal one, so the header is never a spelling the tile calls misread.
+            var title = title
+            if case .unnamed = id, let legal = VaultNameGuess.legal(names, excluding: nil) { title = names[legal].name }
             // Each date with the IDs it was read from: a second date is one ID's reading, and the
             // ID is where it is put right.
             let dated = id == .household ? [] : papers.filter { $0.facts?.born != nil }
@@ -193,11 +207,11 @@ struct VaultRowFilter: Equatable {
         for case .person(let id) in shown.keys.sorted(by: { "\($0)" < "\($1)" }) where !known.contains(id) {
             if let gone = section(.person(id), "Someone no longer in People") { sections.append(gone) }
         }
-        let unnamed = shown.keys.compactMap { key -> String? in
-            if case .unnamed(let name) = key { return name }
-            return nil
-        }.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-        sections += unnamed.compactMap { section(.unnamed($0), $0) }
+        let unnamed = shown.keys.compactMap { owner -> VaultPersonSection? in
+            guard case .unnamed(let key) = owner else { return nil }
+            return section(owner, fullestName(all[owner] ?? [], key: key))
+        }
+        sections += unnamed.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         if let household = section(.household, "Household") { sections.append(household) }
         return sections
     }
