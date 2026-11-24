@@ -16265,6 +16265,9 @@ fill, a swap, the printed number), and each reading logs a count of each; nothin
 owner's papers changes. Batch 24: the weekly backup and Folders to Read come with the Vault's model,
 so a test that draws the panel never writes the owner's backup or reads his folder list (VT74), and
 the folder walk and read plan are a step of their own (VT7); 43 panels render byte for byte as before.
+Batch 25: removing an ID lets go of what its documents said about it and seals that, so from then on
+Refresh no longer counts or opens a document only the removed ID came from, and a removed typed
+number's documents are read again at the next Discover More (VT64).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

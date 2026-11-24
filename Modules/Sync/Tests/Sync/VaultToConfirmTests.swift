@@ -166,6 +166,33 @@ struct VaultFakeDocuments: VaultDocumentReading {
         #expect(!model.finds.contains { $0.value == "WAC2412345678" })
     }
 
+    /// VT64: what its documents said goes with a removed ID, sealed, so Refresh no longer counts or
+    /// opens the document, now or after a relaunch.
+    @Test func aRemovedIDTakesWhatItsDocumentsSaidWithIt() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = rig.model()
+        await model.readDocuments(with: Self.documents)
+        let find = try #require(model.finds.first { $0.title == "Passport" })
+        let id = try #require(model.confirm(find.id, as: VaultModel.Draft(find)))
+        try #require(!model.finds.contains { $0.facts.sources.contains { $0.path == "/docs/passport.pdf" } },
+                     "only the passport comes from its page")
+        #expect(model.refreshSources.contains("/docs/passport.pdf"))
+        let key = VaultReading.normalized(find.value)
+        #expect(model.sealedReading.copies[key] != nil && model.sealedReading.mentions[key] != nil,
+                "confirmed, its documents are held under its number")
+
+        #expect(await model.delete(id))
+        #expect(!model.refreshSources.contains("/docs/passport.pdf"))
+        #expect(model.refreshSources.contains("/docs/notice.pdf"), "the waiting IDs keep theirs")
+
+        let reopened = rig.model()
+        await reopened.opened()
+        #expect(reopened.refreshSources.contains("/docs/notice.pdf"), "the reading file was opened again")
+        #expect(!reopened.refreshSources.contains("/docs/passport.pdf"), "the reading file was sealed without it")
+        #expect(reopened.sealedReading.copies[key] == nil && reopened.sealedReading.mentions[key] == nil,
+                "nothing is kept under the removed number")
+    }
+
     @Test func aTypedNumberRemovedIsStillOfferedWhenReadLater() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let model = rig.model()
@@ -175,6 +202,23 @@ struct VaultFakeDocuments: VaultDocumentReading {
         await model.readDocuments(with: Self.documents)
         #expect(model.finds.contains { $0.value == "WAC2412345678" },
                 "typing a number in is not reading it, so removing it says nothing about documents")
+    }
+
+    /// VT64: a typed number's documents are read again once it is removed, so it is offered from
+    /// them though none changed. Stamped, the documents are otherwise passed over as read.
+    @Test func aTypedNumberRemovedIsOfferedFromDocumentsThatDidNotChange() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        var documents = Self.documents
+        documents.stamps = ["/docs/passport.pdf": "1", "/docs/notice.pdf": "1", "/docs/letter.pdf": "1"]
+        let model = rig.model()
+        await model.opened()
+        let id = try #require(model.add(VaultModel.Draft(title: "Receipt", value: "WAC2412345678")))
+        await model.readDocuments(with: documents)
+        #expect(!model.finds.contains { $0.value == "WAC2412345678" }, "saved, it is not offered")
+
+        #expect(await model.delete(id))
+        await model.readDocuments(with: documents)
+        #expect(model.finds.contains { $0.value == "WAC2412345678" }, "its unchanged document was read again")
     }
 
     @Test func aKeychainThatRefusesStillSetsAsideForThisRun() async throws {

@@ -1924,7 +1924,7 @@ public final class VaultModel: ObservableObject {
 
     /// Removes an entry for good, after a proof when one is owed. There is no Trash for a number.
     /// One that was read from a document is set aside too, so the next read does not offer back
-    /// what was just removed.
+    /// what was just removed. What its documents said goes with it (``forgetReading(of:)``).
     @discardableResult
     public func delete(_ id: UUID) async -> Bool {
         guard let entry = entry(id: id) else { return false }
@@ -1940,8 +1940,29 @@ public final class VaultModel: ObservableObject {
         guard write(entries.filter { $0.id != id }) else { return false }
         record(.removed, entry.title, whose: whose)
         if entry.sourcePath != nil { remember(entry.value) }
+        forgetReading(of: entry.value, readAgain: entry.sourcePath == nil)
         keepSelectionVisible()
         return true
+    }
+
+    /// Lets go of what documents said about a removed number, and seals that (VT64): kept, Refresh
+    /// would go on counting and opening the documents it was read from, the reading file would go
+    /// on holding the number, and another ID corrected into it later would take those copies.
+    /// Kept while another saved or waiting ID has the number.
+    ///
+    /// `readAgain`, for a number typed in: its documents are no longer marked read, so the next
+    /// Discover More opens them and offers it in To Confirm, as for any number read but not saved.
+    /// One read from a document is set aside, and opening its documents again would find nothing.
+    private func forgetReading(of value: String, readAgain: Bool) {
+        let key = VaultReading.normalized(value)
+        guard copies[key] != nil || mentions[key] != nil,
+              !entries.contains(where: { VaultReading.normalized($0.value) == key }),
+              !finds.contains(where: { VaultReading.normalized($0.value) == key }) else { return }
+        if readAgain, let byFile = copies[key] { for path in byFile.keys { readIndex[path] = nil } }
+        copies[key] = nil
+        mentions[key] = nil
+        readingChanged = true
+        saveReading()
     }
 
     /// Saves `changed` and, only once the disk has it, shows it. A refused save leaves the list as

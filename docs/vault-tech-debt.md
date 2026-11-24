@@ -9,7 +9,7 @@ the visual design. An item marked **owner's call** changes behaviour: ask first,
 internal half.
 
 **Rules.**
-- IDs (`VT…`) are stable: never renumber; cite them in commit bodies. Next free: **VT109** (VT61 and VT62 were never used).
+- IDs (`VT…`) are stable: never renumber; cite them in commit bodies. Next free: **VT111** (VT61 and VT62 were never used).
 - **Never log, print or assert on a number in full.** Raise `VaultReading.version` when what a reader
   finds changes; it makes the next Read Documents read every file again.
 - **Proof for every refactor** (`CLAUDE.md` §5): the same rows, sealed JSON (decrypted, key-sorted)
@@ -53,12 +53,17 @@ Read by [`RELEASE.md`](../RELEASE.md) §4.
 ## Open: the owner's calls
 
 Each changes what the user sees, gets or is asked.
+- **VT110, IDs removed before VT64** still have their documents in the reading file, so Refresh
+  counts and opens them until each changes, goes or a rules change makes it stale. *Fix:* at load,
+  drop copies whose number no saved or waiting ID has (not a later build's records, which this build
+  cannot read; never mentions, which unsaved numbers have too). A one-time change to the sealed
+  reading file.
+- **VT109, editing a typed ID's number** leaves the old number's copies (`update` moves them only for
+  an ID read from a document), so Refresh keeps counting those documents, as VT64 did for a removal.
+  Whether the old number goes back to To Confirm is the question.
 - **VT108, two app processes on one Vault.** A save from a stale list can drop one ID another process
   added. *Fix:* `save` compares the file with what this process last loaded or wrote, reloads and
   refuses; the refusal is new copy.
-- **VT64, a removed ID's number lives on in the reading file.** `delete` leaves `copies[number]` and
-  its mentions, so Refresh keeps opening its documents and typing it back re-attaches stale copies.
-  *Fix:* `delete` drops them and seals; the Refresh count drops to the right number.
 - **VT70, "whose is it" worked out in two places**: the editor by the name as read, the row by the
   corrected name and three inferences. Letting the editor take the row's changes what Confirm offers.
 - **VT100, two spellings share one role key** ("Anna-Maria" and "Anna Maria"): Legal on the second chip
@@ -131,6 +136,7 @@ Each changes what the user sees, gets or is asked.
 | VT50 | The readers' toolkit, one `PrintedPage` per page | batch 19 |
 | VT52, VT54, VT58, VT73 (a, c) | PDFKit lane, a partly read file, backup key off the main actor, capture gaps | batches 3–4 |
 | VT56, VT57, VT59, VT63 | Replace sets aside first, Add Missing ids, activity file set aside, name sealed after save | `5e33b3c47`, `976b30712`, reviews |
+| VT64 | A removed ID takes what its documents said with it (`forgetReading`, sealed): from then on Refresh stops counting and opening documents only it came from; a typed one's documents are read again, so it is offered from them; owner's go-ahead | batch 25 |
 | VT65, VT66, VT67, VT102 | One seal per action, rows rebuilt once, stats off the main actor, one `daysLeft` | batches 4, 6 |
 | VT68 | Stop keeps what was read | `f95e61078` |
 | VT69 | The user's choices as one value (`VaultChoices`) | batch 9 |
