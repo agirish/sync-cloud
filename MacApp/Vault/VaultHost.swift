@@ -88,13 +88,14 @@ struct VaultHost: ViewModifier {
 // MARK: - The live model
 
 extension VaultModel {
-    /// The app's Vault: the sealed file in Application Support, macOS's own proof, and a
-    /// pasteboard copy that cleans up after itself.
+    /// The app's Vault: the sealed file in Application Support, macOS's own proof, its weekly
+    /// backup, and a pasteboard copy that cleans up after itself.
     static func live() -> VaultModel {
         let store = VaultStore.defaultURL().map { VaultStore(fileURL: $0) }
         return VaultModel(store: store,
                           authenticator: VaultDeviceOwnerProof(),
                           activity: store.map { VaultActivityStore.beside($0) },
+                          backup: store.map { VaultBackup(store: $0) },
                           copyToPasteboard: { VaultPasteboard.copyConcealed($0) })
     }
 }
@@ -116,13 +117,6 @@ enum VaultWindowPrivacy {
         guard let window else { return }
         let wanted = sharing(exposed: exposed, defaults: defaults)
         if window.sharingType != wanted { window.sharingType = wanted }
-    }
-}
-
-extension VaultBackup {
-    /// The app's backups: of the sealed file in Application Support, with macOS's own proof.
-    @MainActor static func live() -> VaultBackup? {
-        VaultStore.defaultURL().map { VaultBackup(store: VaultStore(fileURL: $0)) }
     }
 }
 

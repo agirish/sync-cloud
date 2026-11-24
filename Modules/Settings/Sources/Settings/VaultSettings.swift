@@ -177,9 +177,9 @@ struct VaultSettingsTab: View {
                                     }
                                 }
                                 Button("Remove") {
-                                    VaultReadFolders.remove(folder)
+                                    VaultReadFolders.remove(folder, in: .standard)
                                     SettingsWindowLog.log("vault.readFolders", "removed")
-                                    readFolders = VaultReadFolders.folders()
+                                    readFolders = VaultReadFolders.folders(in: .standard)
                                 }
                                 .controlSize(.small)
                                 .frame(minWidth: 70, alignment: .trailing)
@@ -189,7 +189,7 @@ struct VaultSettingsTab: View {
                         Button("Add…") {
                             if VaultReadFoldersPanel.add() {
                                 SettingsWindowLog.log("vault.readFolders", "added")
-                                readFolders = VaultReadFolders.folders()
+                                readFolders = VaultReadFolders.folders(in: .standard)
                             }
                         }
                         .controlSize(.small)
@@ -225,7 +225,7 @@ struct VaultSettingsTab: View {
             }
         }
         .onAppear {
-            readFolders = VaultReadFolders.folders()
+            readFolders = VaultReadFolders.folders(in: .standard)
             setAsideCount = VaultSetAside.fingerprints().count
             refreshBackupState()
         }
@@ -594,10 +594,17 @@ public enum VaultReadFoldersPanel {
     /// Asks for folders, with `message` over the panel, and adds those chosen to the list to read
     /// as ``VaultReadFolders/add(_:in:)`` does. False when cancelled.
     public static func add(message: String? = nil) -> Bool {
-        let panel = panel(message: message)
-        guard panel.runModal() == .OK else { return false }
-        for url in panel.urls { VaultReadFolders.add(url.path) }
+        guard let chosen = choose(message: message) else { return false }
+        for path in chosen { VaultReadFolders.add(path, in: .standard) }
         return true
+    }
+
+    /// Asks for folders, with `message` over the panel, and answers their paths: nil when
+    /// cancelled. The Vault adds them to its own settings (VT74).
+    public static func choose(message: String? = nil) -> [String]? {
+        let panel = panel(message: message)
+        guard panel.runModal() == .OK else { return nil }
+        return panel.urls.map(\.path)
     }
 
     /// The panel, built and not run: folders only, several at once.

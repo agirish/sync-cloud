@@ -190,14 +190,14 @@ import Testing
         try backup.setPassphrase(Self.phrase)
 
         rig.auth.answer = .cancelled
-        let model = rig.model()
+        let model = rig.model(backup: backup)
         await model.opened()
-        #expect(model.backUpIfDue(using: backup) == nil)
+        #expect(model.backUpIfDue() == nil)
         #expect(backup.lastBackup == nil, "a locked panel holds no IDs to back up")
 
         rig.auth.answer = .allowed
         #expect(await model.unlock())
-        await model.backUpIfDue(using: backup)?.value
+        await model.backUpIfDue()?.value
         #expect(backup.lastBackup != nil)
         let made = try #require(try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil).first)
         #expect(try await backup.read(made).get().entries == [Self.mortgage])
@@ -468,16 +468,16 @@ import Testing
                                  seal: { seals.count += 1; return try VaultBackupFile.seal($0, passphrase: $1, rounds: $2) },
                                  open: { try VaultBackupFile.open($0, passphrase: $1) })
         try backup.setPassphrase(Self.phrase)
-        let model = rig.model()
+        let model = rig.model(backup: backup)
         rig.auth.answer = .allowed
         await model.opened()
         #expect(await model.unlock())
-        let first = model.backUpIfDue(using: backup)
-        let second = model.backUpIfDue(using: backup)
+        let first = model.backUpIfDue()
+        let second = model.backUpIfDue()
         await first?.value
         await second?.value
         #expect(seals.count == 1, "two backups were made")
-        #expect(model.backUpIfDue(using: backup) == nil, "made, it is no longer due")
+        #expect(model.backUpIfDue() == nil, "made, it is no longer due")
     }
 
     /// The short-list guard (VT20) stops a save that drops several records at once. Replace is

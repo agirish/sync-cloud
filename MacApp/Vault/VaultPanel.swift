@@ -290,7 +290,7 @@ struct VaultCard: View {
             await model.opened()
             searchFocused = true
             refreshByItself()
-            model.backUpIfDue(using: VaultBackup.live())
+            model.backUpIfDue()
         }
         // The countdown, and a shown number's thirty seconds. A sleep loop on the view's own
         // task, so it stops when the panel closes.
@@ -307,7 +307,7 @@ struct VaultCard: View {
                 addedWhileLocked = false
                 refreshByItself()
                 // The weekly backup, once the IDs are in hand: it asks for nothing more.
-                model.backUpIfDue(using: VaultBackup.live())
+                model.backUpIfDue()
             }
         }
         // Locked (Lock Now, idle): a number copied from the Vault leaves the clipboard with it,
@@ -563,7 +563,7 @@ struct VaultCard: View {
                                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: folder)])
                             }
                             Button("Stop Reading This Folder") {
-                                VaultReadFolders.remove(folder)
+                                model.removeReadFolder(folder)
                                 reloadReadFolders()
                             }
                         }
@@ -3654,7 +3654,7 @@ struct VaultCard: View {
         guard let path = row.documents.first?.path else { return }
         moreFieldsRead = CardRead(path: path, id: row.id, result: nil)
         Task {
-            let result = await model.readCard(path, with: VaultFolderReader(folders: VaultReadFolders.folders()))
+            let result = await model.readCard(path, with: VaultFolderReader(folders: model.readFolders))
             guard moreFieldsRead?.id == row.id, moreFieldsRead?.path == path else { return }
             moreFieldsRead?.result = result
         }
@@ -4113,7 +4113,7 @@ struct VaultCard: View {
         }
         cardReading = CardRead(path: path, id: id, result: nil)
         Task {
-            let result = await model.readCard(path, with: VaultFolderReader(folders: VaultReadFolders.folders()))
+            let result = await model.readCard(path, with: VaultFolderReader(folders: model.readFolders))
             guard editingID == id, cardReading?.path == path else { return }
             cardReading?.result = result
         }
@@ -4512,8 +4512,9 @@ struct VaultCard: View {
 
     /// Add Folder…: the same list as Settings ▸ Vault ▸ Folders to Read.
     private func addFolders() {
-        guard VaultReadFoldersPanel.add(message: "Choose the folders that hold your passport scans, I-94s and USCIS notices.")
+        guard let chosen = VaultReadFoldersPanel.choose(message: "Choose the folders that hold your passport scans, I-94s and USCIS notices.")
         else { return }
+        model.addReadFolders(chosen)
         reloadReadFolders()
     }
 
@@ -4522,7 +4523,7 @@ struct VaultCard: View {
     /// closed, since opening Settings puts the Vault away.
     @discardableResult
     private func reloadReadFolders() -> [String] {
-        let folders = VaultReadFolders.folders()
+        let folders = model.readFolders
         readFolders = folders
         return folders
     }

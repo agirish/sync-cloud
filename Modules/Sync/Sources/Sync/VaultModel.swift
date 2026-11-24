@@ -360,13 +360,18 @@ public final class VaultModel: ObservableObject {
     let clock: @Sendable () -> Date
     /// Puts a number on the pasteboard. The app's version marks it concealed and clears it later.
     private let copyToPasteboard: @MainActor (String) -> Void
+    /// The weekly backup (``backUpIfDue()``): the app's, of the sealed file in Application Support.
+    /// None in a test, so a panel drawn there never writes into the owner's backup folder (VT74).
+    private let backup: VaultBackup?
 
     public init(store: VaultStore?, authenticator: VaultAuthenticating,
                 defaults: UserDefaults = .standard,
                 clock: @escaping @Sendable () -> Date = { Date() },
                 activity: VaultActivityStore? = nil,
+                backup: VaultBackup? = nil,
                 copyToPasteboard: @escaping @MainActor (String) -> Void) {
         self.activity = activity
+        self.backup = backup
         self.store = store
         self.authenticator = authenticator
         self.defaults = defaults
@@ -547,7 +552,7 @@ public final class VaultModel: ObservableObject {
     private(set) var rowsRevision = 0
     private var rowsCache: (key: RowsKey, rows: [Row])?
     private var rowsKey: RowsKey {
-        RowsKey(revision: rowsRevision, day: Self.dayStamp(now), folders: VaultReadFolders.folders(in: defaults))
+        RowsKey(revision: rowsRevision, day: Self.dayStamp(now), folders: readFolders)
     }
 
     /// What the panel's lists are worked out from beyond the rows: the search, the tab, the
@@ -611,7 +616,7 @@ public final class VaultModel: ObservableObject {
     private var rowSource: VaultRowSource {
         VaultRowSource(entries: entries, finds: finds, copies: copies, mentions: mentions,
                        missingDocuments: missingDocuments, holders: holders, lessons: lessons, kinds: kinds,
-                       folders: VaultReadFolders.folders(in: defaults), now: now)
+                       folders: readFolders, now: now)
     }
 
     /// Whose a number's papers are, as the names and people stand now.
@@ -668,7 +673,7 @@ public final class VaultModel: ObservableObject {
 
     /// Whether the numbers span more than one country: the Where choice is offered only then.
     public var spansCountries: Bool {
-        let key = RowsKey(revision: rowsRevision, day: Self.dayStamp(now), folders: VaultReadFolders.folders(in: defaults))
+        let key = RowsKey(revision: rowsRevision, day: Self.dayStamp(now), folders: readFolders)
         if let cached = spansCache, cached.key == key { return cached.spans }
         let spans = Set(rows.map(\.geo)).subtracting([.anywhere]).count > 1
         spansCache = (key, spans)
@@ -998,7 +1003,7 @@ public final class VaultModel: ObservableObject {
         let asRead = card == nil || card == .builtIn(row.readAs)
         let path = row.appSource ?? row.facts?.primary?.path
         let folder = path.flatMap { path in
-            VaultKinds.teaches(path, under: VaultReadFolders.folders(in: defaults)) ? VaultKinds.lessonFolder(of: path) : nil
+            VaultKinds.teaches(path, under: readFolders) ? VaultKinds.lessonFolder(of: path) : nil
         }
         // Kept as a choice of its own even As Read, so no lesson moves it: not its folder's now,
         // nor another's should a later read find it first elsewhere.
@@ -1426,12 +1431,24 @@ public final class VaultModel: ObservableObject {
         return contents == .loaded
     }
 
+    /// Settings ▸ Vault ▸ Folders to Read, from this model's settings: the panel's list and the
+    /// folders a read looks in are always the same one (VT74).
+    public var readFolders: [String] { VaultReadFolders.folders(in: defaults) }
+
+    /// Adds folders to read, as ``VaultReadFolders/add(_:in:)`` does.
+    public func addReadFolders(_ paths: [String]) {
+        for path in paths { VaultReadFolders.add(path, in: defaults) }
+    }
+
+    /// Stop Reading This Folder.
+    public func removeReadFolder(_ path: String) { VaultReadFolders.remove(path, in: defaults) }
+
     /// The weekly backup, when one is owed (``VaultBackup/isDue``): made from the IDs already in
     /// hand once the Vault is open, so it asks for nothing. A failure is logged and tried again
     /// at the next open.
     /// Answers the backup's task, for a caller that waits on it; the panel does not.
     @discardableResult
-    public func backUpIfDue(using backup: VaultBackup?) -> Task<Void, Never>? {
+    public func backUpIfDue() -> Task<Void, Never>? {
         // One at a time: it is due until its write lands, and the panel asks twice as it opens
         // unlocked (on open, and as the lock lifts).
         if let backingUp { return backingUp }
@@ -1949,6 +1966,43 @@ public final class VaultModel: ObservableObject {
 
     // MARK: Reading documents
 
+    /// What a read opens (VT7): the folders walked (a refresh has its files already), then which
+    /// of them to open, by their paths alone (``VaultReadPlan``): a small share of what is on disk.
+    /// The rest are still present: what was read from them before stays. A refresh opens every
+    /// changed document an ID came from; the plan chooses among the folders' files, which is
+    /// Discover More's question.
+    ///
+    /// Nil when the read was stopped or the Mac locked (letting the numbers go) during the walk or
+    /// the plan: nothing to read into, and the read stops before any document is opened.
+    private func plannedSteps(_ scope: VaultReadScope, refreshFiles: [URL], with reader: VaultDocumentReading) async
+        -> (files: [URL], unreachable: [String], roots: [String], steps: [VaultReadPlan.Step])? {
+        func stopped() -> Bool {
+            guard !Task.isCancelled, contents == .loaded else {
+                Logger.shared.info("Vault: read stopped before any document was opened; the Vault locked")
+                return true
+            }
+            return false
+        }
+        var files = refreshFiles
+        var unreachable: [String] = []
+        if !scope.isRefresh {
+            (files, unreachable) = await reader.walk()
+            if stopped() { return nil }
+        }
+        let roots = readFolders
+        guard reader.followsReadPlan else {
+            return (files, unreachable, roots, files.map { VaultReadPlan.Step(file: $0, account: nil) })
+        }
+        // Made off the main actor: it asks a file's date for accounts filed by year (VT67).
+        let refresh = scope.isRefresh
+        let steps = await Task.detached { [files, roots] in
+            refresh ? VaultReadPlan.every(files, under: roots, modified: { reader.modified(of: $0) })
+                : VaultReadPlan(files: files, under: roots, modified: { reader.modified(of: $0) }).steps
+        }.value
+        if stopped() { return nil }
+        return (files, unreachable, roots, steps)
+    }
+
     /// Read Documents: every file the reader offers, read for the numbers ``VaultReading``
     /// trusts. A number already in the Vault, already waiting, or set aside is not offered again.
     ///
@@ -2038,36 +2092,8 @@ public final class VaultModel: ObservableObject {
                 releaseIfLocked()
             }
         }
-        var files = refreshFiles
-        var unreachable: [String] = []
-        if !scope.isRefresh {
-            (files, unreachable) = await reader.walk()
-            // The Mac locked during the walk, letting the numbers go: nothing to read into.
-            guard !Task.isCancelled, contents == .loaded else {
-                Logger.shared.info("Vault: read stopped before any document was opened; the Vault locked")
-                return
-            }
-        }
-        let roots = VaultReadFolders.folders(in: defaults)
-        // Which files to open, by their paths alone (``VaultReadPlan``): a small share of what is
-        // on disk. The rest are still present: what was read from them before stays.
-        // A refresh opens every changed document an ID came from; the plan chooses among the
-        // folders' files, which is Discover More's question.
-        let steps: [VaultReadPlan.Step]
-        if !reader.followsReadPlan {
-            steps = files.map { VaultReadPlan.Step(file: $0, account: nil) }
-        } else {
-            // Made off the main actor: it asks a file's date for accounts filed by year (VT67).
-            let refresh = scope.isRefresh
-            steps = await Task.detached { [files, roots] in
-                refresh ? VaultReadPlan.every(files, under: roots, modified: { reader.modified(of: $0) })
-                    : VaultReadPlan(files: files, under: roots, modified: { reader.modified(of: $0) }).steps
-            }.value
-            guard !Task.isCancelled, contents == .loaded else {
-                Logger.shared.info("Vault: read stopped before any document was opened; the Vault locked")
-                return
-            }
-        }
+        guard let planned = await plannedSteps(scope, refreshFiles: refreshFiles, with: reader) else { return }
+        let (files, unreachable, roots, steps) = planned
         var run = VaultReadRun(scope: scope, total: steps.count, documents: files.count)
         reading = run.progress(done: 0)
         // Counts only, here and below. A file's name can hold the very number it carries.
@@ -2305,7 +2331,7 @@ public final class VaultModel: ObservableObject {
             Dictionary(uniqueKeysWithValues: toLook.map { ($0, reader.exists(URL(fileURLWithPath: $0))) })
         }.value
         guard !Task.isCancelled, contents == .loaded else { return stopped(at: steps.count) }
-        let folders = VaultReadFolders.folders(in: defaults)
+        let folders = readFolders
         let reached = Self.reachedFolders(folders, files: present)
         func isGone(_ path: String) -> Bool {
             guard !present.contains(path) else { return false }

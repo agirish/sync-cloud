@@ -1128,16 +1128,20 @@ public struct MachineZone: Equatable, Sendable {
 
 /// The folders Read Documents looks in, chosen in Settings ▸ Vault. Paths, kept in UserDefaults
 /// like the folders hidden from Claude: a folder's name says where to look, not what was found.
+///
+/// Every caller names its settings: the Vault's panel goes through its model's
+/// (``VaultModel/readFolders``), so a panel drawn in a test never reads or changes the owner's
+/// list (VT74).
 public enum VaultReadFolders {
     public static let key = "vaultReadFolders"
 
-    public static func folders(in defaults: UserDefaults = .standard) -> [String] {
+    public static func folders(in defaults: UserDefaults) -> [String] {
         defaults.stringArray(forKey: key) ?? []
     }
 
     /// Adds `path` unless it, or a folder holding it, is already on the list; a folder that holds
     /// ones already listed takes their place, so nothing is read twice.
-    public static func add(_ path: String, in defaults: UserDefaults = .standard) {
+    public static func add(_ path: String, in defaults: UserDefaults) {
         let path = (path as NSString).standardizingPath
         var list = folders(in: defaults)
         guard !list.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) else { return }
@@ -1146,7 +1150,7 @@ public enum VaultReadFolders {
         defaults.set(list, forKey: key)
     }
 
-    public static func remove(_ path: String, in defaults: UserDefaults = .standard) {
+    public static func remove(_ path: String, in defaults: UserDefaults) {
         defaults.set(folders(in: defaults).filter { $0 != path }, forKey: key)
     }
 }

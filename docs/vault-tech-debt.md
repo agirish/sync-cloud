@@ -43,13 +43,6 @@ Read by [`RELEASE.md`](../RELEASE.md) §4.
 
 ## Open: internal
 
-- **VT7, the walk and the read plan** still inside `VaultModel.readDocuments` (the rest done in
-  batches 9 and 10). They are awaits with a lock check between each: moving them must keep where a
-  read can stop.
-- **VT74, render tests run the panel's live side effects.** `VaultCard`'s task calls
-  `backUpIfDue(using: VaultBackup.live())` and reads the read folders from `.standard`; with a backup
-  passphrase set, a render test could write made-up IDs into the owner's backup folder. *Done when:*
-  the backup and folders are injected (live from `ContentView`, nil in tests).
 - **VT51, zone recovery proves less than it says** (internal half done: `MachineZone.recovery` says
   as read, fill, swap or printed number, each reading logs a debug line counting each, and tests pin
   the pairs branch and a G-series passport read as 6…). With weights 7-3-1, one unknown digit in a
@@ -142,6 +135,7 @@ Each changes what the user sees, gets or is asked.
 | VT68 | Stop keeps what was read | `f95e61078` |
 | VT69 | The user's choices as one value (`VaultChoices`) | batch 9 |
 | VT71, VT94–VT97, VT105 | Rows-cache, scratch-defaults, backup, swatch and name-role tests | batch 5 |
+| VT74 | Render tests wrote the backup and read Folders to Read live: both now come with the model (`VaultModel.live()`'s; none and scratch settings in tests), and `VaultReadFolders` takes no default settings. A render still reads the owner's sharing settings (capture, clipboard time); it writes nothing | batch 24 |
 | VT72 | Activity lists a title whole (`VaultMask.text`), not cut at its last slash | 2026-11-24 |
 | VT75 | Duplicated view code, but the pickers and List's empty state | batches 8, 22 |
 | VT77, VT78, VT82, VT83, VT84 | Masonry measured once, colors made once, renders and readings once per page, labels once per page | batch 6 |
@@ -155,7 +149,8 @@ Each changes what the user sees, gets or is asked.
 | VT104 | Waiting finds merged at every open: measured out (~60 ms for 200); if ever needed, key on the build that sealed the file, never a hand-bumped number | 2026-11-21 |
 | VT107 (1, 2) | A byte-identical file read once; originals first | batch 4 |
 | VT76 | View state that duplicated the model's: the layout and Large Type (batch 11); the household from the window's `VaultHost`, drawn from `model.people` alone, and the read folders reloaded in one place (batch 23). `namingKindFor`/`newKindName` and `copied`/`copiedDetail` stay pairs: one optional would blank the name as its sheet slides away, and an ID's and a detail's "Copied" show together | batches 11, 23 |
-| VT1, VT7, VT10, VT34 | Parts done; the rest is open above | batches 4–19 |
+| VT7 | `readDocuments`' pieces as steps of their own; last, the walk and the plan (`plannedSteps`), with every place a read can stop kept | batches 9, 10, 24 |
+| VT1, VT10, VT34 | Parts done; the rest is open above | batches 4–19 |
 
 Kept on purpose: `sessionLine` in production code (the shared log capture sees sibling cases); the
 reader protocol's three levels (`pages`, `reading`, `noted`); leftover `.writing-` and set-aside files

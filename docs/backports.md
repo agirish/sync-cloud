@@ -16262,7 +16262,9 @@ that starts with nothing sealed and a lock-off Vault keeping its numbers at clos
 Activity list shows a title whole, its slash kept and a number in it still masked (`VaultMask.text`).
 VT51's internal half: each passport or visa zone says how its number line was read (as read, a
 fill, a swap, the printed number), and each reading logs a count of each; nothing read on the
-owner's papers changes.
+owner's papers changes. Batch 24: the weekly backup and Folders to Read come with the Vault's model,
+so a test that draws the panel never writes the owner's backup or reads his folder list (VT74), and
+the folder walk and read plan are a step of their own (VT7); 43 panels render byte for byte as before.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

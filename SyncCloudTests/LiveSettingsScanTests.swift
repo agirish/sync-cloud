@@ -136,4 +136,26 @@ import Testing
         let live = calls.filter { $0.call.value("defaults") == nil }.map { "\($0.file): \($0.text)" }
         #expect(live.isEmpty, "built on the user's live defaults — pass TestDefaults().defaults: \(live)")
     }
+
+    /// The Vault's panel makes the weekly backup and reads Folders to Read through its model
+    /// (VT74), so a panel drawn here backs up nothing and reads the test's folders: every model
+    /// names its settings and none is handed a backup, and the panel's own code names neither.
+    @Test func theVaultPanelBacksUpAndReadsFoldersOnlyThroughItsModel() throws {
+        let calls = try Self.calls(of: "VaultModel(")
+        try #require(calls.count >= 2, "found \(calls.count) VaultModel constructions — the scan is reading the wrong folder")
+        let live = calls.filter { $0.call.value("defaults") == nil || $0.call.value("backup") != nil }
+            .map { "\($0.file): \($0.text)" }
+        #expect(live.isEmpty, "a Vault on the user's live defaults, or with a backup: \(live)")
+
+        let vault = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/Vault")
+        let sources = try FileManager.default.contentsOfDirectory(at: vault, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" }
+        try #require(sources.contains { $0.lastPathComponent == "VaultPanel.swift" }, "the scan is reading the wrong folder")
+        let direct = try sources.filter { $0.lastPathComponent != "VaultHost.swift" }.flatMap { url in
+            let text = try String(contentsOf: url, encoding: .utf8)
+            return ["VaultReadFolders.", "VaultBackup("].filter { text.contains($0) }.map { "\(url.lastPathComponent): \($0)" }
+        }
+        #expect(direct.isEmpty, "the panel reaches the backup or Folders to Read around its model: \(direct)")
+    }
 }

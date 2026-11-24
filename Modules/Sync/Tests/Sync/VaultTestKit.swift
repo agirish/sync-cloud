@@ -146,10 +146,10 @@ struct VaultRig {
 
     var store: VaultStore { VaultStore(fileURL: scratch.fileURL, keychain: keychain) }
 
-    @MainActor func model() -> VaultModel {
+    @MainActor func model(backup: VaultBackup? = nil) -> VaultModel {
         let clock = clock, box = box
         return VaultModel(store: store, authenticator: auth, defaults: defaults,
-                          clock: { clock.now }, copyToPasteboard: { box.copied.append($0) })
+                          clock: { clock.now }, backup: backup, copyToPasteboard: { box.copied.append($0) })
     }
 
     func seed(_ entries: [VaultEntry]) throws { try store.save(entries) }
