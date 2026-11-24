@@ -16249,7 +16249,8 @@ after its subfile type or the header's digits, and a picture file of several pag
 three. Batch 19: the readers question each page once (its text lowered and squeezed once), share
 their date, name and archive-folder helpers, and name their render sizes and thresholds; a Social
 Security number's or an Aadhaar's description prints none of it, nor does one that knows no kind; the panel's plain copies go
-through `VaultPasteboard`. Nothing read changes (the harness on the owner's 1,356 files).
+through `VaultPasteboard`. Nothing read changes (the harness on the owner's 1,356 files). Batch 20:
+the account-number pattern is a reader of its own (`VaultAccountValue`), with the same output.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

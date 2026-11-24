@@ -289,6 +289,30 @@ import Testing
         #expect(Self.read(["Vehicle Identification Number", "1HGCM82633 A004352"],
                           at: "Vehicles/Honda/Accord/Registration/2025.pdf").first?.value == "1HGCM82633A004352")
     }
+
+    @Test func aNumberIsSevenGroupsAtMost() {
+        // The eighth is left off; a seventh holding a letter is kept, the digits after it are not.
+        #expect(VaultAccountValue.leading("1234 5678 9012 3456 7890 1234 5678 9012") == "1234 5678 9012 3456 7890 1234 5678")
+        #expect(VaultAccountValue.leading("1 2 3 4 5 6 7A 8") == "1 2 3 4 5 6 7A")
+        #expect(VaultAccountValue.leading("1 2 3 4 5 6 7A") == "1 2 3 4 5 6")
+        // A last group holding a letter is left off.
+        #expect(VaultAccountValue.leading("1234 5678 A1") == "1234 5678")
+    }
+
+    @Test func aPrefixOfLettersIsFourAtMostAndDashed() {
+        #expect(VaultAccountValue.leading("ABCD-12") == "ABCD-12")
+        #expect(VaultAccountValue.leading("ABCDE-12") == nil)
+        #expect(VaultAccountValue.leading("Due 12345") == nil)
+    }
+
+    @Test func theReadersLettersAreTheCaseBlindPatternsOnes() {
+        // ſ and K (Kelvin) count as letters, so a run holding one goes on; ſ folds to s, so "5ſt" is
+        // an ordinal.
+        #expect(VaultAccountValue.leading("12\u{17F}4 5678") == "12\u{17F}4 5678")
+        #expect(VaultAccountValue.leading("12\u{212A}4 5678") == "12\u{212A}4 5678")
+        #expect(VaultAccountValue.leading("123456 5\u{17F}t 2025") == "123456")
+        #expect(VaultAccountValue.leading("12é4 5678") == "12")
+    }
 }
 
 /// Read Documents carries on when the panel closes, and lets the numbers go when it ends.

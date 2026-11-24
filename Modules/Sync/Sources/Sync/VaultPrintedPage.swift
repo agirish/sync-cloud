@@ -270,7 +270,7 @@ struct PrintedPage {
 
     /// The value after one of `labels`, on its line or within `below` lines under it, where `value`
     /// matches at its very start: "Passport No. A12345678", "Passport No." over "A12345678". The
-    /// pattern's first group is the value, or its whole match when it has none.
+    /// value is as ``reader(_:)`` takes it from the pattern's match.
     ///
     /// `keeping` vets each candidate, and the search goes on past one it turns down: "write your
     /// account number on your check" is a label with no number, and the real one comes later.
@@ -278,7 +278,26 @@ struct PrintedPage {
     /// mask's asterisks ("****1234") leaves `*` out.
     func value(_ labels: [String], _ value: NSRegularExpression, below: Int = 1,
                skipping: Set<Character> = separators, keeping: (String) -> String? = { $0 }) -> String? {
-        values(labels, value, below: below, skipping: skipping, keeping: keeping, first: true).first?.value
+        self.value(labels, Self.reader(value), below: below, skipping: skipping, keeping: keeping)
+    }
+
+    /// The same, with a reader in place of a pattern: `reader` takes the text after the label, or a
+    /// line under it, and returns the value it starts with, or nil.
+    func value(_ labels: [String], _ reader: (String) -> String?, below: Int = 1,
+               skipping: Set<Character> = separators, keeping: (String) -> String? = { $0 }) -> String? {
+        values(labels, reader, below: below, skipping: skipping, keeping: keeping, first: true).first?.value
+    }
+
+    /// A pattern as a reader, matched at the very start of the text: its first group when that took
+    /// part, else its whole match, trimmed of spaces.
+    static func reader(_ value: NSRegularExpression) -> (String) -> String? {
+        { s in
+            let ns = s as NSString
+            guard let m = value.firstMatch(in: s, options: .anchored, range: NSRange(location: 0, length: ns.length))
+            else { return nil }
+            let range = m.numberOfRanges > 1 && m.range(at: 1).location != NSNotFound ? m.range(at: 1) : m.range
+            return ns.substring(with: range).trimmingCharacters(in: .whitespaces)
+        }
     }
 
     /// One value found beside a label: the value, the line the label is on, and the line the
@@ -294,14 +313,14 @@ struct PrintedPage {
     func values(_ labels: [String], _ value: NSRegularExpression, below: Int = 1,
                 skipping: Set<Character> = separators, keeping: (String) -> String? = { $0 },
                 first: Bool = false) -> [Hit] {
-        func leading<S: StringProtocol>(_ text: S) -> String? {
-            let s = String(text)
-            let ns = s as NSString
-            guard let m = value.firstMatch(in: s, options: .anchored, range: NSRange(location: 0, length: ns.length))
-            else { return nil }
-            let range = m.numberOfRanges > 1 && m.range(at: 1).location != NSNotFound ? m.range(at: 1) : m.range
-            return ns.substring(with: range).trimmingCharacters(in: .whitespaces)
-        }
+        values(labels, Self.reader(value), below: below, skipping: skipping, keeping: keeping, first: first)
+    }
+
+    /// The same, with a reader in place of a pattern.
+    func values(_ labels: [String], _ reader: (String) -> String?, below: Int = 1,
+                skipping: Set<Character> = separators, keeping: (String) -> String? = { $0 },
+                first: Bool = false) -> [Hit] {
+        func leading<S: StringProtocol>(_ text: S) -> String? { reader(String(text)) }
         var out: [Hit] = []
         for (index, line) in lines.enumerated() {
             guard let hit = Self.labelHit(labels, in: lettered[index]) else { continue }
@@ -319,16 +338,6 @@ struct PrintedPage {
         return out
     }
 
-    /// Every value of the first of `labels`, in the order given, that has one.
-    func values(preferring labels: [String], _ value: NSRegularExpression, skipping: Set<Character> = separators,
-                keeping: (String) -> String? = { $0 }) -> [Hit] {
-        for label in labels {
-            let found = values([label], value, skipping: skipping, keeping: keeping)
-            if !found.isEmpty { return found }
-        }
-        return []
-    }
-
     /// Whether `word` is printed as a word of its own: "OCI", never the oci inside "Social".
     func hasWord(_ word: String) -> Bool {
         lettered.contains { Self.labelHit([word], in: $0) != nil }
@@ -338,8 +347,14 @@ struct PrintedPage {
     /// document labels several ways, the most telling label first.
     func value(preferring labels: [String], _ value: NSRegularExpression, skipping: Set<Character> = separators,
                keeping: (String) -> String? = { $0 }) -> String? {
+        self.value(preferring: labels, Self.reader(value), skipping: skipping, keeping: keeping)
+    }
+
+    /// The same, with a reader in place of a pattern.
+    func value(preferring labels: [String], _ reader: (String) -> String?, skipping: Set<Character> = separators,
+               keeping: (String) -> String? = { $0 }) -> String? {
         for label in labels {
-            if let found = self.value([label], value, skipping: skipping, keeping: keeping) { return found }
+            if let found = self.value([label], reader, skipping: skipping, keeping: keeping) { return found }
         }
         return nil
     }

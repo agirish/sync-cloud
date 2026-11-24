@@ -151,7 +151,7 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
    and VT85, measured out.
 5. ~~**Tests and logging.**~~ Done in batches 5 and 7, but for VT23, whose every addition is a new
    Activity line: the owner's call.
-6. **Structure:** ~~VT8~~, VT7 (part, batches 9 and 10), ~~VT69~~ (the first step of VT1), VT1 (part, batch 13; the stored shape with VT3 and VT6), ~~VT2 with VT4~~, VT3 (before the v7.2 cut), VT6 (with VT3), ~~VT50~~ (batch 19), VT87, VT75, VT76 (part, batch 11), ~~VT103~~, ~~VT106~~, ~~VT79~~, ~~VT80~~.
+6. **Structure:** ~~VT8~~, VT7 (part, batches 9 and 10), ~~VT69~~ (the first step of VT1), VT1 (part, batch 13; the stored shape with VT3 and VT6), ~~VT2 with VT4~~, VT3 (before the v7.2 cut), VT6 (with VT3), ~~VT50~~ (batch 19), ~~VT87~~ (batch 20), VT75, VT76 (part, batch 11), ~~VT103~~, ~~VT106~~, ~~VT79~~, ~~VT80~~.
 7. **Security:** VT34 (part, batch 19; the rest is drawn, the owner's call), ~~VT35~~ (batch 19); VT31 when VF7 is unblocked.
 8. **Reader accuracy** (section H): each changes what is read, so each is its own owner's call.
 
@@ -611,11 +611,17 @@ Each item here preserves what is read unless it says otherwise. Prove a change w
 (`PrintedPage.longestTerm`) are named; `inkKeepsEverything` is `keepsEverything`: a text layer's reading
 against its picture's uses it too. Tests keep their literal sizes, so a change of a constant goes red.
 
-**VT87 — `accountValue` as a tokenizer.** *Complexity; checked.*
-- **The problem.** `accountValue` (`VaultAccountReading.swift:57–74`) is one hand-built regex with five
-  lookaheads, and each of the last two reviews made it longer. VT89 lists what it still misses.
-- **Done when:** a tokenizer (groups, separators, words; then the rules VT41 states) gives identical
-  output on the test corpus and on the hash harness. Only then fix VT89's misses on it.
+**VT87 — `accountValue` as a tokenizer.** *Done in batch 20.* `VaultAccountValue` reads the number a
+label's line starts with run by run: the first group, then up to six more, each joined by one space or
+dash, with a check for each thing that ends a number (a date, a phone number, a count, an
+ordinal, an amount, a rate). `PrintedPage`'s label lookups take such a reader as well as a pattern. Its
+letters are the old pattern's, ſ and K (Kelvin) included, as ICU's case-blind `[A-Z]` matched them.
+Proof: a throwaway test ran the old pattern and the reader on 5,000,000 random strings of digits,
+letters, ordinals, separators, combining marks and non-ASCII dashes and spaces, and 5,000,000 more
+built from the shapes of dates, phone numbers, counts, ordinals and amounts, near misses included:
+identical, and each of fifteen changes to the reader's rules turned it red. A review's own search of
+about 270 million inputs found no difference either, and the harness on the owner's 1,356 files gave
+identical finds. VT89's misses come next, on it.
 
 **Vision's compiled model, missing.** Seen three times on 2026-11-20 while checking readers on the
 owner's folder. For two to three minutes every text request failed, on the CPU as well:
@@ -660,7 +666,7 @@ fails before the fix, a `VaultReading.version` bump and the hash harness.
 | VT90 | VT42's remainder, `VaultIDReading.swift:569` | `card = … \|\| ePAN`: any page that mentions an e-PAN is ranked as the card (`attach a copy of PAN card / e-PAN`). | open |
 | VT91 | VT43's remainder | An Indian school or university that prints "Enrolment No" over fourteen or sixteen digits of its own. | open |
 | VT92 | VT45's remainder | A checklist printing "Social Security card" alone above a number; a form number a scan broke (`Form W 4`, `Forms W-2 and W-4`) under the sheet's heading. `sheetCues`, `looseSheetCues` and `cardCues` are phrase lists on squeezed text, brittle to OCR drops. | open |
-| VT93 | six minor rows, now **checked** | A state ID is titled a license unless `DAQ` rides the header line, and any other element there is dropped (`VaultIDReading.swift:109–116`); every receipt number on a page shares one form and holder (`:258–263`, `:282`); a barcode `DAQ` holding a space or dash is cut at it (`:157`); a mask of fewer than three X's reads as a full number (`VaultAccountReading.swift:131`); a garbled holder line on an unlabelled PAN card makes the father the holder (`panHolder`, `VaultIDReading.swift:607–621`); `admissionPattern` is case-insensitive, so lower-case s, d, l, g, b, o before ten digits can form an I-94 (`VaultReading.swift:315`). | open |
+| VT93 | six minor rows, now **checked** | A state ID is titled a license unless `DAQ` rides the header line, and any other element there is dropped (`VaultIDReading.swift:109–116`); every receipt number on a page shares one form and holder (`:258–263`, `:282`); a barcode `DAQ` holding a space or dash is cut at it (`:157`); a mask of fewer than three X's reads as a full number (`VaultReading.accountNumber(_:)`); a garbled holder line on an unlabelled PAN card makes the father the holder (`panHolder`, `VaultIDReading.swift:607–621`); `admissionPattern` is case-insensitive, so lower-case s, d, l, g, b, o before ten digits can form an I-94 (`VaultReading.swift:315`). | open |
 
 ## Not debt
 

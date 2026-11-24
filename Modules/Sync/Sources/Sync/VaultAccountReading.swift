@@ -35,47 +35,11 @@ extension VaultReading {
                                                      "account id"]),
     ]
 
-    /// A number beside one of those labels: groups joined by a dash, every group holding a digit
-    /// but a short prefix a dash ties to the rest ("XZB-45-1234", "CA-123-4567-89"), and groups of
-    /// digits joined by a space ("1234 5678 9012", "8155 60 012 3456789", a scan's "123456 789012").
-    /// A group between two others may hold a letter, as an insurer's policy number does
-    /// ("01234 56 78U 7101 2").
-    ///
-    /// It stops before what the line prints next, when that can be told from the number: the word
-    /// of "12345 Due"; an ordinal ("123456 5th Grade"); one or two digits counting the word after
-    /// them, or tied to it ("0123456789 30 Year Fixed", "… 30-Year Fixed", "… 6 Month Policy",
-    /// a class's "5-A"); a date, its month in digits or spelled, its slashes spaced or not
-    /// ("12345678 01/02/1990", "… 05-Jan-2025", "… 01 / 02 / 2025", "12345-67-89 2022-01-01", a
-    /// card's columns read as one line); an amount or a rate ("12345 1,234.56", "12345 5%"); a
-    /// phone number, toll-free or not ("98765 510-555-0142", "… 1-800-555-0142", "… 1 (800)
-    /// 555-0142"). The words of "write your account number on your check" or "is 987654" are no
-    /// number at all.
-    ///
-    /// What cannot be told is left joined: a second run of three digits or more after a space
-    /// ("12345 987654321") may be the rest of the number or the next column. A last group that
-    /// holds a letter ("1234 5678 A1") is left off: it is as often a plan's name ("5G Home").
-    private static let accountValue: NSRegularExpression = {
-        let group = #"(?=[A-Z]*[0-9])[A-Z0-9]+"#
-        let first = "(?:\(group)|[A-Z]{1,4}(?=-[A-Z]*[0-9]))"
-        let dashed = "-\(group)(?![/.:,][0-9])"
-        // Day or month first, however a scan spaces the slashes; year first, only with a month
-        // and a day that could be one ("3456-78-90" is the rest of a policy number).
-        let notADate = #"(?![0-9]{1,2} ?[-/.] ?[0-9]{1,2} ?[-/.] ?[0-9]{2,4}(?![0-9]))"#
-            + #"(?!(?:19|20)[0-9]{2}[-/.](?:0?[1-9]|1[0-2])[-/.](?:0?[1-9]|[12][0-9]|3[01])(?![0-9]))"#
-        let notAPhone = #"(?!(?:1[-. ])?(?:\([0-9]{3}\) ?|[0-9]{3}[-. ])[0-9]{3}[-.][0-9]{4}(?![0-9]))"#
-        // One or two digits before a word of letters alone: its count, or a date's day.
-        let notACount = #"(?![0-9]{1,2}[ /-][A-Z]+(?![A-Z0-9]))"#
-        let spaced = " \(notADate)\(notAPhone)\(notACount)[0-9]+(?![A-Z0-9])(?![/.:,][0-9])(?!%)"
-        // A group holding a letter, only with a group of digits after it, and never an ordinal.
-        let notAnOrdinal = #"(?![0-9]+(?:ST|ND|RD|TH)(?![A-Z0-9]))"#
-        let lettered = " \(notAnOrdinal)(?=[0-9]*[A-Z])\(group)(?=\(spaced))"
-        return try! NSRegularExpression(pattern: "\(first)(?:\(spaced)|\(lettered)|\(dashed)){0,6}(?![A-Za-z0-9])",
-                                        options: [.caseInsensitive])
-    }()
     /// What stands beside a VIN's label, spaces and all: ``vin(_:)`` keeps its first seventeen
     /// letters and digits only when their check digit agrees, so nothing here needs to be strict.
-    private static let vinValue = try! NSRegularExpression(pattern: #"[A-Z0-9]+(?:[ -][A-Z0-9]+){0,6}"#,
-                                                           options: [.caseInsensitive])
+    /// Any other number beside its label is ``VaultAccountValue``'s.
+    private static let vinPattern = try! NSRegularExpression(pattern: #"[A-Z0-9]+(?:[ -][A-Z0-9]+){0,6}"#,
+                                                             options: [.caseInsensitive])
     /// What may stand between a label and its number: not `*`, so a mask's "****1234" is seen as
     /// masked and never read as "1234".
     private static let beforeNumber = PrintedPage.separators.subtracting(["*"])
@@ -99,12 +63,12 @@ extension VaultReading {
         let facts = AccountPageFacts(page: page, path: path, roots: roots, people: people)
         for kind in accountKinds {
             let isVINKind = kind.name == "VIN"
-            // The first label with a number, as ``PrintedPage/values(preferring:_:skipping:keeping:)``
-            // finds it, and which label that was.
+            // The first label with a number, and which label that was.
+            let reader = isVINKind ? PrintedPage.reader(vinPattern) : VaultAccountValue.leading
             var rows: [PrintedPage.Hit] = []
             var label = ""
             for each in kind.labels {
-                rows = page.values([each], isVINKind ? vinValue : accountValue, skipping: beforeNumber,
+                rows = page.values([each], reader, skipping: beforeNumber,
                                    keeping: { isVINKind ? vin($0) : accountNumber($0) })
                 if !rows.isEmpty { label = each; break }
             }
@@ -126,7 +90,7 @@ extension VaultReading {
     }
 
     private static func groupNumber(on page: PrintedPage) -> String? {
-        page.value(preferring: groupLabels, accountValue, skipping: beforeNumber, keeping: accountNumber)
+        page.value(preferring: groupLabels, VaultAccountValue.leading, skipping: beforeNumber, keeping: accountNumber)
     }
 
     /// A printed number, if it is one: four digits at least, not masked, not a date, a phone
