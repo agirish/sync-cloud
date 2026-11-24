@@ -53,6 +53,36 @@ import Testing
         #expect(board.string(forType: .string) == nil)
     }
 
+    @Test func aPlainCopyIsUnmarkedAndOutlivesAConcealedOneWaiting() async throws {
+        let board = Self.pasteboard()
+        defer { board.releaseGlobally() }
+        VaultPasteboard.copyConcealed("Z0000009", on: board, after: .seconds(3600))
+        VaultPasteboard.copyPlain("Anna Eriksson", on: board)
+        let types = board.types ?? []
+        #expect(types.contains(.string) && !types.contains(.init("org.nspasteboard.ConcealedType"))
+                && !types.contains(.init("org.nspasteboard.TransientType")), "a name or a date is copied as any app copies it")
+        VaultPasteboard.clearPending()   // a lock, or quitting, with the number's clear still waiting
+        #expect(board.string(forType: .string) == "Anna Eriksson", "the number's clear never takes what came after it")
+    }
+
+    /// Every clipboard write in the Vault's views goes through ``VaultPasteboard``, so how each
+    /// kind of copy is marked and cleared is decided in one place (VT35).
+    @Test func theVaultWritesTheClipboardOnlyThroughVaultPasteboard() throws {
+        let folder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/Vault")
+        let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" && $0.lastPathComponent != "VaultHost.swift" }
+        #expect(files.count >= 8, "found only \(files.count) files: not the Vault's folder")
+        var copies = 0
+        for file in files {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            let code = text.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            copies += code.filter { $0.contains("VaultPasteboard.copyPlain(") }.count
+            #expect(!code.contains { $0.contains("NSPasteboard") }, "\(file.lastPathComponent) writes the clipboard itself")
+        }
+        #expect(copies >= 2, "the scan reads the panel's copies")
+    }
+
     // MARK: The card's size
 
     @Test func theCardIsTheRememberedSizeHeldToTheFloorAndTheWindow() {

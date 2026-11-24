@@ -163,7 +163,8 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
 }
 
 /// An entry never prints its number. A log line, an assertion message or a `dump` that takes one
-/// shows the title and the ending, the same as a locked row (``EditorPDFSecret`` is the model).
+/// shows the title and the number as a locked row draws it (``VaultMask/described(_:as:)``;
+/// ``EditorPDFSecret`` is the model).
 extension VaultEntry {
     /// The same record under a new identity: for one restored from a backup when another record
     /// here already has its id.
@@ -175,7 +176,7 @@ extension VaultEntry {
 }
 
 extension VaultEntry: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
-    public var description: String { "VaultEntry(\(title), \(VaultMask.masked(value)))" }
+    public var description: String { "VaultEntry(\(title), \(VaultMask.described(value, as: category)))" }
     public var debugDescription: String { description }
     /// No children, so `dump`, a debugger's `p` and a test's expanded failure show none either.
     public var customMirror: Mirror { Mirror(self, children: []) }
@@ -199,6 +200,12 @@ public enum VaultMask {
             toHide -= 1
             return dot
         })
+    }
+
+    /// `value` as a description prints it: cut to its ending, or hidden whole for a kind whose
+    /// ending is itself a secret (``VaultCategory/hidesEnding``), as its row draws it locked.
+    public static func described(_ value: String, as category: VaultCategory) -> String {
+        masked(value, keep: category.hidesEnding ? 0 : 4)
     }
 
     /// A document's name with any number in it cut to its ending. People name a scan after what

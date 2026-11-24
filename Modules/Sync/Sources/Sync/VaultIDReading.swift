@@ -15,7 +15,9 @@ import Foundation
 /// - A voter ID (EPIC) on an Election Commission page.
 extension VaultReading {
 
-    static func identityNumbers(on page: [String], from path: String) -> [VaultFind] {
+    /// One page's identity numbers. `page` is the page as every reader questions it, made once
+    /// for all of them.
+    static func identityNumbers(on page: PrintedPage, from path: String) -> [VaultFind] {
         licenseBarcodes(on: page, from: path) + usLicenseFronts(on: page, from: path)
             + indianLicenses(on: page, from: path) + socialSecurityNumbers(on: page, from: path)
             + panNumbers(on: page, from: path) + aadhaarNumbers(on: page, from: path)
@@ -36,12 +38,6 @@ extension VaultReading {
 
     // MARK: Shared
 
-    /// The page's text with spaces dropped and lower-cased, for finding a cue a scan broke up:
-    /// "Permanent Account Numbe r", "ESTABLISHED FOR".
-    static func squeezed(_ lines: [String]) -> String {
-        lines.joined(separator: " ").lowercased().filter { !$0.isWhitespace }
-    }
-
     /// "05/06/1990" or "05-06-1990" as India prints it: the day first.
     static func dayFirst(_ text: String) -> Date? {
         guard let parts = dateParts(text) else { return nil }
@@ -54,11 +50,9 @@ extension VaultReading {
         return calendarDate(year: parts.2, month: parts.0, day: parts.1)
     }
 
-    private static let datePattern = try! NSRegularExpression(pattern: #"(?<![0-9])([0-9]{1,2})\s*[/.-]\s*([0-9]{1,2})\s*[/.-]\s*((?:19|20)[0-9]{2})(?![0-9])"#)
-
     private static func dateParts(_ text: String) -> (Int, Int, Int)? {
         let ns = text as NSString
-        guard let m = datePattern.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)),
+        guard let m = PrintedPage.numeric.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)),
               let a = Int(ns.substring(with: m.range(at: 1))), let b = Int(ns.substring(with: m.range(at: 2))),
               let y = Int(ns.substring(with: m.range(at: 3))) else { return nil }
         return (a, b, y)
@@ -101,7 +95,8 @@ extension VaultReading {
 
     /// The license's PDF417 barcode, which the app appends to a page's lines as decoded
     /// (``VaultDocumentReading``): its header ("ANSI 636014…DLDAQ…") and one element per line.
-    static func licenseBarcodes(on page: [String], from path: String) -> [VaultFind] {
+    static func licenseBarcodes(on printed: PrintedPage, from path: String) -> [VaultFind] {
+        let page = printed.lines
         guard let header = page.firstIndex(where: { $0.range(of: #"ANSI ?[0-9]{6}"#, options: .regularExpression) != nil }) else {
             return []
         }
@@ -214,8 +209,9 @@ extension VaultReading {
     private static let givenLine = try! NSRegularExpression(pattern: #"^\s*(?:[0-9]\s*)?FN\s+([A-Z][A-Z\x27 -]*[A-Z])\s*$"#)
     private static let familyLine = try! NSRegularExpression(pattern: #"^\s*(?:[0-9]\s*)?LN\s+([A-Z][A-Z\x27 -]*[A-Z])\s*$"#)
 
-    static func usLicenseFronts(on page: [String], from path: String) -> [VaultFind] {
-        let squeezed = squeezed(page)
+    static func usLicenseFronts(on printed: PrintedPage, from path: String) -> [VaultFind] {
+        let page = printed.lines
+        let squeezed = printed.spacedSqueezed
         guard squeezed.contains("driverlicense") || squeezed.contains("driver\u{27}slicense")
                 || squeezed.contains("driver’slicense") else { return [] }
         // A page an Indian license is on is read by its own rule.
@@ -231,7 +227,6 @@ extension VaultReading {
         }
         let holder = [first(givenLine), first(familyLine)].compactMap { $0 }.joined(separator: " ")
         let state = issuingState(page)
-        let printed = PrintedPage(page)
         let until = printed.date(["EXP"], order: .monthFirst)
         let issued = printed.date(["ISS"], order: .monthFirst)
         let born = printed.date(["DOB"], order: .monthFirst)
@@ -277,11 +272,12 @@ extension VaultReading {
     private static let printedName = try! NSRegularExpression(
         pattern: #"(?<![A-Za-z])Name\s*:\s*([A-Za-z][A-Za-z .]*[A-Za-z])"#)
 
-    static func indianLicenses(on page: [String], from path: String) -> [VaultFind] {
-        let squeezed = squeezed(page)
+    static func indianLicenses(on printed: PrintedPage, from path: String) -> [VaultFind] {
+        let page = printed.lines
+        let squeezed = printed.spacedSqueezed
         guard squeezed.contains("drivinglicen") || squeezed.contains("parivahan") || squeezed.contains("sarathi")
                 || squeezed.contains("dlnumber") || squeezed.contains("dlservices") else { return [] }
-        let text = page.joined(separator: "\n")
+        let text = printed.text
         let ns = text as NSString
         var holder: String?
         for line in page where !relativeLabels.contains(where: line.lowercased().contains) {
@@ -290,7 +286,6 @@ extension VaultReading {
                 break
             }
         }
-        let printed = PrintedPage(page)
         // "D.O.I" and "D.O.B" with or without the last dot.
         let issued = printed.date(["Date of Issue", "DL Issue Date", "D.O.I.", "D.O.I"], order: .dayFirst)
         let until = printed.date(["Date of Expiry", "Valid upto", "Valid up to"], order: .dayFirst)
@@ -386,8 +381,8 @@ extension VaultReading {
     /// sheet's heading on a line of its own, or what it tells the holder to do with the card
     /// ("Sign this card in ink"; "Do not laminate" with "Keep your card in a safe place"), and
     /// with no form's number on it.
-    static func isSocialSecurityCard(_ page: [String]) -> Bool {
-        let squeezed = squeezed(page)
+    static func isSocialSecurityCard(_ printed: PrintedPage) -> Bool {
+        let (page, squeezed) = (printed.lines, printed.spacedSqueezed)
         let forms = ["applicationforasocialsecuritycard", "formss-5", "ss-5", "employmenteligibilityverification",
                      "formi-9", "listsofacceptabledocuments"]
         guard !forms.contains(where: squeezed.contains) else { return false }
@@ -425,23 +420,24 @@ extension VaultReading {
     /// - a Social Security card with no number read cleanly: its small type ran a digit in;
     /// - the back of a US license whose barcode did not decode.
     public static func wantsSharperRead(_ page: [String]) -> Bool {
-        let squeezed = squeezed(page)
-        if isSocialSecurityCard(page) {
-            return socialSecurityNumbers(on: page, from: "", isCard: true).isEmpty
+        let printed = PrintedPage(page)
+        let squeezed = printed.spacedSqueezed
+        if isSocialSecurityCard(printed) {
+            return socialSecurityNumbers(on: printed, from: "", isCard: true).isEmpty
         }
         let licenseBack = squeezed.contains("licensetodrive") || squeezed.contains("issuedasalicense")
             || (squeezed.contains("endorsements") && squeezed.contains("restrictions"))
         return licenseBack && !page.contains { $0.range(of: #"ANSI ?[0-9]{6}"#, options: .regularExpression) != nil }
     }
 
-    static func socialSecurityNumbers(on page: [String], from path: String) -> [VaultFind] {
-        socialSecurityNumbers(on: page, from: path, isCard: isSocialSecurityCard(page))
+    static func socialSecurityNumbers(on printed: PrintedPage, from path: String) -> [VaultFind] {
+        socialSecurityNumbers(on: printed, from: path, isCard: isSocialSecurityCard(printed))
     }
 
     /// ``socialSecurityNumbers(on:from:)`` for a caller that has already asked whether the page
     /// is a card.
-    private static func socialSecurityNumbers(on page: [String], from path: String, isCard: Bool) -> [VaultFind] {
-        let squeezed = squeezed(page)
+    private static func socialSecurityNumbers(on printed: PrintedPage, from path: String, isCard: Bool) -> [VaultFind] {
+        let (page, squeezed) = (printed.lines, printed.spacedSqueezed)
         let isITINNotice = squeezed.contains("individualtaxpayeridentificationnumber")
         guard isCard || isITINNotice else { return [] }
         // Two cards scanned on one page: which name goes with which number is not printed in a
@@ -469,13 +465,13 @@ extension VaultReading {
             }
         }
         if isITINNotice {
-            let text = page.joined(separator: "\n")
+            let text = printed.text
             let ns = text as NSString
-            let dates = spelledDates(in: text).sorted()
+            let dates = PrintedPage.fullMonthDates(in: text).sorted()
             let noticeDate = dates.last
             // The birth date is the earliest the notice prints, years before the notice.
             let born = dates.first.flatMap { first in
-                noticeDate.map { $0.timeIntervalSince(first) > 10 * 365 * 86_400 } == true ? first : nil
+                noticeDate.map { $0.timeIntervalSince(first) > bornBeforeNotice } == true ? first : nil
             }
             for m in itinInText.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
                 guard let area = Int(ns.substring(with: m.range(at: 1))), let group = Int(ns.substring(with: m.range(at: 2))),
@@ -492,6 +488,10 @@ extension VaultReading {
         }
         return out
     }
+
+    /// How far before an ITIN notice's own date the earliest date it prints must be to be read as
+    /// the holder's birth date: ten years.
+    private static let bornBeforeNotice: TimeInterval = 10 * 365 * 86_400
 
     /// The name a card's stub or a notice is mailed to: the line above the street address.
     static func mailedTo(_ page: [String]) -> String? {
@@ -541,19 +541,6 @@ extension VaultReading {
         return nil
     }
 
-    private static let spelledDatePattern = try! NSRegularExpression(
-        pattern: #"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+([0-9]{1,2}),\s+((?:19|20)[0-9]{2})\b"#)
-
-    /// "November 12, 2019" anywhere in the text.
-    static func spelledDates(in text: String) -> [Date] {
-        let ns = text as NSString
-        return spelledDatePattern.matches(in: text, range: NSRange(location: 0, length: ns.length)).compactMap { m in
-            guard let month = monthNumber(ns.substring(with: m.range(at: 1))), let day = Int(ns.substring(with: m.range(at: 2))),
-                  let year = Int(ns.substring(with: m.range(at: 3))) else { return nil }
-            return calendarDate(year: year, month: month, day: day)
-        }
-    }
-
     // MARK: PAN
 
     /// Five letters, four digits, a letter. The fourth letter says whose (P for a person), and a
@@ -584,9 +571,10 @@ extension VaultReading {
         return try! NSRegularExpression(pattern: "(?m)(?:\(tied)|\(named)|\(together))")
     }()
 
-    static func panNumbers(on page: [String], from path: String) -> [VaultFind] {
-        let squeezed = squeezed(page)
-        let text = page.joined(separator: "\n")
+    static func panNumbers(on printed: PrintedPage, from path: String) -> [VaultFind] {
+        let page = printed.lines
+        let squeezed = printed.spacedSqueezed
+        let text = printed.text
         let ePAN = ePANWord.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) != nil
         guard squeezed.contains("permanentaccountnumber") || squeezed.contains("incometaxdepartment")
                 || ePAN || squeezed.contains("panverification") else { return [] }
@@ -605,7 +593,6 @@ extension VaultReading {
         let rank = request ? IDRank.quoted : card ? IDRank.card : IDRank.quoted
         // Only the card says whose it is: a form quoting a PAN has its own dates and names.
         let own = rank == IDRank.card
-        let printed = PrintedPage(page)
         let born = !own ? nil : printed.date(["DOB", "Date of Birth"], order: .dayFirst)
             ?? page.lazy.compactMap { line -> Date? in
                 line.trimmingCharacters(in: .whitespaces).range(of: #"^[0-9]{2}/[0-9]{2}/[0-9]{4}$"#, options: .regularExpression) != nil
@@ -694,7 +681,7 @@ extension VaultReading {
     /// next (a helpline, a postcode) never complete a school's "2024/00123". The label alone is
     /// also the start of "Open Enrollment Notice".
     static func saysEnrolmentNumber(_ page: [String]) -> Bool {
-        let lines = page.map { squeezed([$0]) }
+        let lines = page.map(PrintedPage.squeeze)
         for (index, line) in lines.enumerated() {
             let ns = line as NSString
             guard let label = enrolmentLabel.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { continue }
@@ -712,9 +699,10 @@ extension VaultReading {
     private static let uidaiWord = try! NSRegularExpression(pattern: #"(?<![A-Za-z])u ?i ?d ?a ?i(?:gov)?(?![A-Za-z])"#,
                                                             options: [.caseInsensitive])
 
-    static func aadhaarNumbers(on page: [String], from path: String) -> [VaultFind] {
-        let squeezed = squeezed(page)
-        let text = page.joined(separator: "\n")
+    static func aadhaarNumbers(on printed: PrintedPage, from path: String) -> [VaultFind] {
+        let page = printed.lines
+        let squeezed = printed.spacedSqueezed
+        let text = printed.text
         let uidai = squeezed.contains("uniqueidentificationauthority")
             || uidaiWord.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) != nil
             || saysEnrolmentNumber(page)
@@ -738,7 +726,6 @@ extension VaultReading {
         // number has its own "Issue Date" and its own names: a police clearance form's is not
         // the Aadhaar's.
         let own = rank == IDRank.card
-        let printed = PrintedPage(page)
         let born = own ? printed.date(["DOB"], order: .dayFirst) : nil
         let issued = own ? printed.date(["Issue Date"], order: .dayFirst) : nil
         var holder: String?
@@ -770,8 +757,9 @@ extension VaultReading {
 
     private static let epicPattern = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9])([A-Z]{3}[0-9]{7})(?![A-Za-z0-9])"#)
 
-    static func voterIDs(on page: [String], from path: String) -> [VaultFind] {
-        let squeezed = squeezed(page)
+    static func voterIDs(on printed: PrintedPage, from path: String) -> [VaultFind] {
+        let page = printed.lines
+        let squeezed = printed.spacedSqueezed
         // "EPIC No", in capitals, beside its label: the word "epic" alone is in plain English, on
         // a game store's receipt and in a hospital's records.
         let epic = page.contains { $0.range(of: #"\bEPIC\s*(No|Number|NO)\b"#, options: .regularExpression) != nil }
@@ -790,7 +778,6 @@ extension VaultReading {
         if holder == nil, let gender = page.firstIndex(where: { $0.lowercased().contains("gender") }) {
             holder = page[(gender + 1)...].prefix(2).lazy.compactMap(nameOnly).first
         }
-        let printed = PrintedPage(page)
         let born = printed.date(["Date of Birth / Age:", "Date of Birth"], order: .dayFirst)
         var out: [VaultFind] = []
         var seen = Set<String>()

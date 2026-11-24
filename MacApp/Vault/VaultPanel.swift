@@ -2005,8 +2005,7 @@ struct VaultCard: View {
     }
 
     private func copyString(_ text: String, key: String? = nil) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        VaultPasteboard.copyPlain(text)
         if let key { flashCopied(key) }
     }
 
@@ -4703,8 +4702,7 @@ struct VaultCard: View {
             if detail.isNumber {
                 guard await model.copy(detail.copied, for: row.id) else { return }
             } else {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(detail.copied, forType: .string)
+                VaultPasteboard.copyPlain(detail.copied)
             }
             copiedDetail = key
             try? await Task.sleep(for: .seconds(2))

@@ -135,7 +135,7 @@ public enum VaultPageSource {
                           than other: (finds: [VaultFind], numbers: Set<String>, any: Set<String>)) -> (new: Bool, more: Bool) {
                 let new = !one.numbers.isSubset(of: other.numbers) || !one.any.isSubset(of: other.any)
                 let shared = one.finds.filter { other.numbers.contains(VaultReading.normalized($0.value)) }
-                return (new, new || (!shared.isEmpty && !inkKeepsEverything(shared, other.finds)))
+                return (new, new || (!shared.isEmpty && !keepsEverything(shared, other.finds)))
             }
             let picture = saysMore(pictured, than: typed), text = saysMore(typed, than: pictured)
             // Counts and kinds of reading only, here and below: never what was read.
@@ -200,7 +200,7 @@ public enum VaultPageSource {
         if let ink = picture.inkOnly().map({ $0.map(zeroed) }) {
             let first = VaultReading.read(pages: [lines], from: path, under: roots)
             let inked = VaultReading.read(pages: [ink], from: path, under: roots)
-            let taken = inkKeepsEverything(first.finds, inked.finds)
+            let taken = keepsEverything(first.finds, inked.finds)
             Logger.shared.debug("Vault: a scan on colored paper was read in its ink alone; "
                                 + (taken ? "that reading was taken" : "the first reading stands"))
             if taken { lines = ink }
@@ -235,14 +235,15 @@ public enum VaultPageSource {
         return String(letters)
     }
 
-    /// Whether the ink-alone reading keeps all the first one read: every number it found, each
+    /// Whether a second reading of a page (its ink alone, or its picture against its text layer)
+    /// keeps all the first one read: every number it found, each
     /// with as much known about it (a name, a birth date, an issuer, its dates and every detail
     /// it carried), and a number at least. What it says may differ (DANT read again as DANI);
     /// what it knows may not shrink: a passport photo's issue date printed in color, lost with
     /// the color, keeps the first reading.
-    static func inkKeepsEverything(_ first: [VaultFind], _ inked: [VaultFind]) -> Bool {
-        guard !inked.isEmpty else { return false }
-        let byNumber = Dictionary(inked.map { (VaultReading.normalized($0.value), $0.facts) }, uniquingKeysWith: { a, _ in a })
+    static func keepsEverything(_ first: [VaultFind], _ second: [VaultFind]) -> Bool {
+        guard !second.isEmpty else { return false }
+        let byNumber = Dictionary(second.map { (VaultReading.normalized($0.value), $0.facts) }, uniquingKeysWith: { a, _ in a })
         return first.allSatisfy { find in
             guard let kept = byNumber[VaultReading.normalized(find.value)] else { return false }
             let was = find.facts

@@ -179,14 +179,15 @@ struct VaultFolderReader: VaultDocumentReading {
                 // Which reading counts is ``VaultPageSource``'s rule; the renders are made here, and
                 // only when it asks.
                 // Each render is made once per page and scale, and each read once per scale (VT82):
-                // the picture is read and then read in its ink alone from the same 2400-pixel
-                // render, and a card-size page, clamped at 6, is the same image at 2400 and 4000.
+                // the picture is read and then read in its ink alone from the same ``readRender``
+                // render, and a card-size page, held to the largest scale, is the same image at
+                // ``readRender`` and ``largestRender``.
                 let renders = PageRenders(page: page, bounds: lane { page.bounds(for: .mediaBox) }, lane: lane)
                 let picture = VaultPageSource.Picture(
                     isScan: { lane { drawsScan(page) } },
-                    read: { sharper in renders.read(longSide: sharper ? 4000 : 2400, recognise) },
-                    barcodes: { renders.image(longSide: 4000).map(decodeBarcodes) ?? [] },
-                    inkOnly: { renders.image(longSide: 2400).flatMap(inkOnly).flatMap(recognise) })
+                    read: { sharper in renders.read(longSide: sharper ? largestRender : readRender, recognise) },
+                    barcodes: { renders.image(longSide: largestRender).map(decodeBarcodes) ?? [] },
+                    inkOnly: { renders.image(longSide: readRender).flatMap(inkOnly).flatMap(recognise) })
                 let textLayer = lane { page.string ?? "" }
                 guard let reading = VaultPageSource.reading(textLayer: textLayer, from: file.path, under: folders,
                                                             picture: picture) else {
@@ -283,7 +284,7 @@ struct VaultFolderReader: VaultDocumentReading {
     }
 
     /// One page's renders and readings, each made once and only when asked, by scale: two long
-    /// sides that clamp to one scale are one image. Only the 2400-pixel render is kept, which is
+    /// sides that clamp to one scale are one image. Only the ``readRender`` render is kept, which is
     /// read and then read in its ink alone; the sharper one is asked for once (its reading is kept,
     /// and the barcode render is asked for only when the sharper read was not made), so it is let go
     /// rather than held beside the other for the rest of the page.
@@ -308,7 +309,7 @@ struct VaultFolderReader: VaultDocumentReading {
             if let image = images[scale] { return image }
             let image = lane { VaultFolderReader.render(page, scale: scale) }
             made += 1
-            if scale == self.scale(2400) { images[scale] = image }
+            if scale == self.scale(VaultFolderReader.readRender) { images[scale] = image }
             return image
         }
 
@@ -322,20 +323,27 @@ struct VaultFolderReader: VaultDocumentReading {
         }
     }
 
-    /// The scale a page is rendered at for `longSide` pixels: never under 2 nor over 6, and never
-    /// past ``largestRender`` pixels on its long side. A photo saved as a PDF at 72 dpi is a page
-    /// of 4,032 points, which the floor of 2 drew at 8,064 pixels, about 195 MB a render.
+    /// The scale a page is rendered at for `longSide` pixels: within ``scales``, and never past
+    /// ``largestRender`` pixels on its long side. A photo saved as a PDF at 72 dpi is a page of
+    /// 4,032 points, which the floor of 2 drew at 8,064 pixels, about 195 MB a render.
     static func scale(of bounds: CGRect, longSide: CGFloat) -> CGFloat {
         let long = max(bounds.width, bounds.height, 1)
-        return min(max(2, min(6, longSide / long)), largestRender / long)
+        return min(max(scales.lowerBound, min(scales.upperBound, longSide / long)), largestRender / long)
     }
 
+    /// The scales a page is drawn at, points to pixels: a card-size page is not blown up past 6,
+    /// and no page is drawn under 2 unless ``largestRender`` holds it lower.
+    static let scales: ClosedRange<CGFloat> = 2...6
+
+    /// The pixels a page is read at on its long side: what a zone's small type needs.
+    static let readRender: CGFloat = 2400
+
     /// The most pixels a render or an ink-alone copy has on its long side: what a Social Security
-    /// card's small type, the sharpest read asked for, needs.
+    /// card's small type and a barcode, the sharpest reads asked for, need.
     static let largestRender: CGFloat = 4000
 
-    /// The page drawn at `scale` (``scale(of:longSide:)``): about 2400 pixels on its long side is
-    /// what a zone's small type needs; 4000 for a Social Security card's or a barcode's.
+    /// The page drawn at `scale` (``scale(of:longSide:)``): about ``readRender`` pixels on its long
+    /// side to read it, ``largestRender`` for a Social Security card or a barcode.
     static func render(_ page: PDFPage, scale: CGFloat) -> CGImage? {
         let bounds = page.bounds(for: .mediaBox)
         let image = page.thumbnail(of: CGSize(width: bounds.width * scale, height: bounds.height * scale),
@@ -435,21 +443,33 @@ struct VaultFolderReader: VaultDocumentReading {
         context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
         for i in stride(from: 0, to: pixels.count, by: 4) {
             let (r, g, b) = (Int(pixels[i]), Int(pixels[i + 1]), Int(pixels[i + 2]))
-            let ink = (r + g + b) / 3 < 140 && max(r, g, b) - min(r, g, b) < 70
+            let ink = (r + g + b) / 3 < inkDarkest && max(r, g, b) - min(r, g, b) < inkGreyest
             let value: UInt8 = ink ? 0 : 255
             pixels[i] = value; pixels[i + 1] = value; pixels[i + 2] = value; pixels[i + 3] = 255
         }
         return context.makeImage()
     }
 
-    /// The share of `image`'s pixels, sampled at 400 across, that are strongly colored and not
-    /// dark: a hue well apart from grey, bright enough to be paper rather than ink.
-    /// The size `coloredShare` samples an image at: 400 across, its height to scale, held to ten
-    /// times that: a sliver of an image (4 by 60,000 pixels) would otherwise ask for gigabytes.
+    /// Ink, in ``inkOnly(_:)``: a pixel whose mean is under this (of 255), and whose channels are
+    /// less than ``inkGreyest`` apart, so grey or black.
+    static let inkDarkest = 140
+    static let inkGreyest = 70
+    /// Colored paper, in ``coloredShare(_:)``: a pixel whose channels are more than this apart, a
+    /// hue well away from grey, and whose brightest is over ``coloredBrightest``, paper not ink.
+    static let coloredApart = 50
+    static let coloredBrightest = 120
+    /// The width ``coloredShare(_:)`` samples an image at.
+    static let sampleWidth = 400
+
+    /// The size `coloredShare` samples an image at: ``sampleWidth`` across, its height to scale,
+    /// held to ten times that: a sliver of an image (4 by 60,000 pixels) would otherwise ask for
+    /// gigabytes.
     static func sampleSize(width: Int, height: Int) -> (width: Int, height: Int) {
-        (400, max(1, min(4000, height * 400 / max(width, 1))))
+        (sampleWidth, max(1, min(sampleWidth * 10, height * sampleWidth / max(width, 1))))
     }
 
+    /// The share of `image`'s pixels, sampled at ``sampleWidth`` across, that are strongly colored
+    /// and not dark: a hue well apart from grey, bright enough to be paper rather than ink.
     static func coloredShare(_ image: CGImage) -> Double {
         let (w, h) = sampleSize(width: image.width, height: image.height)
         var pixels = [UInt8](repeating: 0, count: w * h * 4)
@@ -460,7 +480,7 @@ struct VaultFolderReader: VaultDocumentReading {
         var colored = 0
         for i in stride(from: 0, to: pixels.count, by: 4) {
             let (r, g, b) = (Int(pixels[i]), Int(pixels[i + 1]), Int(pixels[i + 2]))
-            if max(r, g, b) - min(r, g, b) > 50 && max(r, g, b) > 120 { colored += 1 }
+            if max(r, g, b) - min(r, g, b) > coloredApart && max(r, g, b) > coloredBrightest { colored += 1 }
         }
         return Double(colored) / Double(w * h)
     }

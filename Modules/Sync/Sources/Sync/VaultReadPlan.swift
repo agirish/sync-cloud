@@ -84,7 +84,7 @@ public struct VaultReadPlan: Equatable, Sendable {
         if folders.contains(where: VaultSource.copyFolders.contains) { return -2 }
         var score = 0
         if folders.contains(where: VaultSource.homeFolders.contains) { score += 2 }
-        if folders.contains(where: VaultSource.archiveFolders.contains) { score -= 1 }
+        if folders.contains(where: VaultReading.archiveNames.contains) { score -= 1 }
         return score
     }
 

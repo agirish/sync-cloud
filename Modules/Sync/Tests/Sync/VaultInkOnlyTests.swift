@@ -55,13 +55,13 @@ import Testing
                                             sources: [VaultSource(path: Self.path, role: "Passport", rank: 1)]))
         }
         let first = [find("L898902C3", details: [VaultDetail("Issued", .text("01 Jan 2020"))])]
-        #expect(VaultPageSource.inkKeepsEverything(first, [find("L898902C3", holder: "Anne",
+        #expect(VaultPageSource.keepsEverything(first, [find("L898902C3", holder: "Anne",
                                                                 details: [VaultDetail("Issued", .text("01 Jan 2020"))])]),
                 "a name read differently is what the ink alone is for")
-        #expect(!VaultPageSource.inkKeepsEverything(first, [find("L898902C3")]), "a detail printed in color, lost")
-        #expect(!VaultPageSource.inkKeepsEverything(first, [find("L898902C3", validUntil: nil,
+        #expect(!VaultPageSource.keepsEverything(first, [find("L898902C3")]), "a detail printed in color, lost")
+        #expect(!VaultPageSource.keepsEverything(first, [find("L898902C3", validUntil: nil,
                                                                  details: [VaultDetail("Issued", .text("01 Jan 2020"))])]))
-        #expect(!VaultPageSource.inkKeepsEverything(first, []))
-        #expect(VaultPageSource.inkKeepsEverything([], [find("L898902C3")]), "a number the first reading missed")
+        #expect(!VaultPageSource.keepsEverything(first, []))
+        #expect(VaultPageSource.keepsEverything([], [find("L898902C3")]), "a number the first reading missed")
     }
 }

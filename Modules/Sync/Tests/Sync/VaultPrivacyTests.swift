@@ -23,6 +23,47 @@ import Testing
         #expect(VaultMask.fileName("/Docs/Driver License - Anna (2019).pdf") == "Driver License - Anna (2019).pdf")
     }
 
+    /// A kind whose ending is itself a secret prints none of it, as its row draws it locked
+    /// (VT34): a Social Security number's last four are what a form asks for to prove who you are.
+    @Test func aSecretEndingIsNeverPrinted() {
+        let source = VaultSource(path: "/Docs/card.pdf", role: "Social Security card", rank: 40)
+        let facts = VaultReadFacts(category: .ssn, sources: [source])
+        let row = VaultModel.Row(id: UUID(), title: "SSN", value: "123-45-6789", note: "", category: .ssn, facts: facts,
+                                 standing: VaultStanding(tab: .current), isSaved: true, personID: nil, whose: "Anna",
+                                 pin: nil, assignment: nil, isHousehold: false)
+        var dumped = ""
+        dump(VaultModel.Correction(id: UUID(), file: "SSN 123456789.pdf", changed: 1), to: &dumped)
+        dump(VaultPageSource.Reading(lines: ["123-45-6789"]), to: &dumped)
+        dump(PrintedPage(["123-45-6789"]), to: &dumped)
+        let printed = [
+            "\(VaultEntry(title: "SSN", value: "123-45-6789", addedAt: Date(), facts: facts))",
+            "\(VaultFind(title: "SSN", value: "123-45-6789", facts: facts))",
+            "\(VaultMention(value: "123456789", category: .ssn, source: source))",
+            "\(VaultStandingInput(id: UUID(), value: "123-45-6789", category: .ssn, facts: facts, pin: nil))",
+            "\(VaultFind(title: "Aadhaar", value: "2345 6789 0123", facts: VaultReadFacts(category: .aadhaar, sources: [source])))",
+            "\(row)",
+            "\(VaultModel.Draft(title: "SSN", value: "123-45-6789", category: .ssn))",
+            // Those that know no kind, which can hold one too.
+            "\(VaultReadAs(contents: "1 2", reads: "123456789"))",
+            "\(VaultDetail.Value.number("123456789"))",
+            "\(VaultModel.Correction(id: UUID(), file: "SSN 123456789.pdf", changed: nil))",
+            String(reflecting: VaultModel.Correction(id: UUID(), file: "SSN 123456789.pdf", changed: nil)),
+            "\(VaultCardValue(label: "SSN", value: "123456789"))",
+            "\(VaultPageSource.Reading(lines: ["SOCIAL SECURITY", "123-45-6789"]))",
+            String(reflecting: PrintedPage(["SOCIAL SECURITY", "123-45-6789"])),
+            dumped,
+        ]
+        for line in printed {
+            // Its counts may print ("2 line(s)"); none of the number's own runs of digits.
+            for secret in ["6789", "0123", "789", "123"] {
+                #expect(!line.contains(secret), "\(line) shows the ending")
+            }
+        }
+        // A passport's ending is not a secret: it is what the row shows locked.
+        #expect("\(VaultFind(title: "Passport", value: "A38291647", facts: VaultReadFacts(category: .passport, sources: [source])))"
+                .hasSuffix("•••••1647)"))
+    }
+
     @Test func nothingThatHoldsANumberPrintsIt() {
         let path = "/Docs/Passport A38291647/scan.pdf"
         let source = VaultSource(path: path, role: "Passport photo page", rank: 40)

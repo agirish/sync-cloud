@@ -343,4 +343,13 @@ import Testing
         #expect(!VaultReading.wantsSharperRead(back + Self.barcode))
         #expect(!VaultReading.wantsSharperRead(["Statement", "Restrictions apply"]))
     }
+
+    /// A cue that ends a line, before a line starting with a combining mark (a text layer's
+    /// Devanagari can), is still read: the identity readers join a page's lines by a space, with
+    /// which the mark goes, not by a line break, after which it would cling to the cue.
+    @Test func aCueBeforeALineStartingWithAMarkIsStillRead() {
+        let page = ["Permanent Account Number", "\u{093F}\u{0935}\u{092D}\u{093E}\u{0917}", "ABCPE1234F"]
+        #expect(VaultReading.finds(in: page, from: "/Docs/notice.pdf").map(\.value) == ["ABCPE1234F"])
+    }
+
 }

@@ -102,7 +102,7 @@ public struct VaultFind: Sendable, Equatable, Identifiable, Codable {
 }
 
 extension VaultFind: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
-    public var description: String { "VaultFind(\(title), \(VaultMask.masked(value)))" }
+    public var description: String { "VaultFind(\(title), \(VaultMask.described(value, as: facts.category)))" }
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self, children: []) }
 }
@@ -155,9 +155,11 @@ public enum VaultReading {
         }
         let file = PrintedPage(pages.flatMap { $0 })
         let text = file.text
+        // Each page as every reader questions it, made once: its text, lowered and squeezed.
+        let printedPages = pages.map(PrintedPage.init)
         var visaPassports: [VaultMention] = []
-        for (index, page) in pages.enumerated() {
-            let zones = MachineZone.zones(in: page)
+        for (index, page) in printedPages.enumerated() {
+            let zones = MachineZone.zones(in: page.lines)
             for (zone, printed) in zip(zones, MachineZone.sections(of: page, for: zones)) {
                 // A visa foil's zone carries the passport's number, not the visa's own: the visa is
                 // a document of that passport, and is itself known by its Control Number.
@@ -171,17 +173,15 @@ public enum VaultReading {
             }
         }
         // Page by page: one PDF can hold two notices, each for its own person, form and dates.
-        for page in pages {
-            let pageText = page.joined(separator: "\n")
-            let printed = PrintedPage(page)
-            for find in receiptNumbers(in: pageText, from: path) { keep(find) }
-            for find in admissionNumbers(in: pageText, from: path) { keep(find) }
+        for printed in printedPages {
+            for find in receiptNumbers(in: printed.text, from: path) { keep(find) }
+            for find in admissionNumbers(in: printed.text, from: path) { keep(find) }
             for find in travelPermits(on: printed, from: path) { keep(find) }
             for find in accountNumbers(on: printed, from: path, under: roots, people: people) { keep(find) }
         }
         // A license's barcode before its printed front, wherever each is in the file: it states
         // what the front's print can only suggest.
-        let identity = pages.flatMap { identityNumbers(on: $0, from: path) }.enumerated().sorted { a, b in
+        let identity = printedPages.flatMap { identityNumbers(on: $0, from: path) }.enumerated().sorted { a, b in
             let (ba, bb) = (a.element.facts.primary?.role.hasSuffix("barcode") == true,
                             b.element.facts.primary?.role.hasSuffix("barcode") == true)
             return ba != bb ? ba : a.offset < b.offset
@@ -224,7 +224,12 @@ public enum VaultReading {
     /// A name as two readings of it are compared: its words, letters only, lower case. "SHWETA
     /// RAVINDRA DANT" and "Shweta Ravindra Dant" are one reading; "…Dani" is another.
     public static func spellingKey(_ name: String) -> String {
-        name.lowercased().split(whereSeparator: { !$0.isLetter }).joined(separator: " ")
+        letterWords(name).joined(separator: " ")
+    }
+
+    /// A name's words, letters only, lower case: "O'Brien-Dant, Anna" is o, brien, dant, anna.
+    static func letterWords(_ name: String) -> [String] {
+        name.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
     }
 
     /// Letters and digits only, upper case: how two readings of one number are compared, and how
@@ -246,9 +251,9 @@ public enum VaultReading {
         static let mention = 10
     }
 
-    /// An I-797A approval, an I-797C receipt notice, or neither.
-    static func noticeKind(_ text: String) -> (role: String, rank: Int, pending: Bool)? {
-        let lower = text.lowercased()
+    /// An I-797A approval, an I-797C receipt notice, or neither. `lower` is the text lower-cased,
+    /// as each caller already has it.
+    static func noticeKind(lowered lower: String) -> (role: String, rank: Int, pending: Bool)? {
         if lower.contains("approval notice") || lower.contains("i-797a") || lower.contains("i-797 a") {
             return ("I-797A approval", Rank.approval, false)
         }
@@ -299,15 +304,14 @@ public enum VaultReading {
     /// "ERIKSSON, ANNA MARIA" → "Anna Maria Eriksson".
     static func readingOrder(_ printed: String) -> String {
         let parts = printed.split(separator: ",", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-        let ordered = parts.count == 2 ? parts[1] + " " + parts[0] : printed
-        return ordered.split(separator: " ").map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
-            .joined(separator: " ")
+        return titleCased(parts.count == 2 ? parts[1] + " " + parts[0] : printed)
     }
 
     static func receiptNumbers(in text: String, from path: String) -> [VaultFind] {
         let ns = text as NSString
         let whole = NSRange(location: 0, length: ns.length)
-        let notice = noticeKind(text)
+        let lower = text.lowercased()
+        let notice = noticeKind(lowered: lower)
         let noticeDate = slashDate(noticeDatePattern.firstMatch(in: text, range: whole), in: ns, at: 1)
         let received = slashDate(receivedDatePattern.firstMatch(in: text, range: whole), in: ns, at: 1)
         let valid = validPattern.firstMatch(in: text, range: whole)
@@ -334,8 +338,7 @@ public enum VaultReading {
         let source = VaultSource(path: path, role: notice?.role ?? "USCIS notice", rank: notice?.rank ?? Rank.mention)
         // A center's letters set apart from the digits ("LIN 4155551234") are as likely a surname
         // and a phone number: taken only on a page about a case. Run together, they are a receipt.
-        let lower = text.lowercased()
-        let aboutACase = noticeKind(text) != nil
+        let aboutACase = notice != nil
             || ["receipt number", "receipt #", "uscis", "i-797", "immigration services", "case status"].contains(where: lower.contains)
         return receiptPattern.matches(in: text, range: whole).compactMap { match in
             let center = ns.substring(with: match.range(at: 1)).uppercased()
@@ -418,10 +421,8 @@ public enum VaultReading {
         let name = ns.substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return nil }
         // A label read where the name should be ("First", "Last") is no name.
-        let words = name.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
-        guard !words.contains(where: labelWords.contains) else { return nil }
-        return name.split(separator: " ").map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
-            .joined(separator: " ")
+        guard !letterWords(name).contains(where: labelWords.contains) else { return nil }
+        return titleCased(name)
     }
 
     static func admissionNumbers(in text: String, from path: String) -> [VaultFind] {
@@ -442,7 +443,7 @@ public enum VaultReading {
         let source: VaultSource
         if lower.contains("admit until") || lower.contains("most recent i") || lower.contains("cbp") {
             source = VaultSource(path: path, role: "CBP I-94 printout", rank: Rank.i94Printout)
-        } else if noticeKind(text) != nil {
+        } else if noticeKind(lowered: lower) != nil {
             source = VaultSource(path: path, role: "I-797A tear-off", rank: Rank.tearOff)
         } else {
             source = VaultSource(path: path, role: "Names it", rank: Rank.mention)
@@ -490,8 +491,9 @@ public enum VaultReading {
 
     static func passportMentions(in text: String, from path: String) -> [VaultMention] {
         let ns = text as NSString
-        let role = text.lowercased().contains("i-94") || text.lowercased().contains("admission") ? "I-94"
-            : noticeKind(text)?.role ?? "Names it"
+        let lower = text.lowercased()
+        let role = lower.contains("i-94") || lower.contains("admission") ? "I-94"
+            : noticeKind(lowered: lower)?.role ?? "Names it"
         return namedPassportPattern.matches(in: text, range: NSRange(location: 0, length: ns.length)).compactMap { match in
             let value = normalized(ns.substring(with: match.range(at: 1)))
             guard value.filter(\.isNumber).count >= 5 else { return nil }
@@ -521,6 +523,8 @@ public enum VaultReading {
     private static let monthYearInName = try! NSRegularExpression(
         pattern: #"(?<![A-Za-z])([A-Za-z]{3,9})\.?[\s_-]*((?:19|20)[0-9]{2})(?![0-9])"#)
     private static let yearInName = try! NSRegularExpression(pattern: #"(?<![0-9])((?:19|20)[0-9]{2})(?![0-9])"#)
+    /// The furthest a year alone in a file's name may be past this one and still be its date.
+    private static let yearsAheadInName = 15
 
     /// A date in a file's name: "2024-07-15", "Jul 2024", "July 2025", or a year alone
     /// ("Form I-94 2015.pdf", read as that year's first day). Nil when the name has none.
@@ -540,7 +544,7 @@ public enum VaultReading {
             }
         }
         if let m = yearInName.firstMatch(in: name, range: whole), let year = Int(ns.substring(with: m.range(at: 1))),
-           year <= Calendar(identifier: .gregorian).component(.year, from: Date()) + 15 {
+           year <= Calendar(identifier: .gregorian).component(.year, from: Date()) + yearsAheadInName {
             return calendarDate(year: year, month: 1, day: 1)
         }
         return nil
@@ -625,12 +629,13 @@ public enum VaultReading {
     public static func isArchivePath(_ path: String, under readFolders: [String] = []) -> Bool {
         let root = readFolders.filter { path.hasPrefix($0 + "/") }.max { $0.count < $1.count }
         let below = root.map { String(path.dropFirst($0.count + 1)) } ?? path
-        return (below as NSString).deletingLastPathComponent.split(separator: "/").contains { isArchiveName(String($0)) }
+        return (below as NSString).deletingLastPathComponent.split(separator: "/")
+            .contains { archiveNames.contains($0.lowercased()) }
     }
 
-    private static func isArchiveName(_ name: String) -> Bool {
-        ["archive", "archived", "archives", "old", "older", "expired"].contains(name.lowercased())
-    }
+    /// The folder names that file an old copy, in lower case: what ``isArchivePath(_:under:)``,
+    /// a copy's placement and a read's file order all go by.
+    static let archiveNames: Set<String> = ["archive", "archived", "archives", "old", "older", "expired"]
 
     // MARK: Shared
 
@@ -704,8 +709,9 @@ public struct MachineZone: Equatable, Sendable {
     /// by side: every field first, then both zones. A part holding nothing but its own zone (its
     /// name and number lines) says whose fields are whose no better than the page, so then each
     /// zone takes the whole page.
-    static func sections(of page: [String], for zones: [MachineZone]) -> [PrintedPage] {
-        let whole = zones.map { _ in PrintedPage(page) }
+    static func sections(of printed: PrintedPage, for zones: [MachineZone]) -> [PrintedPage] {
+        let page = printed.lines
+        let whole = Array(repeating: printed, count: zones.count)
         guard zones.count > 1 else { return whole }
         let ordered = zones.map(\.line)
         let parts = zones.map { zone -> ArraySlice<String> in
@@ -1042,6 +1048,10 @@ public struct MachineZone: Equatable, Sendable {
 
     private enum Century { case past, future }
 
+    /// How far ahead a zone's expiry may be and still be read as 20YY: further than any passport
+    /// runs (``PrintedPage/longestTerm``), with room.
+    private static let zoneYearsAhead = 15
+
     /// `YYMMDD`. A birth date is 19YY when 20YY would be in the future. An expiry is 20YY unless
     /// that is further ahead than any passport runs (ten years, with room): a passport that ran
     /// out in 1999 is not good until 2099.
@@ -1049,7 +1059,7 @@ public struct MachineZone: Equatable, Sendable {
         guard field.count == 6, field.allSatisfy({ $0.isASCII && $0.isNumber }), let yy = Int(field.prefix(2)),
               let mm = Int(field.dropFirst(2).prefix(2)), let dd = Int(field.suffix(2)) else { return nil }
         let thisYear = Calendar(identifier: .gregorian).component(.year, from: Date()) % 100
-        let year = century == .future ? (yy <= thisYear + 15 ? 2000 + yy : 1900 + yy)
+        let year = century == .future ? (yy <= thisYear + zoneYearsAhead ? 2000 + yy : 1900 + yy)
             : (yy <= thisYear ? 2000 + yy : 1900 + yy)
         return VaultReading.calendarDate(year: year, month: mm, day: dd)
     }

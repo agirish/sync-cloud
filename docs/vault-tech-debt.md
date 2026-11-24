@@ -151,8 +151,8 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
    and VT85, measured out.
 5. ~~**Tests and logging.**~~ Done in batches 5 and 7, but for VT23, whose every addition is a new
    Activity line: the owner's call.
-6. **Structure:** ~~VT8~~, VT7 (part, batches 9 and 10), ~~VT69~~ (the first step of VT1), VT1 (part, batch 13; the stored shape with VT3 and VT6), ~~VT2 with VT4~~, VT3 (before the v7.2 cut), VT6 (with VT3), VT50, VT87, VT75, VT76 (part, batch 11), ~~VT103~~, ~~VT106~~, ~~VT79~~, ~~VT80~~.
-7. **Security:** VT34, VT35; VT31 when VF7 is unblocked.
+6. **Structure:** ~~VT8~~, VT7 (part, batches 9 and 10), ~~VT69~~ (the first step of VT1), VT1 (part, batch 13; the stored shape with VT3 and VT6), ~~VT2 with VT4~~, VT3 (before the v7.2 cut), VT6 (with VT3), ~~VT50~~ (batch 19), VT87, VT75, VT76 (part, batch 11), ~~VT103~~, ~~VT106~~, ~~VT79~~, ~~VT80~~.
+7. **Security:** VT34 (part, batch 19; the rest is drawn, the owner's call), ~~VT35~~ (batch 19); VT31 when VF7 is unblocked.
 8. **Reader accuracy** (section H): each changes what is read, so each is its own owner's call.
 
 ### Closed since the first review (removed from the body)
@@ -481,23 +481,20 @@ What is sound and should stay:
   This needs a keychain access group, which needs a provisioning profile (storing fails with −34018
   today); VQ5 picks `.userPresence`.
 
-**VT34 — Endings are secrets for some kinds.** *Partly.*
-- **Today.** `hidesEnding` exists (`VaultFacts.swift:69`) and rows, VoiceOver and People use it.
-- **Still keeping four:**
-  - `description`s (`VaultEntry.swift:133`, `VaultRedaction.swift:53`);
-  - activity titles (`VaultModel.swift:1262`);
-  - the re-read banner (`VaultPanel.swift:1871`).
-- **Done when:** all of them follow `hidesEnding`.
-- **Owner's call:** the banner is drawn, so it is a visible change.
+**VT34 — Endings are secrets for some kinds.** *Part done in batch 19: every description that knows
+its kind (`VaultEntry`, `VaultFind`, `VaultMention`, `VaultStandingInput`, `VaultModel.Row`,
+`VaultModel.Draft`) prints a Social Security number or an Aadhaar hidden whole
+(`VaultMask.described(_:as:)`), as its row draws it locked; one that knows no kind and can hold one
+(`VaultReadAs`, `VaultCardValue`, a detail's number) prints none of it; a correction prints no file
+name, and a page's reading (`VaultPageSource.Reading`, `PrintedPage`) no line (`VaultPrivacyTests`). A draft whose Kind was changed in the editor prints as its new kind. Open, the owner's
+call, as each is drawn: an activity line's title, which `VaultModel.record` cuts to its ending as a
+file's name is cut, and the note that a document reads differently now (`VaultPanel.swift`,
+"Its document reads differently now").*
 
-**VT35 — One copy path.** *Partly.*
-- **Today.** Numbers, detail numbers, Copy Summary and birth dates go through `copyToPasteboard`.
-- **Still direct.** Two writes still go straight to `NSPasteboard.general`: a name in People
-  (`VaultPanel.swift:1227–1228`) and a non-number detail (`copyDetail`, `:2700–2701`). They are plain,
-  never cleared, and relayed by Universal Clipboard. The data in them is drawn in clear.
-- **Done when:**
-  - every write is in `VaultPasteboard` (a `copyPlain` beside `copyConcealed`);
-  - a source scan finds no `NSPasteboard` in `VaultPanel.swift`.
+**VT35 — One copy path.** *Done in batch 19 as it was: the panel's two plain copies (`copyString`: a name
+in People, a contact card's phone, email or address; and a detail that is not a number) go through `VaultPasteboard.copyPlain`, the same write as before:
+neither concealed nor cleared, relayed by Universal Clipboard. A source scan finds no `NSPasteboard`
+in `VaultPanel.swift` (`VaultAppPiecesTests`).*
 - **Owner's call:** whether names and dates are concealed and cleared too.
 
 **VT60 — Lock routes left after VF4.** *Checked.*
@@ -570,34 +567,30 @@ Each item here preserves what is read unless it says otherwise. Prove a change w
   fewer `pages(in:)` calls; (3)–(5) each wait for the owner. Relates to VT82–VT85 (cost per page),
   VT67 (stats), VT81 (caps) and VT54 (stamping), none of which chooses files.
 
-**VT50 — Duplicated toolkit.** *Open; references corrected.*
-- **Squeezing.** `VaultReading.squeezed` (`VaultIDReading.swift:41`) equals `PrintedPage.squeezed`
-  (`VaultPrintedPage.swift:32`). It is recomputed seven times per page per pass (`:198`, `:261`, `:368`,
-  `:416`, `:561`, `:689`, `:747`). On top of that:
-  - `page.joined` (`:562`, `:690`);
-  - `noticeKind` lowercases the text four times (`VaultReading.swift:252`, `:280`, `:387`, `:436`);
-  - `sections` builds N throwaway `PrintedPage`s (`:629`).
-- **Dates.** `datePattern` (`VaultIDReading.swift:57`) is identical to `PrintedPage.numeric`
-  (`VaultPrintedPage.swift:47`). `spelledDates` (`:517`) is a stricter twin of `spelledMonthFirst`
-  (`:44`): keep it, in `PrintedPage`.
-- **Title-casing.** `readingOrder` (`VaultReading.swift:245`) and `printedName` (`:365`) equal
-  `titleCased` (`VaultIDReading.swift:90`). `printedName`'s word split (`:363`) equals `spellingKey`
-  (`:169`).
-- **Archive folders,** listed three times:
-  - `VaultReading.isArchiveName` (`:552`);
-  - inline in `placement` (`VaultFacts.swift:195`);
-  - `VaultReadPlan.recordFolders`, "archive" only (`VaultReadPlan.swift:122`).
-
-  `supersedes` (`VaultFacts.swift:676`) and `vault-source`'s `sameCopy` call `isArchivePath` without the
-  read folders, unlike the standings (`:488`).
-- **Done when:**
-  - identity readers take the per-page `PrintedPage` (`VaultReading.swift:139`);
-  - each page is lowered and squeezed once per pass;
-  - one `archiveNames` constant is shared;
-  - `VaultCopies` takes the read folders;
-  - a fixture's rows are unchanged.
-- **Owner's call:** making `recordFolders` match. Account papers in `…/Archive/` are skipped today while
-  `…/Archived/` and `…/Old/` are read.
+**VT50 — Duplicated toolkit.** *Done in batch 19, but for two changes that change what is read.*
+- **Done.**
+  - The identity readers take the page's `PrintedPage`, made once per page in `VaultReading.read`
+    and shared with the zone, receipt, admission, travel and account readers; its `text` and
+    `spacedSqueezed` replace five joins and seven squeezes a page, and the five `PrintedPage`s
+    readers made of their own. `spacedSqueezed` joins the lines by a space, as the identity
+    readers always have; `squeezed`, which the other readers use, by a line break. A line that
+    starts with a combining mark or a joiner, or ends with a prepended sign, squeezes differently
+    in the two (a review found it), so each reader keeps its own. `wantsSharperRead` now makes a whole `PrintedPage`, one pass more per
+    page than its squeezes. `MachineZone.sections` repeats the one page; `noticeKind` takes the text lowered.
+  - The dates: one `PrintedPage.numeric`; the full-month rule (`fullMonthDates`) lives in
+    `PrintedPage`.
+  - The names: `titleCased` in `readingOrder` and `printedName`; one `letterWords` for
+    `spellingKey`, `printedName`, `nameKey` and the born-name grouping.
+  - The archive folders: one `VaultReading.archiveNames`.
+- **Proof.** The count-only harness read the owner's 1,356 files on `origin/main` and this tree,
+  hashing each page's lines and each find's title, number, note and every fact (JSON, key-sorted):
+  identical, but for five files' recognised text, which Vision varies from run to run (no number
+  changed). Sync's 850 Vault tests pass.
+- **Owner's call, both change what is read:**
+  - `VaultCopies` (`supersedes`, `sameCopy`) taking the read folders: a read folder that is
+    itself in an Archive folder makes every copy there count as archived today.
+  - `recordFolders` matching: account papers in `…/Archive/` are skipped today while `…/Archived/`
+    and `…/Old/` are read.
 
 **VT51 — Zone recovery proves less than it says.** *Checked.*
 - **The problem.** The four layers are at `VaultReading.swift:794–919`. The weights 7, 3 and 1 are coprime
@@ -611,17 +604,12 @@ Each item here preserves what is read unless it says otherwise. Prove a change w
   - (**owner's call**) a recovered zone needs the printed number or date to agree, or is marked
     inferred (VT5).
 
-**VT86 — Magic numbers and misleading names.** *Checked.*
-- **Magic numbers.**
-  - Render sizes 2400 and 4000, in three files' code and comments (`VaultDocumentReader.swift:125–126`,
-    `:213`), and the clamp 2/6 (`:215`).
-  - Ink and color thresholds 140/70 and 50/120/400 (`:300`, `:310`, `:319`).
-  - Two unrelated `+ 15`s (`VaultReading.swift:485`, `:973`).
-  - `10 * 365 * 86_400` (`VaultIDReading.swift:451`) and "ten years" twice (`VaultPrintedPage.swift:321`,
-    `:337`).
-- **Misleading name.** "Knows more" reuses `inkKeepsEverything`, a name that describes only the ink-only
-  pass.
-- **Done when:** each is a named constant and the shared rule has a neutral name.
+**VT86 — Magic numbers and misleading names.** *Done in batch 19.* The render sizes and their scales
+(`VaultFolderReader.readRender`, `largestRender`, `scales`), the ink and color thresholds
+(`inkDarkest`, `inkGreyest`, `coloredApart`, `coloredBrightest`, `sampleWidth`), the two `+ 15`s
+(`yearsAheadInName`, `zoneYearsAhead`), the ITIN birth gap (`bornBeforeNotice`) and the ten years
+(`PrintedPage.longestTerm`) are named; `inkKeepsEverything` is `keepsEverything`: a text layer's reading
+against its picture's uses it too. Tests keep their literal sizes, so a change of a constant goes red.
 
 **VT87 — `accountValue` as a tokenizer.** *Complexity; checked.*
 - **The problem.** `accountValue` (`VaultAccountReading.swift:57–74`) is one hand-built regex with five

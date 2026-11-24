@@ -132,7 +132,7 @@ public struct VaultSource: Codable, Equatable, Hashable, Sendable {
         var score = 0
         if folders.contains(where: Self.homes(for: category).contains) { score += 2 }
         if folders.contains(where: Self.copyFolders.contains) { score -= 2 }
-        if folders.contains(where: Self.archiveFolders.contains) { score -= 1 }
+        if folders.contains(where: VaultReading.archiveNames.contains) { score -= 1 }
         return score
     }
 
@@ -144,7 +144,6 @@ public struct VaultSource: Codable, Equatable, Hashable, Sendable {
     /// Folders of copies: what a packet, an application or evidence holds.
     static let copyFolders: Set<String> = ["supporting documents", "supporting docs", "petition", "petitions", "application",
                                            "applications", "evidence", "exhibits", "attachments", "packet"]
-    static let archiveFolders: Set<String> = ["archive", "archived", "archives", "old", "older", "expired"]
 }
 
 /// What a document said about a number besides the number itself.
@@ -240,7 +239,7 @@ public struct VaultReadFacts: Codable, Equatable, Sendable {
     /// between documents.
     public var nameKey: String? {
         guard let holder else { return nil }
-        let words = holder.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
+        let words = VaultReading.letterWords(holder)
         guard let first = words.first else { return nil }
         return "name:" + first + " " + (words.count > 1 ? words.last! : "")
     }
@@ -516,7 +515,7 @@ public enum VaultStandings {
         for (item, facts) in read where !item.isChosen {
             guard let name = facts.nameKey, let born = facts.born else { continue }
             namesBorn[name, default: []].insert(VaultReading.formDate(born))
-            if let first = facts.holder?.lowercased().split(whereSeparator: { !$0.isLetter }).first.map(String.init),
+            if let first = facts.holder.flatMap({ VaultReading.letterWords($0).first }),
                !VaultPeopleClusters.noName.contains(first) {
                 bornsNamed["born:" + VaultReading.formDate(born), default: []].insert(first)
             }

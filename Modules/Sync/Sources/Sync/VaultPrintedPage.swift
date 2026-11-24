@@ -22,6 +22,11 @@ struct PrintedPage {
     let text: String
     /// Lower case with no white space, for a cue a scan broke up ("Permanent Account Numbe r").
     let squeezed: String
+    /// The same with the lines joined by a space, as the identity readers have always matched
+    /// their cues. The two differ where a line starts with what joins the character before it (a
+    /// combining mark, a zero-width joiner), which a space takes with it and a line break does not,
+    /// or ends with one that joins the character after it (U+0600).
+    let spacedSqueezed: String
 
     /// Each line's letters with spaces left out, worked out once for every label asked about.
     /// Made here, with the page: made at first use instead (a lazy class holding the lines, tried in
@@ -32,6 +37,7 @@ struct PrintedPage {
         self.lines = lines
         text = lines.joined(separator: "\n")
         squeezed = Self.squeeze(text)
+        spacedSqueezed = Self.squeeze(lines.joined(separator: " "))
         lettered = lines.map(Lettered.init)
     }
 
@@ -66,11 +72,29 @@ struct PrintedPage {
     /// "Jun 12, 2026", "June 12 2026": the month first, as the US writes it out.
     private static let spelledMonthFirst = try! NSRegularExpression(
         pattern: #"(?<![A-Za-z])([A-Za-z]{3,9})\.?[ \t]+([0-9]{1,2}),?[ \t]+((?:19|20)[0-9]{2})(?![0-9])"#)
-    private static let numeric = try! NSRegularExpression(
+    /// "05/06/2018", "05-06-2018", "05.06.2018": which is the day is the caller's to say.
+    static let numeric = try! NSRegularExpression(
         pattern: #"(?<![0-9])([0-9]{1,2})\s*[/.-]\s*([0-9]{1,2})\s*[/.-]\s*((?:19|20)[0-9]{2})(?![0-9])"#)
 
     private static let yearFirst = try! NSRegularExpression(
         pattern: #"(?<![0-9])((?:19|20)[0-9]{2})[/.-]([0-9]{1,2})[/.-]([0-9]{1,2})(?![0-9])"#)
+
+    /// "November 12, 2019": the month written out in full, a comma after the day, as an IRS
+    /// notice prints its dates (the day and year may be on two lines). ``spelledMonthFirst`` also
+    /// takes "Jun 12 2026", on one line.
+    private static let fullMonthFirst = try! NSRegularExpression(
+        pattern: #"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+([0-9]{1,2}),\s+((?:19|20)[0-9]{2})\b"#)
+
+    /// Every "November 12, 2019" in `text`, in order.
+    static func fullMonthDates(in text: String) -> [Date] {
+        let ns = text as NSString
+        return fullMonthFirst.matches(in: text, range: NSRange(location: 0, length: ns.length)).compactMap { m in
+            guard let month = VaultReading.monthNumber(ns.substring(with: m.range(at: 1))),
+                  let day = Int(ns.substring(with: m.range(at: 2))),
+                  let year = Int(ns.substring(with: m.range(at: 3))) else { return nil }
+            return VaultReading.calendarDate(year: year, month: month, day: day)
+        }
+    }
 
     /// Every date printed in `text` with where it starts, in order: "02 Oct 2024", "02 OCT/OCT
     /// 2024", "02OCT2024", "14/FEB/2023", "2030-01-01", "05/06/2018". A date in digits is read in `order`; with
@@ -326,6 +350,9 @@ struct PrintedPage {
     static let issueLabels = ["date of issue", "issue date", "issued on", "date issued", "date de délivrance",
                               "date of grant", "grant date"]
 
+    /// The most years a passport, a visa or a card printed with an issue date runs: ten.
+    static let longestTerm = 10
+
     /// When a document was issued that names `born` and runs until `expires` (either may be
     /// unknown), from its printed page, by the first of three rules that answers:
     ///
@@ -341,7 +368,9 @@ struct PrintedPage {
     func issueDate(born: Date?, expires: Date?, order: DateOrder? = nil) -> Date? {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
-        let earliest = expires.flatMap { calendar.date(byAdding: DateComponents(year: -10, day: -3), to: $0) }
+        let earliest = expires.flatMap {
+            calendar.date(byAdding: DateComponents(year: -Self.longestTerm, day: -3), to: $0)
+        }
         func fits(_ date: Date) -> Bool {
             if let born, date <= born { return false }
             if let expires, date >= expires { return false }
@@ -357,7 +386,7 @@ struct PrintedPage {
         let candidates = dates(order: order).filter(fits)
         if let expires {
             let anniversaries = Set(candidates.filter { date in
-                (1...10).contains { years in
+                (1...Self.longestTerm).contains { years in
                     guard let anniversary = calendar.date(byAdding: .year, value: years, to: date),
                           let gap = calendar.dateComponents([.day], from: expires, to: anniversary).day else { return false }
                     return (0...2).contains(gap)

@@ -26,7 +26,7 @@ extension VaultDetail: CustomStringConvertible, CustomDebugStringConvertible, Cu
 }
 
 extension VaultMention: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
-    public var description: String { "VaultMention(\(category.rawValue), \(VaultMask.masked(value)))" }
+    public var description: String { "VaultMention(\(category.rawValue), \(VaultMask.described(value, as: category)))" }
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self, children: []) }
 }
@@ -38,7 +38,7 @@ extension MachineZone: CustomStringConvertible, CustomDebugStringConvertible, Cu
 }
 
 extension VaultStandingInput: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
-    public var description: String { "VaultStandingInput(\(category.rawValue), \(VaultMask.masked(value)))" }
+    public var description: String { "VaultStandingInput(\(category.rawValue), \(VaultMask.described(value, as: category)))" }
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self, children: []) }
 }
@@ -62,13 +62,37 @@ extension VaultChoice: CustomStringConvertible, CustomDebugStringConvertible, Cu
 }
 
 extension VaultModel.Row: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
-    public var description: String { "VaultModel.Row(\(category.rawValue), \(VaultMask.masked(value)), \(standing.tab.rawValue))" }
+    public var description: String { "VaultModel.Row(\(category.rawValue), \(VaultMask.described(value, as: category)), \(standing.tab.rawValue))" }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}
+
+/// A page as it was read, and as every reader questions it: its lines are a document's whole text.
+extension VaultPageSource.Reading: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String {
+        "VaultPageSource.Reading(\(lines.count) line(s)\(also.map { ", and \($0.count) more" } ?? ""))"
+    }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}
+
+extension PrintedPage: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    var description: String { "PrintedPage(\(lines.count) line(s))" }
+    var debugDescription: String { description }
+    var customMirror: Mirror { Mirror(self, children: []) }
+}
+
+/// A correction's document is named as its file is, and a file's name can hold the number.
+extension VaultModel.Correction: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String {
+        "VaultModel.Correction(\(merged ? "merged" : changed.map { "\($0) changed" } ?? "changed"))"
+    }
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self, children: []) }
 }
 
 extension VaultModel.Draft: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
-    public var description: String { "VaultModel.Draft(\(category.rawValue), \(VaultMask.masked(value)))" }
+    public var description: String { "VaultModel.Draft(\(category.rawValue), \(VaultMask.described(value, as: category)))" }
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self, children: []) }
 }
@@ -81,14 +105,15 @@ extension VaultReadTally: CustomReflectable {
 }
 
 // Held in full and printed nowhere (VT28): a detail's value, what a refresh changed, a person's
-// section with its names and dates of birth, and what Read Documents keeps.
+// section with its names and dates of birth, and what Read Documents keeps. A detail's number knows
+// no kind either: hidden whole.
 
 extension VaultDetail.Value: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     public var description: String {
         switch self {
         case .text: return "VaultDetail.Value(text)"
         case .date: return "VaultDetail.Value(date)"
-        case .number(let number): return "VaultDetail.Value(\(VaultMask.masked(number)))"
+        case .number(let number): return "VaultDetail.Value(\(VaultMask.masked(number, keep: 0)))"
         }
     }
     public var debugDescription: String { description }
@@ -122,16 +147,17 @@ extension VaultPersonSection.Birth: CustomStringConvertible, CustomDebugStringCo
 }
 
 // A card's values, a number corrected by hand, and the household's contact details (the 2026-11-23
-// review): printed as what they are, never what they hold.
+// review): printed as what they are, never what they hold. A card's value and a reading corrected
+// by hand know no kind, and either can be a Social Security number's: hidden whole (VT34).
 
 extension VaultCardValue: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
-    public var description: String { "VaultCardValue(\(label), \(VaultMask.masked(value)))" }
+    public var description: String { "VaultCardValue(\(label), \(VaultMask.masked(value, keep: 0)))" }
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self, children: []) }
 }
 
 extension VaultReadAs: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
-    public var description: String { "VaultReadAs(\(VaultMask.masked(reads)))" }
+    public var description: String { "VaultReadAs(\(VaultMask.masked(reads, keep: 0)))" }
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self, children: []) }
 }

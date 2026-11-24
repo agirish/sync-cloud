@@ -154,6 +154,15 @@ enum VaultPasteboard {
         }
     }
 
+    /// Copies `value` as any app would: neither concealed nor cleared, and relayed by Universal
+    /// Clipboard. For what the panel draws in clear (a name, a date, a phone, a word), never an ID's
+    /// number.
+    @MainActor
+    static func copyPlain(_ value: String, on pasteboard: NSPasteboard = .general) {
+        pasteboard.clearContents()
+        pasteboard.setString(value, forType: .string)
+    }
+
     /// The copy that has yet to be cleared: its pasteboard, and that pasteboard's change count.
     @MainActor private static var pendingClear: (pasteboard: NSPasteboard, stamp: Int)?
     @MainActor private static var quitWatch: NSObjectProtocol?
