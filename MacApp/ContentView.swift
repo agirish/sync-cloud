@@ -1262,7 +1262,8 @@ struct ContentView: View {
         .designAnimation(.easeOut(duration: 0.15), value: compareFilePair)
         .designAnimation(.easeOut(duration: 0.15), value: compareDifferencePair)
         .designAnimation(.easeOut(duration: 0.15), value: showVault)
-        // ⌘U's binding, the latch that refuses it mid-pick, and locking when the Mac does.
+        // ⌘U's binding, the latch that refuses it mid-pick, locking when the Mac does, and the
+        // Vault's household.
         .modifier(vaultHost)
         .animation(.easeOut(duration: 0.15), value: showSettings)
         .animation(.easeOut(duration: 0.15), value: showHelp)
@@ -2521,12 +2522,12 @@ struct ContentView: View {
     }
 
     /// The in-window Vault overlay (View ▸ Vault / ⌘U). `VaultOverlay` owns the backdrop and the
-    /// card; this hands it the surface style, the household, and the two ways out.
+    /// card; this hands it the surface style and the ways out. The household reaches it through the
+    /// model (``VaultHost``).
     @ViewBuilder
     private var vaultOverlay: some View {
         VaultOverlay(
             model: vault,
-            people: syncManager.filingPeopleStore?.people ?? [],
             glassHue: glassHue,
             glassLevel: glassLevel,
             surfaceTint: surfaceTint,
@@ -2562,9 +2563,10 @@ struct ContentView: View {
         )
     }
 
-    /// ⌘U's binding and the Vault's latch, as one modifier (see ``VaultHost``).
+    /// ⌘U's binding, the Vault's latch and its household, as one modifier (see ``VaultHost``).
     private var vaultHost: VaultHost {
         VaultHost(isShown: $showVault, suspended: pendingDestination != nil, model: vault,
+                  people: syncManager.filingPeopleStore?.people ?? [],
                   onOpened: {
                       showSettings = false
                       showHelp = false

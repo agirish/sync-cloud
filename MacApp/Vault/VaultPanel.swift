@@ -44,8 +44,6 @@ enum VaultCardSize {
 /// setting says otherwise.
 struct VaultOverlay: View {
     @ObservedObject var model: VaultModel
-    /// The household, for "Belongs to" and the filter. Settings ▸ Organize ▸ People owns the list.
-    let people: [Person]
     let glassHue: LiquidGlassHue
     let glassLevel: GlassLevel
     let surfaceTint: Double
@@ -79,7 +77,7 @@ struct VaultOverlay: View {
                     .ignoresSafeArea()
                     .onTapGesture(perform: onClose)
 
-                VaultCard(model: model, people: people, glassHue: glassHue,
+                VaultCard(model: model, glassHue: glassHue,
                           onClose: onClose, onOpenSettings: onOpenSettings,
                           onQuickLook: onQuickLook, onReveal: onReveal, onAddPerson: onAddPerson,
                           quickLookPath: quickLookPath, onCloseQuickLook: onCloseQuickLook)
@@ -124,7 +122,6 @@ struct VaultOverlay: View {
 /// number appears in one place, beside the list, for the row that was chosen.
 struct VaultCard: View {
     @ObservedObject var model: VaultModel
-    let people: [Person]
     let glassHue: LiquidGlassHue
     let onClose: () -> Void
     let onOpenSettings: () -> Void
@@ -133,6 +130,9 @@ struct VaultCard: View {
     let onAddPerson: (_ displayName: String, _ fullName: String) -> Person?
     let quickLookPath: String?
     let onCloseQuickLook: () -> Void
+    /// The household, for "Belongs to" and the filter: the model's, which the window's
+    /// ``VaultHost`` keeps to Settings ▸ Organize ▸ People from launch.
+    private var people: [Person] { model.people }
 
     /// The name a number being added was read with, when it matches nobody in People: the
     /// question whether to add them first.
@@ -286,9 +286,7 @@ struct VaultCard: View {
             }
         }
         .task {
-            readFolders = VaultReadFolders.folders()
-            // Whose a read number is, and the filter's names, come from the household.
-            model.people = people
+            reloadReadFolders()
             await model.opened()
             searchFocused = true
             refreshByItself()
@@ -315,8 +313,6 @@ struct VaultCard: View {
         // Locked (Lock Now, idle): a number copied from the Vault leaves the clipboard with it,
         // unless something else was copied since (owner, 2026-11-23).
         .onChange(of: model.isOpen) { _, open in if !open { VaultPasteboard.clearPending() } }
-        // People changed in Settings, or a person was added here: whose each number is follows.
-        .onChange(of: people) { _, now in model.people = now }
         // Back to SyncCloud with the Vault up and locked: Touch ID is asked for at once, as when
         // it opened. Only on coming back, never the moment it relocks, so no prompt waits at a
         // Mac left alone; a cancelled prompt waits for the next return.
@@ -568,7 +564,7 @@ struct VaultCard: View {
                             }
                             Button("Stop Reading This Folder") {
                                 VaultReadFolders.remove(folder)
-                                readFolders = VaultReadFolders.folders()
+                                reloadReadFolders()
                             }
                         }
                     }
@@ -4504,8 +4500,7 @@ struct VaultCard: View {
     /// documents IDs came from (Refresh).
     private func read(_ scope: VaultReadScope) {
         guard model.reading == nil else { return }
-        let folders = VaultReadFolders.folders()
-        readFolders = folders
+        let folders = reloadReadFolders()
         // Looking for more needs somewhere to look; a refresh reads documents it already knows.
         guard scope.isRefresh || !folders.isEmpty else {
             askingForFolders = true
@@ -4519,7 +4514,17 @@ struct VaultCard: View {
     private func addFolders() {
         guard VaultReadFoldersPanel.add(message: "Choose the folders that hold your passport scans, I-94s and USCIS notices.")
         else { return }
-        readFolders = VaultReadFolders.folders()
+        reloadReadFolders()
+    }
+
+    /// Settings ▸ Vault ▸ Folders to Read, read again into the panel's copy: as it opens, before a
+    /// read, and after a folder is added or let go here. Settings changes it only with the Vault
+    /// closed, since opening Settings puts the Vault away.
+    @discardableResult
+    private func reloadReadFolders() -> [String] {
+        let folders = VaultReadFolders.folders()
+        readFolders = folders
+        return folders
     }
 
     /// ⌘⌫: asks about the chosen row, a number or a find.

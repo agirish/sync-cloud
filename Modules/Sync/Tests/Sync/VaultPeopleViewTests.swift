@@ -224,6 +224,26 @@ import Testing
         #expect(try Self.anna(model).names.contains { $0.name == "Anna Maria Ericsson" })
     }
 
+    /// The panel draws the household from the model, so a new list says so, its order or a name
+    /// changed (the store sorts a person added from the Vault); the same list, nothing at all.
+    @Test func aChangeOfPeopleTellsTheViewAndTheSameListDoesNot() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = rig.model()
+        let anna = Person(id: "anna", displayName: "Anna"), erik = Person(id: "erik", displayName: "Erik")
+        model.people = [erik, anna]
+        var told = 0
+        let watch = model.objectWillChange.sink { told += 1 }
+        defer { watch.cancel() }
+
+        model.people = [erik, anna]
+        #expect(told == 0, "the same list")
+        model.people = [anna, erik]
+        #expect(told > 0, "sorted")
+        told = 0
+        model.people = [anna, Person(id: "erik", displayName: "Erik J")]
+        #expect(told > 0, "renamed")
+    }
+
     /// Not a Misreading changes no view state of its own, so the model must say it changed:
     /// before, People showed the old role until the next second's redraw (VT99).
     @Test func everyRoleChangeTellsTheViewAtOnce() async throws {

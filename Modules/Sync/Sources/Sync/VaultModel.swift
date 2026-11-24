@@ -411,8 +411,10 @@ public final class VaultModel: ObservableObject {
     // MARK: Rows, tabs and cards
 
     /// The household's people, from Settings ▸ Organize: who a read number belongs to, and the
-    /// person filter's names. Set by the panel.
+    /// person filter's names. Set by the window's `VaultHost` from its first frame, and by Add to
+    /// People ahead of the store; the panel draws from it, so a change is published.
     public var people: [Person] = [] {
+        willSet { if newValue != people { objectWillChange.send() } }
         didSet {
             rowsRevision &+= 1
             resplitWaiting()
@@ -1240,7 +1242,7 @@ public final class VaultModel: ObservableObject {
 
     private func keepSelectionVisible() {
         let visible = visibleIDs
-        if !visible.contains(where: { $0 == selection }) { selection = visible.first }
+        if !visible.contains(where: { $0 == selection }), selection != visible.first { selection = visible.first }
     }
 
     /// After a change that takes the chosen row out of view (a move to another tab, a person

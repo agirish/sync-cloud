@@ -15,7 +15,7 @@ import Testing
     /// the wallpaper.
     static func mount(_ model: VaultModel, defaults: UserDefaults, draws: VaultDrawCount, height: CGFloat = 760) -> NSWindow {
         let size = CGSize(width: 1100, height: height)
-        let panel = VaultCard(model: model, people: model.people, glassHue: .blue, onClose: {}, onOpenSettings: {},
+        let panel = VaultCard(model: model, glassHue: .blue, onClose: {}, onOpenSettings: {},
                               onQuickLook: { _ in }, onReveal: { _ in }, onAddPerson: { _, _ in nil },
                               quickLookPath: nil, onCloseQuickLook: {})
             .frame(width: size.width, height: size.height)

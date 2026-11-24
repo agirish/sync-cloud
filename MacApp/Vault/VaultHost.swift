@@ -35,13 +35,17 @@ extension FocusedValues {
 
 // MARK: - The window's half
 
-/// Publishes ⌘U's binding and locks the Vault when the Mac does. One modifier, so the window's
-/// long modifier chain stays within what the type checker can solve.
+/// Publishes ⌘U's binding, locks the Vault when the Mac does, and keeps the model's household to
+/// People's. One modifier, so the window's long modifier chain stays within what the type checker
+/// can solve.
 struct VaultHost: ViewModifier {
     @Binding var isShown: Bool
     /// A destination pick is up.
     let suspended: Bool
     let model: VaultModel
+    /// The household, Settings ▸ Organize ▸ People's: whose a read number is, and the filter's
+    /// names. Handed to the model from the window's first frame, so the panel draws from it alone.
+    let people: [Person]
     /// The panel was let through: the window puts Settings and Help away.
     let onOpened: () -> Void
 
@@ -49,6 +53,10 @@ struct VaultHost: ViewModifier {
         let workspace = NSWorkspace.shared.notificationCenter
         content
             .focusedSceneValue(\.vault, suspended ? nil : $isShown)
+            // People changed in Settings, or a person was added from the Vault: whose each number
+            // is follows, open or not.
+            .onAppear { model.people = people }
+            .onChange(of: people) { _, now in model.people = now }
             // The latch, for every way in (the menu, the toolbar, ⌘K): refused while a destination
             // pick is up, since the picker draws in front and the panel would appear the instant
             // the pick was answered.

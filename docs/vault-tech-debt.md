@@ -43,9 +43,6 @@ Read by [`RELEASE.md`](../RELEASE.md) §4.
 
 ## Open: internal
 
-- **VT76, view state that duplicates the model's** (part done, batch 11). The panel's `people` prop
-  beside `model.people`, which is set only after the panel's first frame; `readFolders` re-read in four
-  places. `namingKindFor`/`newKindName` and `copied`/`copiedDetail` stay pairs on purpose.
 - **VT7, the walk and the read plan** still inside `VaultModel.readDocuments` (the rest done in
   batches 9 and 10). They are awaits with a lock check between each: moving them must keep where a
   read can stop.
@@ -157,7 +154,8 @@ Each changes what the user sees, gets or is asked.
 | VT99, VT101 | A role change publishes and rebuilds no rows | 2026-11-21 |
 | VT104 | Waiting finds merged at every open: measured out (~60 ms for 200); if ever needed, key on the build that sealed the file, never a hand-bumped number | 2026-11-21 |
 | VT107 (1, 2) | A byte-identical file read once; originals first | batch 4 |
-| VT1, VT7, VT10, VT34, VT76 | Parts done; the rest is open above | batches 4–19 |
+| VT76 | View state that duplicated the model's: the layout and Large Type (batch 11); the household from the window's `VaultHost`, drawn from `model.people` alone, and the read folders reloaded in one place (batch 23). `namingKindFor`/`newKindName` and `copied`/`copiedDetail` stay pairs: one optional would blank the name as its sheet slides away, and an ID's and a detail's "Copied" show together | batches 11, 23 |
+| VT1, VT7, VT10, VT34 | Parts done; the rest is open above | batches 4–19 |
 
 Kept on purpose: `sessionLine` in production code (the shared log capture sees sibling cases); the
 reader protocol's three levels (`pages`, `reading`, `noted`); leftover `.writing-` and set-aside files
