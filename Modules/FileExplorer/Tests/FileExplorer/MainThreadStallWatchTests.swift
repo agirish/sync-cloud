@@ -82,13 +82,19 @@ import Testing
         #expect(line.contains("— it lasted ") || line.contains("— still stalled "), "\(line)")
         let stack = try String(contentsOf: directory.appendingPathComponent(file), encoding: .utf8)
         // The stack is OF the stall: the in-process half, taken the moment it was noticed, has the
-        // sleep in it. `sample`'s half is not asserted on: it attaches half a second late, which
+        // sleep in it. `sample`'s stacks are not asserted on: it attaches half a second late, which
         // is why the in-process half exists, and a short stall can be over by then.
         let inProcess = try #require(stack.components(separatedBy: "---- /usr/bin/sample").first)
         #expect(inProcess.contains("Main thread, sampled in-process"), "\(inProcess.prefix(300))")
         #expect(inProcess.contains("__semwait_signal") || inProcess.contains("nanosleep"),
                 "the in-process stacks missed the stall: \(inProcess.prefix(1500))")
-        #expect(stack.contains("Call graph"), "sample's report is missing")
+        // `sample`'s half is closed one of two ways, both the watch's: its report, or the watch
+        // stopping it after `sampleSeconds + sampleGrace`. On a loaded 3-vCPU VM `sample`
+        // symbolicates past that grace (docs/flaky-tests.md), a wall clock no test wait can close.
+        // Not "still running" (the file was never finished) nor "wrote nothing" (it failed).
+        let stopped = stack.contains("---- /usr/bin/sample did not finish in time and was stopped ----")
+        #expect(stack.contains("Call graph") || stopped,
+                "sample's half is neither its report nor the watch's stop: \(stack.suffix(300))")
         #expect(watch.samplesTaken == 1)
     }
 

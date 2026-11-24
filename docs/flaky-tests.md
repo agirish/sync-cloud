@@ -1038,7 +1038,7 @@ The change under test that day touched only a new `@Published` flag neither suit
 what made the environmental read easy to confirm. When it is not that clear, interleave the arms as
 mechanism 6 describes.
 
-#### Seen: `MainThreadStallWatchTests` "An idle queue yields nothing; a 3 s stall yields one line and one stack of it", 2026-11-02
+#### Seen: `MainThreadStallWatchTests` "An idle queue yields nothing; a 3 s stall yields one line and one stack of it", 2026-11-02 — FIXED
 
 Red once on hosted CI at `290e3d7c2` on `stack.contains("Call graph")`, "sample's report is
 missing". `Modules/FileExplorer` was the same tree hash at the green base `6b66464d7`, and a rerun
@@ -1048,6 +1048,17 @@ then symbolicates, and the watch stops it after `sampleSeconds + sampleGrace` (2
 3-vCPU VM it ran past that, and the test took 41.7 s. The window is wall clock in a separate
 process, so no test-side wait can close it. If it repeats, the assertion should accept a stopped
 `sample` (the watch's own documented outcome) rather than the grace being raised.
+
+Red again on hosted CI on 2026-11-23 at `4661012ae` (run 45287781324, attempt 1; the rerun
+passed), at the same assertion after 40.9 s: 50 in-process samples, then the same "did not finish
+in time and was stopped" line.
+
+**FIXED 2026-11-23**: the assertion now takes either way the watch closes `sample`'s part of
+the file: its report ("Call graph") or that stopped line, and still requires the line, one file, and
+the in-process stacks with the sleep in them. A file left "still running" or "wrote nothing" still
+fails it. The grace stays 30 s. Mutated locally: the watch made to drop the report and write the
+stopped line, the CI shape, passes, and with the old `"Call graph"` assertion fails as CI did;
+writing no file fails on `files.count == 1`; a "wrote nothing" file fails the new assertion.
 
 #### Seen: `MainThreadStallWatchTests` "A stall after a hold is dated by its own stacks", 2026-11-04 — FIXED
 
