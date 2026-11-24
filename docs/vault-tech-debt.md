@@ -50,9 +50,6 @@ Read by [`RELEASE.md`](../RELEASE.md) §4.
   `backUpIfDue(using: VaultBackup.live())` and reads the read folders from `.standard`; with a backup
   passphrase set, a render test could write made-up IDs into the owner's backup folder. *Done when:*
   the backup and folders are injected (live from `ContentView`, nil in tests).
-- **VT72, activity titles cut at their last slash.** `record` masks with `VaultMask.fileName`, which
-  takes `lastPathComponent`: "Chase / Mortgage" is listed as "Mortgage". *Fix:* a `VaultMask.text` that
-  masks the whole string; a test with a slash. It makes a wrong line right.
 - **VT51, zone recovery proves less than it says.** With weights 7-3-1, one unknown always has exactly
   one passing digit, and the overall check re-tests the same residues; only `readWithPrintedNumber` has
   an independent witness. *Internal half:* `MachineZone` carries how it was recovered and the caller
@@ -144,6 +141,7 @@ Each changes what the user sees, gets or is asked.
 | VT68 | Stop keeps what was read | `f95e61078` |
 | VT69 | The user's choices as one value (`VaultChoices`) | batch 9 |
 | VT71, VT94–VT97, VT105 | Rows-cache, scratch-defaults, backup, swatch and name-role tests | batch 5 |
+| VT72 | Activity lists a title whole (`VaultMask.text`), not cut at its last slash | 2026-11-24 |
 | VT75 | Duplicated view code, but the pickers and List's empty state | batches 8, 22 |
 | VT77, VT78, VT82, VT83, VT84 | Masonry measured once, colors made once, renders and readings once per page, labels once per page | batch 6 |
 | VT79, VT80, VT103, VT106 | Retroactive conformance, dead code, People's groups by id, small duplications | batch 11 |

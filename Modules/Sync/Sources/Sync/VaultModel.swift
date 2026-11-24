@@ -1381,7 +1381,7 @@ public final class VaultModel: ObservableObject {
     private func record(_ kind: VaultActivityEvent.Kind, _ what: String = "", whose: String? = nil) {
         guard let activity, VaultActivitySettings.keeps(in: defaults) else { return }
         let at = clock()
-        activity.append([VaultActivityEvent(at: at, kind: kind, what: VaultMask.fileName(what), whose: whose)], now: at)
+        activity.append([VaultActivityEvent(at: at, kind: kind, what: VaultMask.text(what), whose: whose)], now: at)
     }
 
     /// The same for one ID, named as its row names it.

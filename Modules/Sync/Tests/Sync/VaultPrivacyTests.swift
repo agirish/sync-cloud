@@ -23,6 +23,35 @@ import Testing
         #expect(VaultMask.fileName("/Docs/Driver License - Anna (2019).pdf") == "Driver License - Anna (2019).pdf")
     }
 
+    /// A title is masked whole, as a file's name is, its slash kept (VT72): a slash with a space
+    /// beside it parts the title unless digits stand either side and no year follows, one without
+    /// joins a number as a dash does, and a date stays one.
+    @Test func aTitleIsMaskedWholeWithItsSlash() {
+        for title in ["Chase / Mortgage", "show H-1B / I-797", "Form 1040 / 2023", "W-2 / 2024", "I-94 / 2024",
+                      "DS-160 / 2024", "Tax 2023 / 2024", "H-1B\u{00A0}/\u{00A0}I-797", "Chase/Mortgage",
+                      "Lease 03/01/2024", "Statement 08/2024", "Lease 2024/2025", "24/7 Fitness", "1/2 share", ""] {
+            #expect(VaultMask.text(title) == title)
+        }
+        #expect(VaultMask.text("Passport A38291647 / Anna") == "Passport •••••1647 / Anna")
+        #expect(VaultMask.text("Loan 4417/9921/0038") == "Loan ••••/••••/0038")
+        #expect(VaultMask.text("Loan 4417//9921//0038") == "Loan ••••//••••//0038")
+        #expect(VaultMask.text("Loan 4417-/9921") == "Loan ••••-/9921")
+        #expect(VaultMask.text("SSN 123 / 45 / 6789") == "••• ••• / •• / 6789")
+        #expect(VaultMask.text("Card 4417 / 9921 / 0038 / 5512") == "Card •••• / •••• / •••• / 5512")
+        #expect(VaultMask.text("Card 4417 9921 / 0038 5512") == "Card •••• •••• / •••• 5512")
+        #expect(VaultMask.text("Card 4417 /9921") == "Card •••• /9921")
+        // A slash without spaces masks as a space does in a file's name: "WAC" goes too.
+        #expect(VaultMask.text("PAN ABCDE/1234/F") == "••• •••••/•234/F")
+        #expect(VaultMask.text("Plate MH12/AB/1234") == "Plate ••••/••/1234")
+        #expect(VaultMask.text("Passport 1234/A5678") == "Passport ••••/•5678")
+        #expect(VaultMask.text("Receipt WAC/26/901/23456") == "Receipt •••/••/•••/•3456")
+        // Without a slash, a title is masked exactly as a file of that name.
+        for name in ["SSN 123 - 45 - 6789", "Aadhaar 2345,6789,0123", "DL D123 4567 8901", "I-797A WAC2412345678 approval",
+                     "Form I-94 - Anna - Apr 2026", "Scan 2024-03-01", "Mortgage loan number"] {
+            #expect(VaultMask.text(name) == VaultMask.fileName("/Docs/" + name))
+        }
+    }
+
     /// A kind whose ending is itself a secret prints none of it, as its row draws it locked
     /// (VT34): a Social Security number's last four are what a form asks for to prove who you are.
     @Test func aSecretEndingIsNeverPrinted() {

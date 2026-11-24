@@ -61,6 +61,28 @@ import Testing
         #expect(!text.contains("Chase") && !text.contains("Copied"), "which IDs were used is private too")
     }
 
+    /// A title is not a path (VT72): a slash in it is part of it, and a number on either side of
+    /// it is still cut to its ending.
+    @Test func aTitleWithASlashIsListedWholeAndStillMasked() async throws {
+        let (rig, activity, model) = try Self.rig(); defer { rig.cleanUp() }
+        await model.opened()
+        let plain = try #require(model.add(VaultModel.Draft(title: "Chase / Mortgage", value: "0482917365", category: .other)))
+        let form = try #require(model.add(VaultModel.Draft(title: "Form 1040 / 2023", value: "4417992100385512", category: .other)))
+        let tight = try #require(model.add(VaultModel.Draft(title: "Loan 4417/9921/0038", value: "441799210038", category: .other)))
+        let plate = try #require(model.add(VaultModel.Draft(title: "Plate MH12/AB/4417", value: "MH12AB4417", category: .other)))
+        rig.clock.advance(1)
+        #expect(await model.copy(plain))
+        #expect(await model.copy(form))
+        #expect(await model.copy(tight))
+        #expect(await model.copy(plate))
+        let titles = ["Plate ••••/••/4417", "Loan ••••/••••/0038", "Form 1040 / 2023", "Chase / Mortgage"]
+        let events = activity.load()
+        #expect(events.map(\.line) == ["Copied", "Added"].flatMap { did in titles.map { "\(did) \($0) · Household" } })
+        for event in events {
+            #expect(!event.what.contains("4417/") && !event.what.contains("9921") && !event.what.contains("MH12"), "no number in full")
+        }
+    }
+
     @Test func turnedOffNothingIsListed() async throws {
         let (rig, activity, model) = try Self.rig(); defer { rig.cleanUp() }
         rig.defaults.set(false, forKey: VaultActivitySettings.keepsKey)

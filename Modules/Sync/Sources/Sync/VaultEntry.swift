@@ -220,6 +220,16 @@ public enum VaultMask {
         name((path as NSString).lastPathComponent)
     }
 
+    /// A title or a label, whole, with any number in it cut to its ending as a file's name is. A
+    /// title is not a path: its slash is part of it. A slash with a space beside it parts the title
+    /// ("Chase / Mortgage", "H-1B / I-797"), but between digits it joins them ("123 / 45 / 6789"),
+    /// unless a year follows it ("Form 1040 / 2023", "I-94 / 2024"). One without a space joins, as a
+    /// dash does, so a number written with slashes is one number ("4417/9921/0038",
+    /// "ABCDE/1234/F"), and a date written with them ("03/01/2024", "08/2024") is still a date.
+    public static func text(_ text: String) -> String {
+        name(text, runs: textRun)
+    }
+
     /// A folder path, each folder's name masked as a file's is: people name a folder after what
     /// is in it, too ("Passport A38291647/").
     public static func folder(_ path: String) -> String {
@@ -232,15 +242,22 @@ public enum VaultMask {
     /// slash: "123 - 45 - 6789", "123–45–6789" with an en dash, "1234    5678    9012", groups
     /// joined by a non-breaking space, an ampersand or an apostrophe are each one number.
     private static let joinedRun = try! NSRegularExpression(pattern: #"[\p{L}\p{N}]+(?:[^\p{L}\p{N}/]{1,6}[\p{L}\p{N}]+)*"#)
+    /// The same for ``text(_:)``, but up to six separators may hold a slash when no space is among
+    /// them, or when digits stand either side and no year follows: "4417/9921", "MH12/AB/1234",
+    /// "4417//9921" and "123 / 45" are each one run; "Chase / Mortgage" and "1040 / 2023" are two.
+    private static let textRun = try! NSRegularExpression(
+        pattern: #"[\p{L}\p{N}]+(?:(?:[^\p{L}\p{N}/]{1,6}|[^\p{L}\p{N}\s]{1,6}|(?<=\p{N})(?![^\p{L}\p{N}]{1,6}(?:19|20)\d{2}(?!\p{N}))[^\p{L}\p{N}]{1,6}(?=\p{N}))[\p{L}\p{N}]+)*"#)
     private static func isSeparator(_ c: Character) -> Bool { !(c.isLetter || c.isNumber) }
     private static let dateLike = try! NSRegularExpression(
-        pattern: #"^(?:(?:19|20)\d{2}[._-]\d{1,2}(?:[._-]\d{1,2})?|\d{1,2}[._-]\d{1,2}[._-](?:19|20)?\d{2}|(?:19|20)\d{2}[ ._-]+(?:19|20)\d{2})$"#)
+        pattern: #"^(?:(?:19|20)\d{2}[./_-]\d{1,2}(?:[./_-]\d{1,2})?|\d{1,2}[./_-]\d{1,2}[./_-](?:19|20)?\d{2}|(?:19|20)\d{2}[ ./_-]+(?:19|20)\d{2}|\d{1,2}/(?:19|20)\d{2})$"#)
 
-    private static func name(_ text: String) -> String {
+    /// A slash is never in a file's or a folder's name (``joinedRun``), so a date's slash in
+    /// `dateLike` matters only to ``text(_:)``.
+    private static func name(_ text: String, runs: NSRegularExpression = joinedRun) -> String {
         let ns = text as NSString
         var out = text
         // Right to left, so earlier ranges stay put as later ones are replaced.
-        for match in joinedRun.matches(in: text, range: NSRange(location: 0, length: ns.length)).reversed() {
+        for match in runs.matches(in: text, range: NSRange(location: 0, length: ns.length)).reversed() {
             let whole = ns.substring(with: match.range)
             // Judge each stretch of the run that holds digits: words around a number stay.
             let words = whole.split(omittingEmptySubsequences: false, whereSeparator: isSeparator)
