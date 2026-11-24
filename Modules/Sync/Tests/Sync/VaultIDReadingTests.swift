@@ -31,6 +31,22 @@ import Testing
         "DBD05162025", "DBB08121974", "DBA05162030", "DBC2", "DAJCA", "DCGUSA", "DCAC",
     ]
 
+    /// "DAQ" inside a first name is not the license number: only the one right after the
+    /// subfile's type is (the 2026-11-23 review). And a header that wraps puts it on the next line.
+    @Test func aNameHoldingDAQDoesNotHideTheLicenseNumber() throws {
+        let named = ["@", "ANSI 636026090002DL00410278ZC03190024DLDCSSMITH", "DACDAQUAN", "DAQD12345678",
+                     "DBD05162025", "DBB08121974", "DBA05162030", "DAJCA", "DCGUSA"]
+        let find = try #require(Self.read(named).first)
+        #expect(find.value == "D12345678")
+        let wrapped = ["@", "ANSI 636014090002DL00410278ZC03190024", "DLDAQD1234567", "DCSERIKSSON", "DACANNA",
+                       "DBD05162025", "DBB08121974", "DBA05162030", "DAJCA", "DCGUSA"]
+        #expect(Self.read(wrapped).first?.value == "D1234567")
+        // Straight after the header's digits, as a payload that does not repeat its type has it.
+        let bare = ["@", "ANSI 636014090002DL00410278ZC03190024DAQD1234567", "DCSERIKSSON", "DACANNA",
+                    "DBD05162025", "DBB08121974", "DBA05162030", "DAJCA", "DCGUSA"]
+        #expect(Self.read(bare).first?.value == "D1234567")
+    }
+
     @Test func aLicenseBarcodeStatesTheNumberNameAndDates() throws {
         let find = try #require(Self.read(["CLASS: C", "RESTRICTIONS: None"] + Self.barcode).first)
         #expect(find.category == .driversLicense)

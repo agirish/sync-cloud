@@ -110,9 +110,12 @@ extension VaultReading {
         for line in page[header...] {
             let text = line.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{1e}\u{1d}")))
             if fields["DAQ"] == nil, let range = text.range(of: "DAQ"),
-               text.distance(from: text.startIndex, to: range.lowerBound) > 0 {
-                // The first element rides on the header line, after the subfile's type: "DL" for
-                // a license, "ID" for a state ID card.
+               text[..<range.lowerBound].hasSuffix("DL") || text[..<range.lowerBound].hasSuffix("ID")
+                || text[..<range.lowerBound].last?.isNumber == true {
+                // The first element rides on the header line (or the line the header wraps to),
+                // right after the subfile's type: "DL" for a license, "ID" for a state ID card, or
+                // straight after the header's own digits. Only there: "DAQ" inside another element
+                // ("DACDAQUAN", a first name) is not it.
                 isIDCard = text[..<range.lowerBound].hasSuffix("ID")
                 fields["DAQ"] = Self.licenseNumber(String(text[range.upperBound...]))
                 continue

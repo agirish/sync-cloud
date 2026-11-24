@@ -229,6 +229,73 @@ import Vision
         #expect(again.processors == [.any, .cpu])
     }
 
+    /// A scan under a short text layer that gives a number, with Vision refusing the picture:
+    /// the layer is kept, and the file comes back not complete, so its picture is tried again
+    /// rather than the file marked read (the 2026-11-23 review).
+    @Test func aRefusedScanUnderANumberedStampIsKeptAndTriedAgain() async throws {
+        struct Refused: Error {}
+        let dir = FixtureDir()
+        let path = dir.path("notice.pdf")
+        try Self.writePDF(picture: Self.scan(of: Self.passport), text: ["Receipt Number: EAC2190012345"], to: path)
+        var reader = VaultFolderReader(folders: [dir.url.path])
+        reader.vision = { _, _ in throw Refused() }
+        let read = await reader.reading(URL(fileURLWithPath: path))
+        #expect(read.pages.joined().joined(separator: " ").contains("EAC2190012345"))
+        #expect(!read.complete)
+        reader.vision = { _, _ in Self.passport }
+        #expect(await reader.reading(URL(fileURLWithPath: path)).complete)
+    }
+
+    /// A picture file of several pages (a faxed TIFF) is read as a PDF's are, up to three
+    /// (owner, 2026-11-23: its first alone was read).
+    @Test func aTIFFsPagesAreReadUpToThree() async throws {
+        let dir = FixtureDir()
+        let path = dir.path("fax.tiff")
+        let destination = try #require(CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, "public.tiff" as CFString, 4, nil))
+        for width in [400, 410, 420, 430] {
+            CGImageDestinationAddImage(destination, try Self.scan(of: ["Page"], width: width, height: 260), nil)
+        }
+        #expect(CGImageDestinationFinalize(destination))
+        var reader = VaultFolderReader(folders: [dir.url.path])
+        reader.vision = { image, _ in ["Frame \(image.width)"] }
+        let read = await reader.reading(URL(fileURLWithPath: path))
+        #expect(read.pages == [["Frame 400"], ["Frame 410"], ["Frame 420"]])
+        #expect(read.complete)
+    }
+
+    /// A render and an ink-alone copy stop at ``VaultFolderReader/largestRender`` pixels: a photo
+    /// saved as a 72-dpi PDF (4,032 points) was drawn at 8,064. Pages of every usual size render as
+    /// before (the 2026-11-23 review).
+    @Test func aRenderStopsAtTheLargestSize() throws {
+        let photo = CGRect(x: 0, y: 0, width: 4032, height: 3024)
+        #expect(VaultFolderReader.scale(of: photo, longSide: 2400) * 4032 <= VaultFolderReader.largestRender)
+        #expect(VaultFolderReader.scale(of: photo, longSide: 4000) * 4032 <= VaultFolderReader.largestRender)
+        let letter = CGRect(x: 0, y: 0, width: 612, height: 792), card = CGRect(x: 0, y: 0, width: 243, height: 153)
+        #expect(abs(VaultFolderReader.scale(of: letter, longSide: 2400) - 2400 / 792) < 0.0001)
+        #expect(VaultFolderReader.scale(of: card, longSide: 2400) == 6)
+        #expect(VaultFolderReader.scale(of: CGRect(x: 0, y: 0, width: 792, height: 1224), longSide: 2400) == 2)
+        // The color sample of a sliver is held to ten times its width; a usual page is as it was.
+        let sliver = VaultFolderReader.sampleSize(width: 4, height: 60_000)
+        #expect(sliver.width == 400 && sliver.height == 4000)
+        let page = VaultFolderReader.sampleSize(width: 1700, height: 1100)
+        #expect(page.width == 400 && page.height == 258)
+    }
+
+    /// The ink-alone copy of a photo far past the largest render is brought down to it; one a
+    /// little past it (a 12-megapixel phone photo) keeps its own pixels.
+    @Test func anInkCopyIsBroughtDownOnlyFarPastTheLargestRender() throws {
+        func red(_ width: Int, _ height: Int) throws -> CGImage {
+            let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                                 space: CGColorSpaceCreateDeviceRGB(),
+                                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.setFillColor(red: 0.9, green: 0.2, blue: 0.2, alpha: 1)
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            return try #require(context.makeImage())
+        }
+        #expect(VaultFolderReader.inkOnly(try red(8000, 300))?.width == 4000)
+        #expect(VaultFolderReader.inkOnly(try red(4032, 300))?.width == 4032)
+    }
+
     /// Every PDFKit call takes its turn in the process's one lane (VT52): with the lane held, a
     /// PDF is not opened, and nothing of it read, until it is let go.
     @Test(.timeLimit(.minutes(1))) func aPDFIsReadOnlyInThePDFKitLane() async throws {

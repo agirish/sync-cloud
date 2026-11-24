@@ -52,11 +52,16 @@ public enum VaultPageSource {
         /// How the page was read, counted for the read's summary (VT25): never part of what it says,
         /// so two readings of the same lines are equal however they were come by.
         public var notes = VaultReadNotes()
+        /// Its picture was asked for and could not be read (Vision refusing): the page is its text
+        /// layer for now, and its file is not marked read, so the picture is tried again (VT54).
+        public var pictureUnread = false
 
-        public init(lines: [String], also: [String]? = nil, notes: VaultReadNotes = VaultReadNotes()) {
+        public init(lines: [String], also: [String]? = nil, notes: VaultReadNotes = VaultReadNotes(),
+                    pictureUnread: Bool = false) {
             self.lines = lines
             self.also = also
             self.notes = notes
+            self.pictureUnread = pictureUnread
         }
 
         public static func == (a: Reading, b: Reading) -> Bool { a.lines == b.lines && a.also == b.also }
@@ -116,7 +121,7 @@ public enum VaultPageSource {
                 // a number is kept. One that says nothing is no reading of the page: the page
                 // is left out, as one with no layer is, and a file with no page read at all is
                 // tried again on the next read rather than marked read.
-                guard typed.any.isEmpty else { return Reading(lines: layer) }
+                guard typed.any.isEmpty else { return Reading(lines: layer, pictureUnread: true) }
                 Logger.shared.debug("Vault: a scan under a text layer could not be read from its picture")
                 return nil
             }
@@ -255,7 +260,7 @@ public struct VaultReadNotes: Equatable, Sendable {
     public var locked = 0
     /// Files that could not be opened at all.
     public var unopenable = 0
-    /// Pages Vision could not recognise, left out.
+    /// Pages Vision could not recognise: left out, or kept as their text layer and tried again.
     public var unrecognised = 0
     /// Pages read from their picture rather than their text layer.
     public var fromPicture = 0

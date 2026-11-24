@@ -102,7 +102,9 @@ struct VaultFolderReader: VaultDocumentReading {
     /// blank page; a file with no page read at all comes back empty, so it is not marked read and
     /// the next read tries it again, and what it gave before stays. One broken page does not keep
     /// a file's other pages from being read, on this read or any later one; the file is then
-    /// marked read while one is left out: `complete` says so (VT54).
+    /// marked read while one is left out: `complete` says so (VT54). A page whose picture Vision
+    /// refused but whose text layer gives or names a number is kept as that layer, and counted as
+    /// not read, so its picture is tried again (``VaultPageSource/Reading/pictureUnread``).
     ///
     /// A page read both ways (``VaultPageSource/Reading/also``) gives its second reading as one
     /// more page, after the file's own, so each page a zone is found on keeps its number.
@@ -115,19 +117,28 @@ struct VaultFolderReader: VaultDocumentReading {
         func recognise(_ image: CGImage) -> [String]? { recognised(image, read: vision) }
         guard file.pathExtension.lowercased() == "pdf" else {
             guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
-                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                  CGImageSourceCreateImageAtIndex(source, 0, nil) != nil else {
                 notes.unopenable = 1
                 return ([], true, notes)
             }
             // A photo or scan saved as an image is read as a scanned page is: on colored
             // security paper, in its ink alone as well (``VaultPageSource/seen(_:from:under:)``).
-            // An image is what it is: there is no sharper render of it to read again.
-            let picture = VaultPageSource.Picture(isScan: { true }, read: { sharper in sharper ? nil : recognise(image) },
-                                                  barcodes: { decodeBarcodes(image) },
-                                                  inkOnly: { inkOnly(image).flatMap(recognise) })
-            let page = VaultPageSource.noted(picture, from: file.path, under: folders)
-            if page == nil { notes.unrecognised = 1 }
-            return (page.map { [$0.lines] } ?? [], page != nil, page.map { notes + $0.notes } ?? notes)
+            // An image is what it is: there is no sharper render of it to read again. A file of
+            // several pictures (a faxed TIFF) is read as a PDF's pages are, up to the same three
+            // (owner, 2026-11-23: its first alone was read, and the file marked read).
+            var pages: [[String]] = []
+            var unread = 0
+            for index in 0..<min(max(CGImageSourceGetCount(source), 1), pagesPerDocument) {
+                guard let image = CGImageSourceCreateImageAtIndex(source, index, nil) else { unread += 1; continue }
+                let picture = VaultPageSource.Picture(isScan: { true }, read: { sharper in sharper ? nil : recognise(image) },
+                                                      barcodes: { decodeBarcodes(image) },
+                                                      inkOnly: { inkOnly(image).flatMap(recognise) })
+                guard let page = VaultPageSource.noted(picture, from: file.path, under: folders) else { unread += 1; continue }
+                pages.append(page.lines)
+                notes = notes + page.notes
+            }
+            notes.unrecognised += unread
+            return (pages, unread == 0, notes)
         }
         // Every PDFKit call takes its turn in the process's one lane (VT52); Vision does not, so
         // the lane is free while a page is recognised. The document is opened once and touched
@@ -185,11 +196,13 @@ struct VaultFolderReader: VaultDocumentReading {
                 pages.append(reading.lines)
                 notes = notes + reading.notes
                 if let also = reading.also { secondReadings.append(also) }
+                // Its layer is kept; its picture, which Vision refused, is tried again next time.
+                if reading.pictureUnread { unreadable += 1 }
             }
             if unreadable > 0 {
                 Logger.shared.debug("Vault: \(unreadable) page(s) could not be recognised"
                                     + (pages.isEmpty ? "; the file is tried again next time"
-                                                     : "; the rest were read, and the file is tried again"))
+                                                     : "; what was read is kept, and the file is tried again"))
             }
             notes.unrecognised += unreadable
             return (pages + secondReadings, unreadable == 0, notes)
@@ -309,10 +322,17 @@ struct VaultFolderReader: VaultDocumentReading {
         }
     }
 
-    /// The scale a page is rendered at for `longSide` pixels: never under 2 nor over 6.
+    /// The scale a page is rendered at for `longSide` pixels: never under 2 nor over 6, and never
+    /// past ``largestRender`` pixels on its long side. A photo saved as a PDF at 72 dpi is a page
+    /// of 4,032 points, which the floor of 2 drew at 8,064 pixels, about 195 MB a render.
     static func scale(of bounds: CGRect, longSide: CGFloat) -> CGFloat {
-        max(2, min(6, longSide / max(bounds.width, bounds.height, 1)))
+        let long = max(bounds.width, bounds.height, 1)
+        return min(max(2, min(6, longSide / long)), largestRender / long)
     }
+
+    /// The most pixels a render or an ink-alone copy has on its long side: what a Social Security
+    /// card's small type, the sharpest read asked for, needs.
+    static let largestRender: CGFloat = 4000
 
     /// The page drawn at `scale` (``scale(of:longSide:)``): about 2400 pixels on its long side is
     /// what a zone's small type needs; 4000 for a Social Security card's or a barcode's.
@@ -402,7 +422,12 @@ struct VaultFolderReader: VaultDocumentReading {
     /// red pattern Vision otherwise reads into the letters.
     static func inkOnly(_ image: CGImage) -> CGImage? {
         guard coloredShare(image) >= coloredPaper else { return nil }
-        let (w, h) = (image.width, image.height)
+        // A photo far past ``largestRender`` pixels (48 megapixels: about 195 MB of pixels here,
+        // beside the image) is brought down to it; one a little past it (a 12-megapixel phone
+        // photo) keeps its own pixels, so its ink is judged as it always was.
+        let long = CGFloat(max(image.width, image.height, 1))
+        let fit = long > largestRender * 1.5 ? largestRender / long : 1
+        let (w, h) = (max(1, Int(CGFloat(image.width) * fit)), max(1, Int(CGFloat(image.height) * fit)))
         var pixels = [UInt8](repeating: 0, count: w * h * 4)
         guard let context = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                                       space: CGColorSpaceCreateDeviceRGB(),
@@ -419,8 +444,14 @@ struct VaultFolderReader: VaultDocumentReading {
 
     /// The share of `image`'s pixels, sampled at 400 across, that are strongly colored and not
     /// dark: a hue well apart from grey, bright enough to be paper rather than ink.
+    /// The size `coloredShare` samples an image at: 400 across, its height to scale, held to ten
+    /// times that: a sliver of an image (4 by 60,000 pixels) would otherwise ask for gigabytes.
+    static func sampleSize(width: Int, height: Int) -> (width: Int, height: Int) {
+        (400, max(1, min(4000, height * 400 / max(width, 1))))
+    }
+
     static func coloredShare(_ image: CGImage) -> Double {
-        let w = 400, h = max(1, image.height * 400 / max(image.width, 1))
+        let (w, h) = sampleSize(width: image.width, height: image.height)
         var pixels = [UInt8](repeating: 0, count: w * h * 4)
         guard let context = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                                       space: CGColorSpaceCreateDeviceRGB(),

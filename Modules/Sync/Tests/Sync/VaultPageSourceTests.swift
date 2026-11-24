@@ -96,6 +96,11 @@ import Testing
         #expect(Self.lines(Self.letter.joined(separator: "\n"), Self.picture(Asked(), reads: nil)) == nil)
         // A layer that gives a number, or names one, is kept: what it says is not lost to a retry.
         #expect(Self.lines(Self.caseStamp, Self.picture(Asked(), reads: nil)) == [Self.caseStamp])
+        // Kept, and said to be read without its picture: the file is not marked read, so the
+        // picture is tried again (the 2026-11-23 review). Read from its picture, it is not.
+        #expect(VaultPageSource.reading(textLayer: Self.caseStamp, from: Self.path, picture: Self.picture(Asked(), reads: nil))?.pictureUnread == true)
+        #expect(VaultPageSource.reading(textLayer: Self.caseStamp, from: Self.path,
+                                        picture: Self.picture(Asked(), reads: [Self.caseStamp]))?.pictureUnread == false)
         let naming = "Enclosed is a copy of the beneficiary's passport, passport number L898902C3, for the file."
         #expect(!VaultReading.read(pages: [[naming]], from: Self.path).mentions.isEmpty, "the fixture names a number")
         #expect(Self.lines(naming, Self.picture(Asked(), reads: nil)) == [naming])

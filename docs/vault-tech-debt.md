@@ -113,8 +113,22 @@ names a person the waiting ID was not given (Add to People re-splits it under th
 out for that person first, so the saved name, person and documents agree. The notes are worked out
 again once the file being read has given its pages, so a choice about that very file holds too.
 
-Still open from this review: the readers' (batch 18; the license barcode's DAQ line and a TIFF's
-later pages are reader accuracy, the owner's call).
+Batch 18 fixed the readers': a scan whose picture Vision refused keeps its text layer's number but
+is not marked read, so the picture is tried again (`Reading.pictureUnread`); a page render and an
+ink-alone copy stop at 4,000 pixels on the long side (a photo saved as a 72-dpi PDF was drawn at
+8,064, about 195 MB a render); a sliver of an image no longer asks for gigabytes to sample its
+color; the reading rules run off the main actor; and, by the owner's choice, a license barcode's
+number is taken from right after its subfile type only ("DAQ" inside a name no longer hides it)
+and a picture file of several pages (a faxed TIFF) is read up to three, as a PDF is.
+`VaultReading.version` is 22: the waiting IDs are let go and the panel offers Read Documents again;
+Refresh then reads the documents IDs came from, and Discover More the rest (where the license and
+TIFF fixes find what was missed). Checked on the owner's read folder with the count-only harness
+(1,356 files, Vision answering throughout): the same 544 numbers and mentions and the same 12 empty
+files; the recognised text of 5 files changed with the new sizes, not one number (that run brought
+the ink-alone copy down past 4,000 pixels; after review it is brought down only past 6,000, so a
+phone photo's ink is judged as before). Left: a failed barcode decode or sharper read still looks like "nothing more" (no unread
+mark); a test that the rules run off the main actor; a picture file's every frame counts as a
+page (an animated GIF's too, at a Vision read each).
 
 ## Owed before the next cut
 

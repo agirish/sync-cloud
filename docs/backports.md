@@ -16242,7 +16242,11 @@ types print nothing they hold, and a failed passphrase change or Replace leaves 
 the Vault's sheets, popovers and Quick Look panel that draw a secret are kept out of screen sharing,
 a copied number is cleared at a lock, and People masks document names until shown. Batch 17:
 a choice made during a read holds for the rest of it, waiting IDs follow a change to People, and
-People gives an unmatched person one section by first and last name.
+People gives an unmatched person one section by first and last name. Batch 18 (reading version
+22): a scan whose picture Vision refused but whose text layer gives a number is read again, renders
+are capped at 4,000 pixels, the rules run off the main actor, a license's number is taken only
+after its subfile type or the header's digits, and a picture file of several pages is read up to
+three.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

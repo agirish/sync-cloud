@@ -2167,6 +2167,12 @@ public final class VaultModel: ObservableObject {
             // A changed file is read afresh: what it said before is let go first. A number it
             // still carries keeps its row and any choice made about it, as does one chosen
             // about under an older build's rules.
+            // The reading rules off the main actor: a page's contacts and a zone's swap search are
+            // thousands of tries, and the panel draws meanwhile (the 2026-11-23 review).
+            let people = self.people
+            var read = await Task.detached(priority: .userInitiated) {
+                VaultReading.read(pages: pages, from: file.path, under: roots, people: people)
+            }.value
             // A choice made about this very file while its pages were read (Not for This ID, a
             // correction) holds for it too: the notes again, and its bytes when it now needs them.
             refreshNotes()
@@ -2176,7 +2182,6 @@ public final class VaultModel: ObservableObject {
                 .map { (VaultReading.normalized($0.value), VaultChoice($0)) },
                 uniquingKeysWith: { a, _ in a })
             forgetSource(file.path)
-            var read = VaultReading.read(pages: pages, from: file.path, under: roots, people: people)
             if let bytes, let instead = readAs[bytes] { read = Self.reading(read, instead: instead) }
             if let bytes, let dropped = notOn[bytes] {
                 read.finds.removeAll { dropped.contains(VaultReading.normalized($0.value)) }
