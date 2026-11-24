@@ -255,9 +255,15 @@ public enum VaultLockSwitch {
     /// is read as on (``VaultLockSettings/init(defaults:store:)``). Fresh each time, and its
     /// secret deleted when the lock goes back on, so a seal copied from an old backup of the
     /// preferences matches nothing.
-    public static func sealOff(in defaults: UserDefaults, store: VaultStore?) {
-        guard let seal = store?.makeLockOffSeal() else { return }
+    ///
+    /// Answers whether the seal was made and kept. False means it could not be made (the Keychain
+    /// refused the secret or the Vault's key, this Mac lacks the key to the Vault file it has, or
+    /// there is no store). `defaults` is left as it was, but any earlier secret may be gone (it is
+    /// replaced first), so an earlier seal can stop matching and the lock read as on.
+    public static func sealOff(in defaults: UserDefaults, store: VaultStore?) -> Bool {
+        guard let seal = store?.makeLockOffSeal() else { return false }
         defaults.set(seal, forKey: sealKey)
+        return true
     }
 
     /// The lock is on again: the seal and its secret both go, so neither can be used again.

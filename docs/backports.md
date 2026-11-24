@@ -16256,7 +16256,9 @@ beside a label as an account's (VT89); nothing read on the owner's papers change
 the panel's repeated pieces are one each but the two color pickers (VT75); 97 panels render byte
 for byte as before. Batch 23:
 the panel draws the household from the model, which the window keeps, and reloads its read
-folders in one place (VT76); 43 panels render byte for byte as before.
+folders in one place (VT76); 43 panels render byte for byte as before. VT60: sealing the lock off
+answers whether the Keychain took the seal, which Settings does not yet use, and tests pin a sitting
+that starts with nothing sealed and a lock-off Vault keeping its numbers at close.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

@@ -501,7 +501,7 @@ import Testing
         let rig = try Rig(); defer { rig.cleanUp() }
         try rig.seed([Self.mortgage])
         // As Settings turns it off, after a proof: the setting, sealed with the Vault's key.
-        VaultLockSwitch.sealOff(in: rig.defaults, store: rig.store)
+        #expect(VaultLockSwitch.sealOff(in: rig.defaults, store: rig.store))
         rig.defaults.set(false, forKey: VaultLockSettings.requiresAuthenticationKey)
         let model = rig.model()
 
@@ -510,6 +510,33 @@ import Testing
         #expect(await model.copy(Self.mortgage.id))
         model.closed()
         #expect(model.entries == [Self.mortgage])
+    }
+
+    /// VT60, pinned as it is today: with the lock off, closing lets nothing go, whatever Ask and
+    /// Relock say ("even if closed" or not), and reopening asks nothing. Whether a lock-off Vault
+    /// should let go at close is the owner's call; changing it turns this red on purpose.
+    @Test func aLockOffVaultKeepsItsNumbersWhenItCloses() async throws {
+        for ask in VaultLockSettings.Ask.allCases {
+            for relock in VaultLockSettings.Relock.allCases {
+                let rig = try Rig(); defer { rig.cleanUp() }
+                try rig.seed([Self.mortgage])
+                rig.defaults.set(false, forKey: VaultLockSettings.requiresAuthenticationKey)
+                #expect(VaultLockSwitch.sealOff(in: rig.defaults, store: rig.store))
+                rig.defaults.set(ask.rawValue, forKey: VaultLockSettings.askKey)
+                rig.defaults.set(relock.rawValue, forKey: VaultLockSettings.relockKey)
+                let model = rig.model()
+                var lines: [String] = []
+                model.sessionLine = { lines.append($0) }
+                await model.opened()
+
+                model.closed()
+
+                #expect(model.contents == .loaded && model.entries == [Self.mortgage], "\(ask) · \(relock)")
+                #expect(!lines.contains { $0.hasPrefix("Vault: let go") }, "\(ask) · \(relock): \(lines)")
+                await model.opened()
+                #expect(model.entries == [Self.mortgage] && rig.auth.reasons.isEmpty, "\(ask) · \(relock)")
+            }
+        }
     }
 
     @Test func aMacThatCannotAskSaysWhy() async throws {

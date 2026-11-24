@@ -58,9 +58,6 @@ Read by [`RELEASE.md`](../RELEASE.md) §4.
   an independent witness. *Internal half:* `MachineZone` carries how it was recovered and the caller
   logs a count; tests for `readWithSwaps`' pairs branch and a G-series case. *Owner's call:* a
   recovered zone needs the printed number or date to agree, or is marked inferred (VT5).
-- **VT60, lock routes** (internal half). `sealOff` returns `Bool`; VT29's table covers a sitting that
-  starts with nothing sealed; a test pins that a lock-off Vault lets go at close. *Owner's call:* what
-  Settings says when sealing fails, and whether a lock-off Vault lets go at close.
 
 ## Open: the owner's calls
 
@@ -87,6 +84,10 @@ Each changes what the user sees, gets or is asked.
   `…/Old/`.
 - **VT75's two**: `VaultColorPicker` (pop-up, Customize Groups) and `VaultColorPopover` (swatches)
   choose one thing two ways; the List layout lacks the others' empty state.
+- **VT60's two** (internal half done: `sealOff` answers whether the Keychain took the seal, VT29's
+  table covers a sitting that starts with nothing sealed, and a test pins today's close): what Settings
+  says when sealing fails (today the switch shows the lock off while the Vault still asks), and whether
+  a lock-off Vault lets its numbers go at close (today it keeps them).
 - **VT73 (b)**: Quick Look's own panel follows the capture setting while it shows a Vault document.
 - **VT81**: Refresh reads a source that grew past 60 MB, which Discover skips; check the caps in
   `pages(in:)`.

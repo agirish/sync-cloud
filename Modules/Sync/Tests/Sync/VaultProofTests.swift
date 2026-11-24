@@ -12,7 +12,7 @@ import Testing
         let rig = try Rig(); defer { rig.cleanUp() }
         try rig.seed([VaultModelTests.mortgage])
         rig.defaults.set(false, forKey: VaultLockSettings.requiresAuthenticationKey)
-        VaultLockSwitch.sealOff(in: rig.defaults, store: rig.store)
+        #expect(VaultLockSwitch.sealOff(in: rig.defaults, store: rig.store))
         let old = try #require(rig.defaults.string(forKey: VaultLockSwitch.sealKey))
         #expect(!VaultLockSettings(defaults: rig.defaults, store: rig.store).requiresAuthentication)
 
@@ -22,8 +22,26 @@ import Testing
         #expect(VaultLockSettings(defaults: rig.defaults, store: rig.store).requiresAuthentication)
 
         // Off again: a new seal, not the old one.
-        VaultLockSwitch.sealOff(in: rig.defaults, store: rig.store)
+        #expect(VaultLockSwitch.sealOff(in: rig.defaults, store: rig.store))
         #expect(rig.defaults.string(forKey: VaultLockSwitch.sealKey) != old)
+    }
+
+    /// VT60: sealing says whether the Keychain took the seal. Refused, nothing is written, and the
+    /// "off" beside it reads as on, which is what the Vault obeys.
+    @Test func sealingTheLockOffSaysWhetherTheKeychainTookIt() throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        rig.defaults.set(false, forKey: VaultLockSettings.requiresAuthenticationKey)
+        // An empty Vault: sealing makes its key, and a Keychain refusing the key refuses the seal.
+        rig.keychain.forcedAddStatus = errSecAuthFailed
+        #expect(VaultLockSwitch.sealOff(in: rig.defaults, store: rig.store) == false)
+        #expect(rig.defaults.string(forKey: VaultLockSwitch.sealKey) == nil)
+        #expect(rig.keychain.others["com.synccloud.vault-lock-off"] == nil, "the secret made for it is gone too")
+        #expect(VaultLockSettings(defaults: rig.defaults, store: rig.store).requiresAuthentication)
+        #expect(VaultLockSwitch.sealOff(in: rig.defaults, store: nil) == false)
+
+        rig.keychain.forcedAddStatus = nil
+        #expect(VaultLockSwitch.sealOff(in: rig.defaults, store: rig.store))
+        #expect(!VaultLockSettings(defaults: rig.defaults, store: rig.store).requiresAuthentication)
     }
 
     @Test func removingWhileThePanelClosesUnderTheProofNeverEmptiesTheVault() async throws {

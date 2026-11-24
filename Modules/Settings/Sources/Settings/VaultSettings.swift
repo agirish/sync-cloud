@@ -447,7 +447,9 @@ struct VaultSettingsTab: View {
         if on {
             VaultLockSwitch.unseal(in: .standard, store: VaultStore.defaultURL().map { VaultStore(fileURL: $0) })
         } else {
-            VaultLockSwitch.sealOff(in: .standard, store: VaultStore.defaultURL().map { VaultStore(fileURL: $0) })
+            // A refused seal leaves the switch off while the Vault still asks, as before VT60. What
+            // Settings says then is the owner's call (docs/vault-tech-debt.md, VT60).
+            _ = VaultLockSwitch.sealOff(in: .standard, store: VaultStore.defaultURL().map { VaultStore(fileURL: $0) })
         }
         requiresAuthentication = on
         SettingsWindowLog.log("vault.requiresAuthentication", from: .bool(old), to: .bool(on))
