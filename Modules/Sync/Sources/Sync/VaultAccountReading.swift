@@ -105,8 +105,10 @@ extension VaultReading {
         if [DateOrder.monthFirst, .dayFirst].contains(where: { PrintedPage.leadingDate(value, order: $0) != nil }) {
             return nil
         }
-        // A phone number, toll-free or not, however it is spaced; a ZIP+4.
-        if value.range(of: #"^(?:1[ .-]?)?\(?[0-9]{3}\)?[ .-]?[0-9]{3}[ .-][0-9]{4}$"#, options: .regularExpression) != nil
+        // A phone number, toll-free or not, its area code set apart ("510-555-0142", "(510)
+        // 555-0142", "1 800 555 0142"; never "123456 7890"); a ZIP+4.
+        if value.range(of: #"^(?:1[ .-]?)?(?:\([0-9]{3}\) ?|[0-9]{3}[ .-])[0-9]{3}[ .-][0-9]{4}$"#,
+                       options: .regularExpression) != nil
             || value.range(of: #"^[0-9]{5}[ -][0-9]{4}$"#, options: .regularExpression) != nil {
             return nil
         }
@@ -159,7 +161,10 @@ extension VaultReading {
             let text = line.trimmingCharacters(in: .whitespaces)
             guard bareLine.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) != nil,
                   text.filter(\.isNumber).count >= 6,
-                  let value = accountNumber(text) else { continue }
+                  let value = accountNumber(text),
+                  // A service's phone printed alone each year, its dash dropped by a scan: "510555 0142".
+                  text.range(of: #"^(?:1[ .-]?)?\(?[0-9]{3}\)?[ .-]?[0-9]{3}[ .-][0-9]{4}$"#,
+                             options: .regularExpression) == nil else { continue }
             out.insert(normalized(value))
         }
         return out
@@ -197,8 +202,13 @@ extension VaultReading {
         guard label.contains("birth") || page.lines[row.label].range(of: #"(?<![A-Za-z])DOB(?![A-Za-z])"#,
                                                                     options: [.regularExpression, .caseInsensitive]) != nil
         else { return nil }
+        // The number as read sets a page's other dashes and spaces as ASCII's: find it so, scalar
+        // for scalar.
         let line = page.lines[row.line]
-        let after = line.range(of: row.value).map { String(line[$0.upperBound...]) } ?? line
+        let plain = VaultAccountValue.plain(line)
+        let after = plain.range(of: row.value, options: .literal).map {
+            String(String.UnicodeScalarView(line.unicodeScalars.dropFirst(plain.unicodeScalars[..<$0.upperBound].count)))
+        } ?? line
         // The first date after the number: as read when it reads one way only, else month first.
         guard let at = PrintedPage.dates(in: after, order: nil).first?.at else { return nil }
         let either = PrintedPage.dates(in: after, order: nil).filter { $0.at == at }

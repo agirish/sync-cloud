@@ -295,8 +295,79 @@ import Testing
         #expect(VaultAccountValue.leading("1234 5678 9012 3456 7890 1234 5678 9012") == "1234 5678 9012 3456 7890 1234 5678")
         #expect(VaultAccountValue.leading("1 2 3 4 5 6 7A 8") == "1 2 3 4 5 6 7A")
         #expect(VaultAccountValue.leading("1 2 3 4 5 6 7A") == "1 2 3 4 5 6")
-        // A last group holding a letter is left off.
-        #expect(VaultAccountValue.leading("1234 5678 A1") == "1234 5678")
+        // A last group holding a letter is left off: a plan's name, a rate, a term, a date.
+        for (printed, number) in ["1234 5678 A1": "1234 5678", "1234 5678 5G Home": "1234 5678", "1234567890 E1": "1234567890",
+                                  "0123456789 30Y": "0123456789", "1234567890 12JAN2025": "1234567890"] {
+            #expect(VaultAccountValue.leading(printed) == number, "\(printed.count)")
+        }
+    }
+
+    @Test func oneOrTwoDigitsBeforeAWordAreASuffixOrTheLastGroupOnlyWhenTheyCannotCountIt() {
+        // A prefix of letters is no group, and a lettered group cannot vouch for the digits that
+        // vouch for it: the next column's street number still ends these.
+        #expect(VaultAccountValue.leading("CA-1234567 12 Main St") == "CA-1234567")
+        #expect(VaultAccountValue.leading("1234567890 E1 12 Main St") == "1234567890")
+        #expect(VaultAccountValue.leading("1234 56A 78 Due") == "1234")
+        #expect(VaultAccountValue.leading("XZB-45-1234 90 Due") == "XZB-45-1234 90")
+        // A member's suffix before a name, a last pair of a number already in groups: its own.
+        #expect(Self.read(["Account Number: 1234 5678 90 Due 02/01/2025"], at: "Home/Utilities/Cable/2025/bill.pdf")
+            .first?.value == "1234 5678 90")
+        #expect(Self.read(["Member ID: 123456789 01 ANNA"], at: "Health/Delta Dental/2025/Card.pdf").first?.value
+                == "123456789 01")
+        // A count of what follows, spelled or short, a date's day before its month, a page count,
+        // a time, and the next column's street number.
+        for printed in ["0123456789 30 Year Fixed", "0123456789 15 yrs", "0123456789 6 MONTH POLICY",
+                        "0123456789 12 mos", "0123456789 05 Jan 2025", "0123456789 5 september 2025",
+                        "0123456789 30-Day Notice", "0123456789 5/A", "0123456789 1 of 3", "0123456789 01 of 03",
+                        "0123456789 10 AM", "0123456789 2 Lines", "0123456789 30 kWh", "0123456789 12 Main St"] {
+            #expect(Self.read(["Mortgage statement", "Loan Number: " + printed], at: "Home/Mortgage/Statements/2025/Apr.pdf")
+                .first?.value == "0123456789", "\(printed.dropFirst(11))")
+        }
+    }
+
+    @Test func groupsThatOnlyLookLikeAPhoneNumberAreAnAccount() {
+        #expect(Self.read(["Account Number: 123456 7890"], at: "Home/Utilities/Cable/2025/bill.pdf").first?.value
+                == "123456 7890")
+        #expect(Self.read(["Account Number: 1234567 8901"], at: "Home/Utilities/Cable/2025/bill.pdf").first?.value
+                == "1234567 8901")
+        // A phone number with its area code set apart is still none.
+        for phone in ["510-555-0142", "(510) 555-0142", "(510)555-0142", "510 555 0142", "1-800-555-0142",
+                      "1 800 555 0142", "1.800.555.0142"] {
+            #expect(VaultReading.accountNumber(phone) == nil, "\(phone)")
+        }
+    }
+
+    @Test func anotherCharactersDashOrSpaceIsReadAsOne() {
+        for (printed, number) in ["1234\u{2013}5678\u{2013}9012": "1234-5678-9012", "1234\u{2011}5678": "1234-5678",
+                                  "1234\u{2212}5678": "1234-5678", "1234\u{00A0}5678\u{00A0}9012": "1234 5678 9012",
+                                  "1234\u{202F}5678": "1234 5678", "1234\u{2009}5678": "1234 5678"] {
+            #expect(Self.read(["Account Number: " + printed], at: "Home/Utilities/Cable/2025/bill.pdf").first?.value
+                    == number, "\(printed.unicodeScalars.count)")
+        }
+        // An em dash parts words: the number ends before it.
+        #expect(VaultAccountValue.leading("12345\u{2014}67") == "12345")
+        // A no-break space between the label and the number is passed over like any other.
+        for printed in ["Account Number:\u{00A0}12345678", "Account Number\u{00A0}: 12345678"] {
+            #expect(Self.read([printed], at: "Home/Utilities/Cable/2025/bill.pdf").first?.value == "12345678")
+        }
+    }
+
+    @Test func aRowsBirthDateIsTheDateAfterItsNumberThoughThatHasAnEnDash() {
+        // The number reads with an ASCII dash; the date after it, not the one before, is the birth.
+        let page = PrintedPage(["DOB 03/04/1992 Member ID 1234\u{2013}5678 DOB 01/02/1990"])
+        let rows = page.values(["member id"], VaultAccountValue.leading)
+        #expect(rows.first?.value == "1234-5678")
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let born = rows.first.flatMap { VaultReading.birthDate(of: $0, on: page) }
+        #expect(born.map { calendar.dateComponents([.year, .month, .day], from: $0) }
+                == DateComponents(year: 1990, month: 1, day: 2))
+    }
+
+    @Test func aPhoneAloneOnALineIsNoBareNumberThoughAScanDroppedItsDash() {
+        let header = ["Statement date 01/05/2026", "510555 0142", "Page 1 of 3"]
+        #expect(VaultReading.bareAccountNumbers(on: PrintedPage(header),
+                                                from: "/Users/anna/Documents/Home/Utilities/T-Mobile/2026/Jan.pdf").isEmpty)
     }
 
     @Test func aPrefixOfLettersIsFourAtMostAndDashed() {
