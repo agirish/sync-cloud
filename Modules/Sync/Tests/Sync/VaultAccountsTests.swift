@@ -92,6 +92,53 @@ import Testing
         VaultReading.finds(in: lines, from: "/Users/anna/Documents/" + path)
     }
 
+    /// VT53: a mortgage's number an insurance cover sheet labels "Account Number" (Other) and its
+    /// next page "Loan Number" (Loans) is a loan number, whichever page comes first, and across
+    /// two files as within one. Other is no kind. Every number is made up.
+    @Test func aNumberReadAsOtherAndAsALoanIsALoan() throws {
+        let path = "/Users/anna/Documents/Home/Insurance/2025/cover.pdf"
+        let cover = ["Insurance cover sheet", "Account Number: 0123456789"]
+        let statement = ["Mortgage statement", "Loan Number: 0123456789"]
+        for pages in [[cover, statement], [statement, cover]] {
+            let finds = VaultReading.read(pages: pages, from: path).finds
+            #expect(finds.count == 1)
+            #expect(finds.first?.category == .loans)
+            #expect(finds.first?.title.hasSuffix("Loan number") == true)
+        }
+        let other = try #require(VaultReading.read(pages: [cover], from: path).finds.first)
+        let loan = try #require(VaultReading.read(pages: [statement], from: "/Users/anna/Documents/Home/Mortgage/2025/Apr.pdf").finds.first)
+        #expect(other.category == .other && loan.category == .loans)
+        for copies in [[other, loan], [loan, other]] {
+            let merged = try #require(VaultCopies.merged(copies))
+            // The cover speaks (by name), so the rule, not the order, makes it a loan.
+            #expect(merged.facts.spokenBy == path)
+            #expect(merged.facts.category == .loans)
+            // Named by who issued it, as its details say, and by the kind's name.
+            #expect(merged.title == "Insurance · Loan number")
+            #expect(merged.facts.form == "Loan number")
+        }
+        // Never an identity kind: an account number a page quotes as an SSN stays Other.
+        var quoted = loan
+        quoted.facts.category = .ssn
+        #expect(VaultCopies.merged([other, quoted])?.facts.category == .other)
+        // Nor when an identity kind is among them: a loan and an SSN are two kinds that disagree.
+        #expect(VaultCopies.merged([other, loan, quoted])?.facts.category == .other)
+        // A cover with no issuer read is titled by the kind's name alone, as its paper would be.
+        var bare = other
+        bare.facts.details = []
+        bare.facts.dated = VaultReadingTests.day(2025, 4, 1)
+        let titled = try #require(VaultCopies.merged([bare, loan]))
+        #expect(titled.facts.spokenBy == path && titled.title == "Loan number")
+        // Two kinds that disagree: the reading that speaks keeps its own. Dated, the cover speaks.
+        var dated = other
+        dated.facts.dated = VaultReadingTests.day(2025, 4, 1)
+        var utility = loan
+        utility.facts.category = .utilities
+        #expect(VaultCopies.merged([dated, loan])?.facts.spokenBy == path)
+        #expect(VaultCopies.merged([dated, loan])?.facts.category == .loans)
+        #expect(VaultCopies.merged([dated, loan, utility])?.facts.category == .other)
+    }
+
     @Test func aUtilityBillsAccountNumberIsFiledByItsFolder() throws {
         let bill = ["Your monthly statement", "Account Number: 1234 5678 9012", "Amount Due $86.20",
                     "Customer service (510) 555-0142"]

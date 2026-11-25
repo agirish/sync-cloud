@@ -16305,6 +16305,7 @@ folders, by what it gave when last read (VT107 step 3).
 Batch 42: an Indian passport's leading G, L or U read as 6, 1 or 0 is read as the letter (VT46).
 Batch 43: an accented zone letter is read as the letter; an unreadable character of a zone's number
 is no longer filled with a digit (VT47).
+Batch 44: an account number read as Other and as one account kind elsewhere is that kind (VT53).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

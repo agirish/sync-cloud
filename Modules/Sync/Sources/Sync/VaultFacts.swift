@@ -734,6 +734,21 @@ public enum VaultCopies {
             ordered.insert(ordered.remove(at: index), at: 0)
         }
         var best = ordered[0]
+        // An account number read as Other ("Account Number" on a cover sheet) and as one account
+        // kind elsewhere ("Loan Number" on the next page) is that kind, as that kind's paper names
+        // it: Other is no kind, only its absence (VT53). The speaker keeps who issued it, so the
+        // title is its issuer and the kind's name ("Insurance · Loan number"). Two kinds that
+        // disagree, or an identity kind, leave it as the best reading says.
+        let kinds = Set(ordered.map(\.facts.category)).subtracting([.other])
+        if best.facts.category == .other, kinds.count == 1, let kind = kinds.first, VaultReading.accountCategories.contains(kind),
+           let kindReading = ordered.first(where: { $0.facts.category == kind }), let form = kindReading.facts.form {
+            best.facts.category = kind
+            best.facts.form = form
+            let issuer = best.facts.details.first { $0.label == "Issued by" }.flatMap { detail -> String? in
+                if case .text(let text) = detail.value { return text } else { return nil }
+            }
+            best.title = issuer.map { "\($0) · \(form)" } ?? form
+        }
         best.facts.spokenBy = best.sourcePath
         // What the best document itself said, before anything is borrowed into it.
         let speaker = best.facts
