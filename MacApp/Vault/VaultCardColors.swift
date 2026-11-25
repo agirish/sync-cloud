@@ -388,8 +388,8 @@ struct VaultColorWell: View {
     @Binding var color: VaultCardColor?
     /// The group's color, for a card that may follow it; nil where there is no group to follow.
     var follows: VaultCardColor? = nil
-    /// The window's hue, for the chosen "Same as Group".
-    var accent: Color = .accentColor
+    /// The window's hue, for the chosen "Same as Group": the app's, not the Mac's (DS4).
+    var accent: Color = LiquidGlassHue.stored().accentColor
     /// The well's name for VoiceOver: "Color of the group Travel".
     let label: String
     /// What its swatches color, for VoiceOver: "group Travel", "Passports card".
@@ -432,6 +432,7 @@ struct VaultColorWell: View {
                 VaultSwatches(chosen: color, of: what) { color = $0 }
             }
             .padding(14)
+            .presentedNativeControlAccent()
         }
     }
 }
