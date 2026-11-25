@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Design
+import Quartz
 import Sync
 
 // MARK: - The menu item
@@ -117,6 +118,17 @@ enum VaultWindowPrivacy {
         guard let window else { return }
         let wanted = sharing(exposed: exposed, defaults: defaults)
         if window.sharingType != wanted { window.sharingType = wanted }
+    }
+
+    /// Quick Look's shared panel while the Vault previews a document (VT73 b): left out of capture
+    /// from before it appears, since asking for it creates the very panel the preview then shows,
+    /// on a first preview too; sharing again once no Vault document is in it.
+    static func quickLook(showsVaultDocument: Bool, defaults: UserDefaults = .standard) {
+        if showsVaultDocument {
+            apply(exposed: true, to: QLPreviewPanel.shared(), defaults: defaults)
+        } else if QLPreviewPanel.sharedPreviewPanelExists() {
+            apply(exposed: false, to: QLPreviewPanel.shared(), defaults: defaults)
+        }
     }
 }
 

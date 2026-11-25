@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 import SwiftUI
 import Sync
 import Testing
@@ -30,6 +31,19 @@ import Testing
         VaultWindowPrivacy.apply(exposed: true, to: nil, defaults: scratch.defaults)   // no window yet: nothing to do
     }
 
+
+    /// VT73 (b): Quick Look's shared panel is out of capture while the Vault previews a document,
+    /// set by asking for it (which creates it on a first preview), and shares again after.
+    @Test func quickLooksPanelIsOutOfCaptureWhileItShowsAVaultDocument() throws {
+        let scratch = TestDefaults()
+        VaultWindowPrivacy.quickLook(showsVaultDocument: true, defaults: scratch.defaults)
+        #expect(QLPreviewPanel.sharedPreviewPanelExists(), "asking for it made it")
+        let panel = try #require(QLPreviewPanel.shared())
+        defer { panel.sharingType = .readOnly }
+        #expect(panel.sharingType == NSWindow.SharingType.none)
+        VaultWindowPrivacy.quickLook(showsVaultDocument: false, defaults: scratch.defaults)
+        #expect(panel.sharingType == .readOnly)
+    }
 
     /// A sheet or popover is a window of its own, which the Vault's window's setting does not reach:
     /// one that draws a number keeps itself out of capture (the 2026-11-23 review).

@@ -58,7 +58,6 @@ Each changes what the user sees, gets or is asked.
   `…/Old/`.
 - **VT75's two**: `VaultColorPicker` (pop-up, Customize Groups) and `VaultColorPopover` (swatches)
   choose one thing two ways; the List layout lacks the others' empty state.
-- **VT73 (b)**: Quick Look's own panel follows the capture setting while it shows a Vault document.
 - **VT81**: Refresh reads a source that grew past 60 MB, which Discover skips; check the caps in
   `pages(in:)`.
 - **VT107 steps 3–5** (steps 1–2 done, batch 4): pass over a supporting copy whose numbers are all held
@@ -109,6 +108,7 @@ Each changes what the user sees, gets or is asked.
 | VT44 | EXIF orientation: not a defect, measured; do not re-propose | 2026-11-20 |
 | VT50 | The readers' toolkit, one `PrintedPage` per page | batch 19 |
 | VT52, VT54, VT58, VT73 (a, c) | PDFKit lane, a partly read file, backup key off the main actor, capture gaps | batches 3–4 |
+| VT73 (b) | Quick Look's own panel is out of capture while it shows a Vault document (batch 16), now from before a first preview appears (asking for the panel creates it; it used to be set only if it already existed), and sharing again once the preview ends or the Vault closes mid-preview | batches 16, 37 |
 | VT56, VT57, VT59, VT63 | Replace sets aside first, Add Missing ids, activity file set aside, name sealed after save | `5e33b3c47`, `976b30712`, reviews |
 | VT60 | Settled by the owner's call (2026-11-24): the lock is always on. Settings ▸ Vault's Require Touch ID and the lock-off seal are gone from the code; an "off", a seal or its Keychain secret left by an earlier build is ignored (none on the owner's Mac). Without Touch ID set up (no fingerprint, no login password, no sensor) the Vault is not used at all: nothing is loaded, read or asked for, and the panel and Settings say how to set it up (Back Up Now, Restore and Show… wait for it); found gone while loaded, it locks and lets the numbers go; set up meanwhile, coming back to the app opens it. Out of reach (the lid closed, a lockout, a Touch ID keyboard unplugged) it stays locked. Owed: a check with the lid closed that macOS still reports the sensor | batch 29 |
 | VT64 | A removed ID takes what its documents said with it (`forgetReading`, sealed): from then on Refresh stops counting and opening documents only it came from; a typed one's documents are read again, so it is offered from them; owner's go-ahead | batch 25 |

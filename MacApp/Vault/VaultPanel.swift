@@ -372,11 +372,9 @@ struct VaultCard: View {
             // is a window of its own, kept out of screen sharing while it shows a Vault document
             // (the scan carries the number), and sharing again after.
             activity.countsQuickLook = now != nil
-            DispatchQueue.main.async {
-                if QLPreviewPanel.sharedPreviewPanelExists() {
-                    VaultWindowPrivacy.apply(exposed: now != nil, to: QLPreviewPanel.shared())
-                }
-            }
+            // Set now, not a moment later: on a first preview this creates the panel, so it is
+            // already out of capture when it appears (VT73 b).
+            VaultWindowPrivacy.quickLook(showsVaultDocument: now != nil)
             if now == nil, editing == nil, largeType == nil { focusSearch(again: true) }
         }
         .onChange(of: model.query) { _, _ in choosing = nil }
@@ -419,6 +417,8 @@ struct VaultCard: View {
             // panel that comes back starts from nothing drawn.
             activity.exposed = false
             VaultWindowPrivacy.apply(exposed: false, to: activity.window)
+            // Its preview closes with it: Quick Look shares again for the next document (VT73 b).
+            VaultWindowPrivacy.quickLook(showsVaultDocument: false)
             model.closed()
         }
         // Using the Vault keeps it open: the pointer moving over it, and any click, key or scroll

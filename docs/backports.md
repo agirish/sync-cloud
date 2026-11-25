@@ -16291,6 +16291,7 @@ place (VT112).
 Batch 35: each choice about an ID, a name correction, a person's IDs copied in full and a birth date
 copied each have an Activity line (VT23).
 Batch 36: Add to Vault proposes whose a waiting ID is by the name as corrected, as its row does (VT70).
+Batch 37: Quick Look's panel is kept out of capture from its first Vault preview on (VT73 b).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed
