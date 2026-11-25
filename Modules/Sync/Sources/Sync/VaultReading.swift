@@ -1312,7 +1312,10 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
     /// known before it is opened (VT107 step 3, ``VaultCopyNumbers``).
     public var copyNumbers: [String: VaultCopyNumbers]?
 
-    public init(version: Int = VaultReading.version, generation: Int = 0,
+    /// `version` nil is this build's: resolved here, never as a default argument, which a
+    /// caller's object file keeps from when it was compiled, so a cached build of an unchanged
+    /// test went red after a bump (docs/flaky-tests.md, "A bumped constant…").
+    public init(version: Int? = nil, generation: Int = 0,
                 finds: [VaultFind] = [], read: [String: String] = [:], mentions: [String: [VaultSource]] = [:],
                 copies: [String: [String: VaultFind]] = [:], choices: [String: VaultChoice] = [:],
                 needsReadAgain: Bool = false, lessons: [String: VaultCardID] = [:],
@@ -1329,7 +1332,7 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
         self.copiesChanged = copiesChanged
         self.lastRefreshed = lastRefreshed
         self.lastDiscovered = lastDiscovered
-        self.version = version
+        self.version = version ?? VaultReading.version
         self.generation = generation
         self.finds = finds
         self.read = read

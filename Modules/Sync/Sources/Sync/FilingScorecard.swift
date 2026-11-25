@@ -164,7 +164,7 @@ public enum FilingScorecard {
 
         public init(id: UUID = UUID(), at: Date = Date(), picker: Picker, confidence: FilingConfidence?,
                     evidence: Evidence?, offered: String?, landed: String, file: String, root: String?,
-                    verdict: Verdict, change: Change? = nil, revision: Int = FilingScorecard.revision) {
+                    verdict: Verdict, change: Change? = nil, revision: Int? = nil) {
             self.id = id
             self.at = at
             self.picker = picker
@@ -176,7 +176,9 @@ public enum FilingScorecard {
             self.root = root
             self.verdict = verdict
             self.change = change
-            self.revision = revision
+            // Nil is today's: resolved here, never as a default argument, which a caller's object
+            // file keeps from when it was compiled (docs/flaky-tests.md, "A bumped constant…").
+            self.revision = revision ?? FilingScorecard.revision
         }
 
         public var fileName: String { (file as NSString).lastPathComponent }

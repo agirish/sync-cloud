@@ -5831,3 +5831,27 @@ call that returns false is a real change.
 
 **See.** `VaultRowRedrawTests.untilAPublishDrawsNothing`; `VaultRow` and `VaultRowLabel` in
 `MacApp/Vault/VaultRows.swift`.
+
+### 66. A bumped constant baked into a cached caller: an unchanged test still built with the old version — FIXED
+
+**Seen.** 2026-11-23 locally, and 2026-11-25 on hosted CI at `581d8f5c9` (batch 42, `VaultReading.version`
+22→23): `VaultReadingFileTests.aWaitingNumberIsRebuiltFromItsOwnPersonsCopiesAsCorrected` red with its
+waiting number gone, deterministic, every other Vault test green.
+
+**Cause.** `VaultReadingState.init(version: Int = VaultReading.version, …)`: a public init's default
+argument is evaluated in the caller, and the constant's value was compiled into the test's object file.
+A change to the constant alone does not make SwiftPM recompile a test file that did not change, and
+hosted CI restores a cached `.build` and dates every file by its last commit, so it recompiles only what
+a newer commit touched, the same as an incremental build here. The stale test built a state "from" the
+old version, which `opened(generation:people:)` takes for another build's rules and lets go of.
+
+**Fix.** Such defaults are `nil`, resolved in the init's body inside the module: `VaultReadingState`'s
+`version` and `FilingScorecard.Entry`'s `revision`, the two constants bumped with each change. Proved by
+changing only `VaultReading.version` to 99 with the tests unchanged: main's code red as above, the fix
+green.
+
+**Tell.** Red only after a constant's bump, in a test file the bump did not touch, and green once that
+file is touched. Never write a bumped constant as a default argument of a public function.
+
+**See.** `VaultReadingState.init` in `Modules/Sync/Sources/Sync/VaultReading.swift`;
+`FilingScorecard.Entry.init` in `Modules/Sync/Sources/Sync/FilingScorecard.swift`.
