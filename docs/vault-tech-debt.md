@@ -58,7 +58,6 @@ Each changes what the user sees, gets or is asked.
 
   | ID | Misread |
   |---|---|
-  | VT46 | G↔6, L↔1, U↔0 never fail a 7-3-1 check: an Indian passport `G1234567` reads `61234567`. |
   | VT47 | One unknown in a zone's number field is filled with a digit only: `Z` read as `Ž` becomes `5`. |
   | VT53 | One number read under two kinds is ranked by date and details, never by the more specific kind: a mortgage labelled "Account Number" then "Loan Number" lands as Other. |
   | VT88 | A typed page trusted over a fuller scan; the picture's words over a typed name; a both-ways page's sources; inline-image scans unseen; ink-only at 2400 px; `zeroed` takes `Ø` beside any digit. |
@@ -93,6 +92,7 @@ Each changes what the user sees, gets or is asked.
 | VT32, VT33, VT36 | Decrypt after proof, a way out of an unreadable Vault, screen capture | VF4, VF6, VF9 |
 | VT35 | One copy path (`VaultPasteboard.copyPlain`); copied names and dates stay ordinary copies, by the owner's call (only an ID's number and a birth date are concealed and cleared) | batch 19, 2026-11-25 |
 | VT40–43, VT45 | Reader bugs | `f7e441a7a`, `fd0377535` |
+| VT46 | By the owner's call, an Indian passport's number (on its own zone or a US visa's) that reads as eight digits and a filler, its first 6, 1 or 0, is read as G, L or U, the one look-alike worth ten, twenty or thirty more, which keeps every check; on a line read as is, filled, swapped or by its printed number. Its first character unreadable leaves no reading (V, L and B all pass as 1) unless a US visa's foil prints the number; the swap after a failed check is held to the same documents. Version 23. On the owner's papers (1,356 files): no find changed | batch 42 |
 | VT44 | EXIF orientation: not a defect, measured; do not re-propose | 2026-11-20 |
 | VT50 | The readers' toolkit, one `PrintedPage` per page | batch 19 |
 | VT50 | Archive folders, by the owner's call: Backup joins Archive, Archived, Old and Expired (an ID's tab, a copy's rank, and an account's papers there are records, not read for its number: all of them now, not Archive alone), but archives an ID only below the folder read, since a drive or folder called Backup is often where everything lives; TODO by SyncCloud's own inbox rule (TODO anywhere in a folder's name, Inbox, Unfiled), TMP and Temp rank a copy below a filed one but never archive an ID; an Archive folder above the folder read keeps counting as before. On the owner's papers no file sits under the new archive names and the new lower ranks touch only which copy is preferred, so no version bump | batch 38 |

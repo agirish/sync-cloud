@@ -95,25 +95,27 @@ import Testing
         // Two pairs pass the birth date's check: Z with 85 (the truth) and Z with 18 (the second B
         // left as an 8). The passport's overall check refuses the second; a visa has none, so its
         // two readings tie and nothing is read. With one B, a visa reads through its one pair.
-        let visa = VaultReadingTests.zone("V", number: "Z1234567", born: "850514", expires: "310704", country: "IND")
+        // A US visa, which carries the Indian holder's passport number (VT46 holds the swap to it).
+        var visa = VaultReadingTests.zone("V", number: "Z1234567", born: "850514", expires: "310704", country: "IND")
+        visa[0] = "V<USA" + visa[0].dropFirst(5)
         let onePair = try #require(MachineZone.read([visa[0], Self.misread(visa[1], [0: "2", 14: "B"])]))
         #expect(onePair.number == "Z1234567" && onePair.born == VaultReadingTests.day(1985, 5, 14))
         #expect(onePair.recovery == .swap)
         #expect(MachineZone.read([visa[0], Self.misread(visa[1], [0: "2", 13: "B", 14: "B"])]) == nil)
     }
 
-    /// Pinned as read today. G and 6 are worth the same to a 7-3-1 check (16 and 6), so a G-series
-    /// Indian passport with its G read as a 6 passes every check and reads as 6…: VT46, the
-    /// owner's call. The swap back to G never wins: wherever G passes, so does the 6 already there.
-    @Test func aGSeriesIndianPassportWithItsGReadAsA6ReadsAs6() throws {
+    /// G and 6 are worth the same to a 7-3-1 check (16 and 6), so a G-series Indian passport with
+    /// its G read as a 6 passes every check. Pinned as 6… until VT46: an Indian passport's number
+    /// is a letter and seven digits, so it now reads as G (the owner's call, 2026-11-25).
+    @Test func aGSeriesIndianPassportWithItsGReadAsA6ReadsAsG() throws {
         let lines = VaultReadingTests.zone("P", number: "G1234567", born: "850514", expires: "360704", country: "IND")
         let read = try #require(MachineZone.read(lines))
         #expect(read.number == "G1234567" && read.recovery == .asRead)
         let six = try #require(MachineZone.read([lines[0], Self.misread(lines[1], [0: "6"])]))
-        #expect(six.number == "61234567" && six.recovery == .asRead)
-        // And with a date's 6 read as a B too: the date is swapped back, the number is not.
+        #expect(six.number == "G1234567" && six.recovery == .swap)
+        // And with a date's 6 read as a B too: both are put back.
         let both = try #require(MachineZone.read([lines[0], Self.misread(lines[1], [0: "6", 22: "B"])]))
-        #expect(both.number == "61234567" && both.expires == VaultReadingTests.day(2036, 7, 4))
+        #expect(both.number == "G1234567" && both.expires == VaultReadingTests.day(2036, 7, 4))
         #expect(both.recovery == .swap)
     }
 

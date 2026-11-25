@@ -133,7 +133,7 @@ public enum VaultReading {
 
     /// Raised whenever a rule changes what is read, so the next Read Documents reads every file
     /// again rather than trusting what an older build made of it.
-    public static let version = 22
+    public static let version = 23
 
     /// Every number on a document, once each, and the numbers it only names.
     /// `roots` are the read folders and `people` the household's, for account numbers: which area
@@ -729,7 +729,8 @@ public struct MachineZone: Equatable, Sendable {
         case fill
         /// A look-alike letter in a field of digits that its usual digit does not fit ("B" for a
         /// 6, not an 8) swapped for another, or an Indian passport's leading letter read as a
-        /// digit swapped back (``readWithSwaps(_:nameLine:kind:digitOnly:)``).
+        /// digit swapped back: after a failed check (``readWithSwaps(_:nameLine:kind:digitOnly:)``),
+        /// or one that passed as G, L or U read as 6, 1 or 0 (VT46).
         case swap
         /// A visa's passport number taken from the number the foil prints beside its zone.
         case printedNumber
@@ -951,11 +952,17 @@ public struct MachineZone: Equatable, Sendable {
         }
         let line = String(chars)
         guard !unknown.isEmpty else {
-            return readWholeSecondLine(line, nameLine: nameLine, kind: kind)
-                ?? readWithSwaps(chars, nameLine: nameLine, kind: kind, digitOnly: digitOnly).map { $0.recovered(.swap) }
+            if let whole = readWholeSecondLine(line, nameLine: nameLine, kind: kind) {
+                return readWithIndianLetter(chars, nameLine: nameLine, kind: kind)?.recovered(.swap) ?? whole
+            }
+            return readWithSwaps(chars, nameLine: nameLine, kind: kind, digitOnly: digitOnly).map { $0.recovered(.swap) }
         }
         // More than two is too much guessing to trust a number by.
         guard unknown.count <= 2 else { return nil }
+        // An Indian number's first character is a letter, and the check accepts any character worth
+        // the same modulo 10 in its place (V as 1, L as 1, B as 1): unread, no one letter can be
+        // told (VT46, the 2026-11-25 review). A US visa's foil may still print it.
+        if unknown.contains(0), Self.isIndianNumber(chars, nameLine: nameLine, kind: kind) { return nil }
         // Each unreadable character tried as a digit or a filler. A check digit fixes one missing
         // character of its field, so a wrong fill fails a check; a reading counts only when one
         // fill alone passes every check.
@@ -963,7 +970,7 @@ public struct MachineZone: Equatable, Sendable {
         var readings: [MachineZone] = []
         func fill(_ chars: [Character], _ at: Int) {
             guard at < unknown.count else {
-                if let zone = readWholeSecondLine(String(chars), nameLine: nameLine, kind: kind),
+                if let zone = readWholeOrLetter(chars, nameLine: nameLine, kind: kind),
                    !readings.contains(zone) { readings.append(zone) }
                 return
             }
@@ -1002,6 +1009,41 @@ public struct MachineZone: Equatable, Sendable {
         "0": ["O", "Q", "D"], "1": ["I", "L"], "2": ["Z"], "5": ["S"], "6": ["G"], "8": ["B"],
     ]
 
+    /// The letters a leading digit of an Indian passport's number may be though the line passed:
+    /// each is worth ten more than the digit (G 16, L 21, U 30), so in the 7-3-1 checks it adds
+    /// the same and no check can fail (VT46). Only these look-alikes: the other letters ten, twenty
+    /// or thirty up (Q, B, V, A, K) look nothing like their digits.
+    private static let passingLetters: [Character: Character] = ["6": "G", "1": "L", "0": "U"]
+
+    /// An Indian passport's line that passed with eight digits and a filler for its number: those
+    /// numbers are always a letter and seven digits, so the first was a letter read as a digit,
+    /// and when it is one that passes as its look-alike, the number is read with the letter.
+    /// Kept only when the line with it passes every check too, as it must.
+    private static func readWithIndianLetter(_ chars: [Character], nameLine: String?, kind: Kind?) -> MachineZone? {
+        guard isIndianNumber(chars, nameLine: nameLine, kind: kind), chars[0..<8].allSatisfy(\.isNumber),
+              chars[8] == "<", let letter = passingLetters[chars[0]] else { return nil }
+        var read = chars
+        read[0] = letter
+        return readWholeSecondLine(String(read), nameLine: nameLine, kind: kind)
+    }
+
+    /// Whether a number line's number is an Indian passport's: an Indian holder's passport, or
+    /// the passport number a US visa's zone carries for one. Another country's visa carries its
+    /// own number, whatever its holder's nationality.
+    private static func isIndianNumber(_ chars: [Character], nameLine: String?, kind: Kind?) -> Bool {
+        guard chars.count >= 13, String(chars[10..<13]) == "IND" else { return false }
+        guard kind == .visa else { return true }
+        let issuer = nameLine.map { Array($0) }.flatMap { $0.count >= 5 ? String($0[2..<5]) : nil }
+        return issuer == "USA"
+    }
+
+    /// A line read whole, with an Indian passport's leading letter put back when it passed as a
+    /// digit (``readWithIndianLetter(_:nameLine:kind:)``): how every filled or swapped line is read.
+    private static func readWholeOrLetter(_ chars: [Character], nameLine: String?, kind: Kind?) -> MachineZone? {
+        readWithIndianLetter(chars, nameLine: nameLine, kind: kind)
+            ?? readWholeSecondLine(String(chars), nameLine: nameLine, kind: kind)
+    }
+
     /// A second try for a line that failed its checks: any digit for a letter in a date, and one
     /// swap in the number only where its format leaves no doubt. Kept only when exactly one set of
     /// swaps passes every check.
@@ -1017,8 +1059,7 @@ public struct MachineZone: Equatable, Sendable {
         for index in chars.indices where digitOnly.contains(index) && chars[index].isLetter {
             options.append((index, Array("0123456789")))
         }
-        let nationality = chars.count >= 13 ? String(chars[10..<13]) : ""
-        if nationality == "IND", chars.count >= 9, chars[0..<8].allSatisfy(\.isNumber), chars[8] == "<",
+        if isIndianNumber(chars, nameLine: nameLine, kind: kind), chars[0..<8].allSatisfy(\.isNumber), chars[8] == "<",
            let letters = numberSwaps[chars[0]] {
             options.append((0, letters))
         }
@@ -1029,7 +1070,7 @@ public struct MachineZone: Equatable, Sendable {
             for x in swaps {
                 var one = chars
                 one[i] = x
-                if let zone = readWholeSecondLine(String(one), nameLine: nameLine, kind: kind),
+                if let zone = readWholeOrLetter(one, nameLine: nameLine, kind: kind),
                    !singles.contains(zone) { singles.append(zone) }
             }
         }
@@ -1042,7 +1083,7 @@ public struct MachineZone: Equatable, Sendable {
                         var two = chars
                         two[i] = x
                         two[j] = y
-                        if let zone = readWholeSecondLine(String(two), nameLine: nameLine, kind: kind),
+                        if let zone = readWholeOrLetter(two, nameLine: nameLine, kind: kind),
                            !pairs.contains(zone) { pairs.append(zone) }
                     }
                 }
@@ -1073,7 +1114,7 @@ public struct MachineZone: Equatable, Sendable {
             let field = Array(number.padding(toLength: 9, withPad: "<", startingAt: 0))
             let differences = zip(field, read).filter { $0 != $1 }.count
             guard differences > 0, differences <= 2 else { continue }
-            if let zone = readWholeSecondLine(String(field + chars[9...]), nameLine: nameLine, kind: .visa),
+            if let zone = readWholeOrLetter(field + chars[9...], nameLine: nameLine, kind: .visa),
                !readings.contains(zone) { readings.append(zone) }
         }
         return readings.count == 1 ? readings[0] : nil

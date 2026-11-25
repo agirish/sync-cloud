@@ -126,6 +126,76 @@ import Testing
         #expect(MachineZone.read([lines[0], String(garbled)]) == nil)
     }
 
+    /// VT46: G, L and U are worth 16, 21 and 30 in a check, so an Indian passport's leading
+    /// letter read as 6, 1 or 0 passes every check. Its number is always a letter and seven
+    /// digits, so eight digits and a filler is a misread letter: the look-alike that keeps every
+    /// check is read. Every number is made up.
+    @Test func anIndianPassportsLeadingLetterReadAsADigitIsReadAsTheLetter() throws {
+        for (letter, digit) in [("G", "6"), ("L", "1"), ("U", "0")] {
+            let lines = Self.zone("P", number: "\(letter)1234567", born: "850514", expires: "330601",
+                                  given: "SHWETA", country: "IND")
+            var misread = Array(lines[1])
+            misread[0] = Character(digit)
+            let zone = try #require(MachineZone.read([lines[0], String(misread)]), "\(letter)")
+            #expect(zone.number == "\(letter)1234567")
+            #expect(zone.recovery == .swap)
+        }
+        // With a character Vision could not read as well: filled, and the letter put back.
+        let lines = Self.zone("P", number: "L1234567", born: "850514", expires: "330601", given: "SHWETA", country: "IND")
+        var garbled = Array(lines[1])
+        garbled[0] = "1"
+        garbled[24] = "~"
+        #expect(MachineZone.read([lines[0], String(garbled)])?.number == "L1234567")
+        // With a date's digit misread too, the swaps that put the date back put the letter back.
+        var both = Array(lines[1])
+        both[0] = "1"
+        both[22] = "B"
+        #expect(MachineZone.read([lines[0], String(both)])?.number == "L1234567")
+        // The first character unreadable: the check takes V, L or B alike for a 1 there, so no
+        // reading (the 2026-11-25 review).
+        var unread = Array(lines[1])
+        unread[0] = "~"
+        #expect(MachineZone.read([lines[0], String(unread)]) == nil)
+        // A US visa carries an Indian holder's passport number: read the same way. Another
+        // country's visa carries its own number, left as read.
+        let visa = Self.zone("V", number: "G1234567", born: "850514", expires: "330601", country: "IND")
+        var sixVisa = Array(visa[1])
+        sixVisa[0] = "6"
+        let us = "V<USA" + visa[0].dropFirst(5)
+        #expect(MachineZone.read([us, String(sixVisa)])?.number == "G1234567")
+        // A visa's zone that fails its check, read again with the number the foil prints: that
+        // printed number read as 6… is put back to G… too.
+        var broken = sixVisa
+        broken[6] = "8"
+        let printed = MachineZone.read(["Passport Number 61234567", us, String(broken)])
+        #expect(printed?.number == "G1234567" && printed?.recovery == .printedNumber)
+        // Unreadable, that first letter is still given by the foil's printed number.
+        var unreadVisa = Array(visa[1])
+        unreadVisa[0] = "~"
+        #expect(MachineZone.read(["Passport Number G1234567", us, String(unreadVisa)])?.number == "G1234567")
+        let other = "V<GBR" + visa[0].dropFirst(5)
+        #expect(MachineZone.read([other, String(sixVisa)])?.number == "61234567")
+        // Nor, after a failed check, is another country's visa's first digit swapped for a letter.
+        let zed = Self.zone("V", number: "Z1234567", born: "850514", expires: "310704", country: "IND")
+        var twoGBR = Array(zed[1])
+        twoGBR[0] = "2"
+        #expect(MachineZone.read(["V<USA" + zed[0].dropFirst(5), String(twoGBR)])?.number == "Z1234567")
+        #expect(MachineZone.read(["V<GBR" + zed[0].dropFirst(5), String(twoGBR)])?.number != "Z1234567")
+        // Nine characters, no filler: not the letter-and-seven-digits shape, read as it is.
+        let nine = Self.zone("P", number: "612345678", born: "850514", expires: "330601", country: "IND")
+        #expect(MachineZone.read(nine)?.number == "612345678")
+        // Another country's eight digits are its number.
+        let uto = Self.zone("P", number: "61234567", born: "850514", expires: "330601", country: "UTO")
+        #expect(MachineZone.read(uto)?.number == "61234567")
+        // A leading digit no look-alike letter can be stands as read.
+        let seven = Self.zone("P", number: "71234567", born: "850514", expires: "330601", country: "IND")
+        #expect(MachineZone.read(seven)?.number == "71234567")
+        // Read as the letter, nothing changes.
+        let right = Self.zone("P", number: "G1234567", born: "850514", expires: "330601", country: "IND")
+        #expect(MachineZone.read(right)?.number == "G1234567")
+        #expect(MachineZone.read(right)?.recovery == .asRead)
+    }
+
     @Test func aStrayCharacterBetweenFieldsIsDroppedAndAnOddLetterInADateFilled() throws {
         let lines = Self.zone("P", number: "Z1234567", born: "550312", expires: "310704", given: "GIRISH", country: "IND")
         // Vision put a "-" after the birth date's check digit, making the line 45 long.
