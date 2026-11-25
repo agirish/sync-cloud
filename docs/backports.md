@@ -16285,6 +16285,9 @@ Batch 32: one person's name written two ways that differ only in case or the mar
 words is one chip in People, written as most papers write it (VT100).
 Batch 33: a typed ID's old number, after its number is changed, is offered in To Confirm when its
 documents print it (VT109).
+Batch 34: an edit saved over another copy's edit of the same ID is refused once, saying so and
+keeping what was typed; saving again replaces it on purpose. An edit keeps the ID's current pin and
+place (VT112).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

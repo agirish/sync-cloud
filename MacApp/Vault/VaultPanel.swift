@@ -225,6 +225,8 @@ struct VaultCard: View {
         let shownOn: UUID?
     }
     @State private var draft = VaultModel.Draft()
+    /// The ID being edited as the editor opened it, or as it was when a save was refused (VT112).
+    @State private var editedFrom: VaultEntry?
     /// The entry Large Type is showing, and its lit line (VT76).
     @State private var largeType: LargeTypeShown?
     @State private var activity = VaultActivityWatch()
@@ -340,7 +342,14 @@ struct VaultCard: View {
         .onChange(of: model.rows.map(\.id)) { _, _ in closeWhatCannotShow(at: model.now) }
         // Back to the search once the editor or Large Type closes, so the arrows, Return and
         // Space work again without a click.
-        .onChange(of: editing) { _, now in if now == nil { focusSearch() } }
+        .onChange(of: editing) { _, now in
+            guard now == nil else { return }
+            focusSearch()
+            // A save's refusal is about the editor just left: it does not stay on the card.
+            if model.notice == VaultModel.editedElsewhere || model.notice == VaultModel.message(for: .changedElsewhere) {
+                model.notice = nil
+            }
+        }
         // Typing in the editor is use: neither the idle limit nor, under "every number", the
         // number's thirty seconds close it, and its edits, mid-note.
         .onChange(of: draft) { _, _ in if editing != nil { model.noteActivity() } }
@@ -4503,8 +4512,12 @@ struct VaultCard: View {
         Task {
             // The editor draws the number in full, so it opens only once that is allowed.
             guard await model.show(entry.id) else { return }
-            draft = model.prepared(VaultModel.Draft(entry), for: entry.id)
+            // As it is now, after the proof: the draft and what a save checks it against are one
+            // reading of it (VT112).
+            let now = model.entry(id: entry.id) ?? entry
+            draft = model.prepared(VaultModel.Draft(now), for: entry.id)
             readValue = nil
+            editedFrom = now
             editing = .existing(entry.id)
             if entry.facts != nil { readCardForEditor(entry.id) } else { cardReading = nil }
         }
@@ -4519,7 +4532,14 @@ struct VaultCard: View {
                 addedWhileLocked = sealed
             }
         case .existing(let id):
-            Task { if await model.update(id, to: draft) { editing = nil } }
+            Task {
+                if await model.update(id, to: draft, editedFrom: editedFrom) {
+                    editing = nil
+                } else if model.notice == VaultModel.editedElsewhere {
+                    // Told once: a second Save replaces the other copy's change on purpose.
+                    editedFrom = model.entry(id: id)
+                }
+            }
         case .confirming(let id):
             // A name nobody in People answers to: ask whether to add them first, so the number
             // has a person, a filter chip, and Organize knows them too.

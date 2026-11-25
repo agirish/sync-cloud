@@ -79,6 +79,65 @@ import Testing
         #expect(try Data(contentsOf: rig.scratch.fileURL) == Data("not a vault".utf8), "nothing written over it")
     }
 
+    /// VT112: both copies edit one ID. The second's editor opened before the first saved, so its
+    /// save is refused once, saying why, not written over the first's edit; saving again, from the
+    /// ID as it now is (as the panel moves it on), replaces it on purpose.
+    @Test func anEditOverAnotherCopysEditOfTheSameIDIsRefusedOnce() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        try rig.seed([VaultModelTests.mortgage])
+        let id = VaultModelTests.mortgage.id
+        let first = rig.model(), second = rig.model()
+        await first.opened()
+        await second.opened()
+        let opened = try #require(second.entry(id: id))
+
+        var theirs = VaultModel.Draft(opened)
+        theirs.note = "Refinanced in 2026"
+        #expect(await first.update(id, to: theirs, editedFrom: try #require(first.entry(id: id))))
+
+        var mine = VaultModel.Draft(opened)
+        mine.title = "Home loan"
+        #expect(await second.update(id, to: mine, editedFrom: opened) == false)
+        #expect(second.notice == VaultModel.editedElsewhere, "said once, and why")
+        #expect(try rig.store.load().first?.note == "Refinanced in 2026", "the first's edit stands")
+
+        #expect(await second.update(id, to: mine, editedFrom: try #require(second.entry(id: id))))
+        #expect(try rig.store.load().first?.title == "Home loan")
+    }
+
+    /// Another copy's change to a different ID, or to what the editor does not show: refused by the
+    /// file once (VT108), then saved; never the edit message.
+    @Test func anEditAfterAnotherCopysOtherChangeSavesAfterTheFilesRefusal() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        try rig.seed([VaultModelTests.mortgage, VaultModelTests.passport])
+        let first = rig.model(), second = rig.model()
+        await first.opened()
+        await second.opened()
+        let opened = try #require(second.entry(id: VaultModelTests.mortgage.id))
+        first.pin(VaultModelTests.passport.id, .older)
+        var mine = VaultModel.Draft(opened)
+        mine.note = "Escrow"
+        #expect(await second.update(opened.id, to: mine, editedFrom: opened) == false)
+        #expect(second.notice == VaultModel.message(for: .changedElsewhere))
+        #expect(await second.update(opened.id, to: mine, editedFrom: opened))
+    }
+
+    /// One copy alone: a row's menu used on the ID being edited is this copy's own change. The save
+    /// is not refused, and keeps the pin the menu chose (the editor shows none).
+    @Test func thisCopysOwnChangeNeverRefusesItsEditAndThePinStays() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        try rig.seed([VaultModelTests.mortgage])
+        let model = rig.model()
+        await model.opened()
+        let opened = try #require(model.entry(id: VaultModelTests.mortgage.id))
+        model.pin(opened.id, .older)
+        var draft = VaultModel.Draft(opened)
+        draft.note = "Escrow"
+        #expect(await model.update(opened.id, to: draft, editedFrom: opened))
+        #expect(model.notice == nil)
+        #expect(model.entry(id: opened.id)?.pin == .older, "the menu's choice is not undone")
+    }
+
     @Test func aStoreSavesOverOnlyTheFileItExpects() throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let made = try rig.store.save([VaultModelTests.passport], expecting: .absent)

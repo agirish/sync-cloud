@@ -1648,6 +1648,7 @@ public final class VaultModel: ObservableObject {
         readingUnreadFields = nil
         readingHeld = false
         onDisk = nil
+        editedElsewhereIDs = []
         readingOnDisk = nil
         readingBase = nil
         // The rows hold every number in full: a closed, locked Vault holds none of them.
@@ -1930,13 +1931,54 @@ public final class VaultModel: ObservableObject {
     /// Changes an entry, after a proof when its number is not already showing: the editor draws
     /// it in full.
     @discardableResult
-    public func update(_ id: UUID, to draft: Draft) async -> Bool {
+    public func update(_ id: UUID, to draft: Draft, editedFrom: VaultEntry? = nil) async -> Bool {
         guard draft.isComplete, let title = entry(id: id)?.title else { return false }
         if lock.needsProof(for: id, at: clock()) {
             guard await prove("change \(title)", for: id) else { return false }
         }
-        return sealingOnce { updating(id, to: draft) }
+        // `editedFrom`: the ID as the editor opened it. Another SyncCloud on this Mac saved an edit
+        // of a field the editor shows since (it came in with a reread): nothing is saved, and the
+        // panel says so; the editor keeps what was typed, and saving again replaces it (VT112).
+        // This copy's own changes (a row's menu) never refuse it.
+        if refusesOverEditElsewhere(id, editedFrom) { return false }
+        let saved = sealingOnce { updating(id, to: draft) }
+        // Refused by the file (VT108): if the reread brought that copy's edit of this very ID, say so
+        // now, so the next Save is the deliberate one.
+        if saved { editedElsewhereIDs.remove(id) } else { _ = refusesOverEditElsewhere(id, editedFrom) }
+        return saved
     }
+
+    /// Whether another copy's edit of `id`, read in since `editedFrom`, stands in the way.
+    private func refusesOverEditElsewhere(_ id: UUID, _ editedFrom: VaultEntry?) -> Bool {
+        guard let editedFrom, editedElsewhereIDs.contains(id), let now = entry(id: id),
+              EditedFields(now) != EditedFields(editedFrom) else { return false }
+        editedElsewhereIDs.remove(id)
+        notice = Self.editedElsewhere
+        return true
+    }
+
+    /// Saved IDs a reread found edited by another SyncCloud (``reloadSavedIDs()``), in a field the
+    /// editor shows: an editor open on one is told once before its save replaces that edit.
+    private var editedElsewhereIDs: Set<UUID> = []
+
+    /// What the editor shows and changes about an ID. Nothing else counts as edited meanwhile: a
+    /// correction's note or a read's details land on the same ID without the user editing it, and
+    /// the pin and place are kept as they are by an edit.
+    private struct EditedFields: Equatable {
+        let title, value, note: String
+        let category: VaultCategory
+        let assignment: VaultAssignment?
+        let card: VaultCardID?
+        let holderName: String?
+
+        init(_ entry: VaultEntry) {
+            (title, value, note, category) = (entry.title, entry.value, entry.note, entry.category)
+            (assignment, card, holderName) = (entry.assignment, entry.card, entry.holderName)
+        }
+    }
+
+    /// Said when an edit was refused because the ID changed since the editor opened (VT112).
+    public static let editedElsewhere = "Another SyncCloud on this Mac changed this ID while you were editing it, so your change wasn’t saved. Save again to replace its change with yours, or Cancel to keep it."
 
     /// ``update(_:to:)`` once its proof is had: nothing here waits, so its seals are one.
     private func updating(_ id: UUID, to draft: Draft) -> Bool {
@@ -1949,8 +1991,9 @@ public final class VaultModel: ObservableObject {
         changed[index].assignment = draft.assignment
         changed[index].note = draft.note.trimmingCharacters(in: .whitespacesAndNewlines)
         changed[index].category = draft.category
-        changed[index].pin = draft.pin
-        changed[index].geo = draft.geo
+        // The editor shows neither: kept as they are now, so a Move to Archive or a place chosen
+        // from the row's menu while the editor is open is not undone by its save.
+
         changed[index].card = draft.card
         let shownRead = rows.first { $0.id == id }?.holderAsRead
         let name = changed[index].facts == nil ? (own: nil, everywhere: nil)
@@ -2071,6 +2114,10 @@ public final class VaultModel: ObservableObject {
     private func reloadSavedIDs() throws {
         guard let store else { throw VaultError.notWritten }
         let (records, state) = try store.loadRecordsAndState()
+        let before = Dictionary(entries.map { ($0.id, EditedFields($0)) }, uniquingKeysWith: { first, _ in first })
+        for entry in records.entries where before[entry.id].map({ $0 != EditedFields(entry) }) == true {
+            editedElsewhereIDs.insert(entry.id)
+        }
         entries = records.entries
         newerRecords = records.newer.count
         onDisk = state
