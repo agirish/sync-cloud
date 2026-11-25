@@ -290,6 +290,33 @@ struct VaultFakeDocuments: VaultDocumentReading {
         #expect(withField.sealedReading.copies[fieldKey] != nil, "kept beside a later build's field")
     }
 
+    /// VT109: a typed ID's number changed. Its documents printed the old one, so they are read
+    /// again and offer it in To Confirm, as for a typed ID removed (owner's call).
+    @Test func aTypedNumberChangedIsOfferedFromItsDocuments() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        var documents = Self.documents
+        documents.stamps = ["/docs/passport.pdf": "1", "/docs/notice.pdf": "1", "/docs/letter.pdf": "1"]
+        let model = rig.model()
+        await model.opened()
+        let id = try #require(model.add(VaultModel.Draft(title: "Receipt", value: "WAC2412345678")))
+        await model.readDocuments(with: documents)
+        #expect(!model.finds.contains { $0.value == "WAC2412345678" }, "saved, it is not offered")
+        #expect(model.sealedReading.copies[VaultReading.normalized("WAC2412345678")] != nil, "its document was given to it")
+        let openedBefore = documents.opened.all.count
+
+        var draft = VaultModel.Draft(try #require(model.entry(id: id)))
+        draft.value = "WAC2412345679"
+        #expect(await model.update(id, to: draft))
+        #expect(model.sealedReading.copies[VaultReading.normalized("WAC2412345678")] == nil)
+        guard case .loaded(let sealed) = rig.store.openReading() else { Issue.record("no reading file"); return }
+        #expect(sealed.copies[VaultReading.normalized("WAC2412345678")] == nil && sealed.read["/docs/notice.pdf"] == nil,
+                "sealed: gone, and its document no longer marked read")
+        await model.readDocuments(with: documents)
+        #expect(model.finds.contains { $0.value == "WAC2412345678" }, "its unchanged document was read again")
+        #expect(Array(documents.opened.all.dropFirst(openedBefore)) == ["/docs/notice.pdf"], "only the document that printed it")
+        #expect(model.entries.map(\.value) == ["WAC2412345679"])
+    }
+
     @Test func aKeychainThatRefusesStillSetsAsideForThisRun() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let model = rig.model()

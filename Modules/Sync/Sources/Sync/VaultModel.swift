@@ -1970,6 +1970,14 @@ public final class VaultModel: ObservableObject {
         if correcting {
             corrected(before.value, to: changed[index].value, for: id, owned: before.readAs ?? [], before: before, find: nil)
         }
+        // A typed number changed: the old one is let go as a removed typed number is, and its
+        // documents read again, so papers that print it offer it in To Confirm (VT109, owner).
+        // Typed means nothing read went into it: no reading, no source, and no note of a reading
+        // merged into it, whose documents would then give that misreading to the new number.
+        if before.facts == nil, before.sourcePath == nil, (before.readAs ?? []).isEmpty,
+           VaultReading.normalized(before.value) != VaultReading.normalized(changed[index].value) {
+            forgetReading(of: before.value, readAgain: true)
+        }
         dropFinds(matching: changed[index].value)
         if correcting { correctionSettled() }
         return true

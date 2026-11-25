@@ -16283,6 +16283,8 @@ titles, the Touch ID prompt, "Its document reads differently now", the editor's 
 document's name; the correction note masks its document's name (VT34).
 Batch 32: one person's name written two ways that differ only in case or the marks between its
 words is one chip in People, written as most papers write it (VT100).
+Batch 33: a typed ID's old number, after its number is changed, is offered in To Confirm when its
+documents print it (VT109).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed
