@@ -16298,6 +16298,8 @@ read, account papers in any archive folder are not read for a number, and TODO (
 TMP or Temp rank a copy lower without archiving it (VT50).
 Batch 39: colors are chosen one way, by swatches, in Customize Groups and a group heading as on a
 card; List offers Show Everything when the choices hide every ID, as Cards and People do (VT75).
+Batch 40: Refresh opens only the document each ID is read from; another document it was also read
+from that changed raises Discover More, once per change (VT107 step 4).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

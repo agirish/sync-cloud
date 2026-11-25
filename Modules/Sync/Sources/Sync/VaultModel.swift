@@ -329,8 +329,21 @@ public final class VaultModel: ObservableObject {
     /// Discover More finds a moved document again by its number.
     @Published public private(set) var missingDocuments: Set<String> = [] { didSet { rowsRevision &+= 1 } }
     /// A refresh has brought the IDs up to this build's rules, and the rest of the folders have
-    /// not been read with them: the panel offers Discover More, once.
+    /// not been read with them: the panel offers Discover More, once. Or Refresh found a copy an
+    /// ID was read from changed (``copiesChanged``).
     @Published public private(set) var needsDiscover = false
+    /// Discover More is offered for copies that changed, not for a change of rules: the banner
+    /// says so.
+    @Published public private(set) var copiesChanged = false
+
+    /// The read index's mark for a copy Refresh found changed and left for Discover More.
+    nonisolated static let noticed = "noticed "
+
+    /// Whether a file's mark in the read index says it was read, or seen, as it now is: read
+    /// whole, read with a page left out (VT54), or noticed changed by Refresh (VT107).
+    nonisolated static func readAsItIs(_ mark: String?, stamp: String) -> Bool {
+        mark == stamp || mark == "partial " + stamp || mark == noticed + stamp
+    }
     @Published public private(set) var lastRefreshed: Date?
     @Published public private(set) var lastDiscovered: Date?
     /// Documents an older build read IDs from, for the refresh that follows a change of rules.
@@ -573,7 +586,7 @@ public final class VaultModel: ObservableObject {
     private var tabCountsCache: (key: ViewKey, counts: [VaultStanding.Tab: Int])?
     private var peopleCache: (key: ViewKey, people: [Person], roles: [String: VaultNameRoles], contacts: [String: VaultContacts],
                               sections: [VaultPersonSection])?
-    private var sourcesCache: (revision: Int, stale: Set<String>, sources: Set<String>)?
+    private var sourcesCache: (revision: Int, stale: Set<String>, own: Set<String>, others: Set<String>)?
     /// ``peopleSections``, worked out again only when what they are made of moved.
     func peopleSections(computing compute: @autoclosure () -> [VaultPersonSection]) -> [VaultPersonSection] {
         let key = viewKey
@@ -1656,25 +1669,40 @@ public final class VaultModel: ObservableObject {
         startReading(with: reader, scope: .refresh())
     }
 
-    /// Every document an ID was read from, saved or waiting: what Refresh looks at. Not the
-    /// documents that only name an ID; those come back with Discover More.
-    public var refreshSources: Set<String> {
-        if let cached = sourcesCache, cached.revision == rowsRevision, cached.stale == staleSources { return cached.sources }
-        let sources = computedRefreshSources
-        sourcesCache = (rowsRevision, staleSources, sources)
-        viewComputations += 1
-        return sources
+    /// The document each ID is read from, saved or waiting, and those an older build read IDs
+    /// from: what Refresh opens. Not an ID's other copies (VT107, owner): Refresh only checks
+    /// those, and one that changed is left for Discover More (``otherSources``). Nor the
+    /// documents that only name an ID; those come back with Discover More too.
+    public var refreshSources: Set<String> { sources.own }
+
+    /// Every other document an ID was read from: a copy filed in a packet or a second folder.
+    /// Refresh asks only whether each is still there and unchanged.
+    var otherSources: Set<String> { sources.others }
+
+    /// The document a saved ID is read from: the copy chosen with Read from This Copy, else the
+    /// one it was saved from, else its most trusted (the 2026-11-25 review).
+    static func ownDocument(of entry: VaultEntry) -> String? {
+        entry.chosenSource ?? entry.sourcePath ?? entry.facts?.primary?.path
     }
 
-    private var computedRefreshSources: Set<String> {
-        var paths = staleSources
-        for entry in entries {
-            if let path = entry.sourcePath { paths.insert(path) }
-            for source in entry.facts?.sources ?? [] { paths.insert(source.path) }
+    private var sources: (own: Set<String>, others: Set<String>) {
+        if let cached = sourcesCache, cached.revision == rowsRevision, cached.stale == staleSources {
+            return (cached.own, cached.others)
         }
-        for find in finds { for source in find.facts.sources { paths.insert(source.path) } }
-        for byFile in copies.values { paths.formUnion(byFile.keys) }
-        return paths
+        var own = staleSources, all = Set<String>()
+        for entry in entries {
+            if let path = Self.ownDocument(of: entry) { own.insert(path) }
+            for source in entry.facts?.sources ?? [] { all.insert(source.path) }
+        }
+        for find in finds {
+            if let path = find.chosenSource ?? find.facts.primary?.path { own.insert(path) }
+            for source in find.facts.sources { all.insert(source.path) }
+        }
+        for byFile in copies.values { all.formUnion(byFile.keys) }
+        let others = all.subtracting(own)
+        sourcesCache = (rowsRevision, staleSources, own, others)
+        viewComputations += 1
+        return (own, others)
     }
 
     /// Not Now, on the banner that offers Discover More after an update: it is not offered again
@@ -1682,6 +1710,7 @@ public final class VaultModel: ObservableObject {
     public func dismissDiscover() {
         guard needsDiscover else { return }
         needsDiscover = false
+        copiesChanged = false
         readingChanged = true
         saveReading()
     }
@@ -2329,23 +2358,49 @@ public final class VaultModel: ObservableObject {
         var refreshKnown = 0
         if case .refresh(let only) = scope {
             let known = only.map { id in rows.first { $0.id == id }?.documents.map(\.path) ?? [] } ?? refreshSources.sorted()
+            // An ID's other copies, for all of them: checked, not opened (VT107, owner).
+            let others = only == nil ? otherSources.sorted() : []
+            // Only a copy Discover More would read again can ask for it: one in a folder it reads.
+            let folders = readFolders
             refreshKnown = known.count
             // One ID's documents are read whether or not they changed: it was asked for.
             let index = only == nil ? readIndex : [:]
+            let checkIndex = readIndex
             // Asked off the main actor: a file's size and date, for a few hundred files.
-            let look = await Task.detached { () -> (changed: [URL], missing: [String]) in
-                var changed: [URL] = [], missing: [String] = []
+            let look = await Task.detached {
+                () -> (changed: [URL], missing: [String], othersMissing: [String], othersChanged: [String: String]) in
+                var changed: [URL] = [], missing: [String] = [], othersMissing: [String] = []
+                var othersChanged: [String: String] = [:]
                 for path in known {
                     let url = URL(fileURLWithPath: path)
                     guard reader.exists(url) else { missing.append(path); continue }
                     if let stamp = reader.stamp(of: url), index[path] == stamp { continue }
                     changed.append(url)
                 }
-                return (changed, missing)
+                for path in others {
+                    let url = URL(fileURLWithPath: path)
+                    guard reader.exists(url) else { othersMissing.append(path); continue }
+                    // Never read under these rules (after a Forget or a change of rules): not
+                    // changed, only unread, and a change of rules offers Discover More itself.
+                    guard folders.contains(where: { path.hasPrefix($0 + "/") }), let mark = checkIndex[path],
+                          let stamp = reader.stamp(of: url), !Self.readAsItIs(mark, stamp: stamp) else { continue }
+                    othersChanged[path] = stamp
+                }
+                return (changed, missing, othersMissing, othersChanged)
             }.value
             guard !Task.isCancelled, contents == .loaded, reading == nil else { return }
             refreshMissing = Set(look.missing)
-            let missing = missingDocuments.subtracting(known).union(refreshMissing)
+            // A copy changed since it was read: what it says shows once Discover More reads it.
+            // Marked as noticed at that size and date, so it asks once per change, not at every
+            // Refresh, whether Discover More then reads it or passes it over (the 2026-11-25 review).
+            if !look.othersChanged.isEmpty {
+                Logger.shared.info("Vault: refresh, \(look.othersChanged.count) other document(s) IDs were read from changed; left for Discover More")
+                for (path, stamp) in look.othersChanged { readIndex[path] = Self.noticed + stamp }
+                if !needsDiscover { needsDiscover = true; copiesChanged = true }
+                readingChanged = true
+            }
+            let missing = missingDocuments.subtracting(known).subtracting(others)
+                .union(refreshMissing).union(look.othersMissing)
             if missing != missingDocuments {
                 missingDocuments = missing
                 readingChanged = true
@@ -2404,7 +2459,7 @@ public final class VaultModel: ObservableObject {
         // own document it opened. Those documents are marked read only then: marked as they are
         // opened, a Stop, a lock or a quit before the end (or the seal every 25 files) would keep
         // them from being opened, and asked about, again.
-        let ownDocuments = scope.isRefresh ? Set(entries.compactMap { $0.sourcePath ?? $0.facts?.primary?.path }) : []
+        let ownDocuments = scope.isRefresh ? Set(entries.compactMap(Self.ownDocument)) : []
         var ownStamps: [String: String] = [:]
         /// What each file's bytes gave, by ``VaultDocumentReading/contentKey(of:)``, for this read.
         var readByContent: [String: ([[String]], Bool)] = [:]
@@ -2651,6 +2706,7 @@ public final class VaultModel: ObservableObject {
         needsReadAgain = false
         // The folders have been read with this build's rules: nothing is left to offer.
         needsDiscover = false
+        copiesChanged = false
         staleSources = []
         lastDiscovered = clock()
         // A document a saved ID points at that the folders no longer hold is marked, and one
@@ -2683,11 +2739,19 @@ public final class VaultModel: ObservableObject {
     /// A refresh of every ID is done: the older build's documents have been read again, and
     /// after a change of rules the rest of the folders are still to be looked at.
     private func finishRefresh(only: UUID?, afterNewRules: Bool) {
+        // Every changed copy it was offered for has been read since (one ID's Refresh opens its
+        // copies too): nothing is left to offer.
+        if copiesChanged, !readIndex.values.contains(where: { $0.hasPrefix(Self.noticed) }) {
+            needsDiscover = false
+            copiesChanged = false
+            readingChanged = true
+        }
         guard only == nil else { return }
         if !staleSources.isEmpty { staleSources = []; readingChanged = true }
         if afterNewRules {
             needsReadAgain = false
             needsDiscover = true
+            copiesChanged = false
             readingChanged = true
         }
         lastRefreshed = clock()
@@ -2833,6 +2897,7 @@ public final class VaultModel: ObservableObject {
                                       staleSources: staleSources.isEmpty ? nil : staleSources.sorted(),
                                       notFound: missingDocuments.isEmpty ? nil : missingDocuments.sorted(),
                                       needsDiscover: needsDiscover ? true : nil,
+                                      copiesChanged: copiesChanged ? true : nil,
                                       lastRefreshed: lastRefreshed, lastDiscovered: lastDiscovered, names: names,
                                       nameRoles: nameRoles.isEmpty ? nil : nameRoles,
                                       contacts: contacts.isEmpty ? nil : contacts)
@@ -2853,6 +2918,7 @@ public final class VaultModel: ObservableObject {
         staleSources = Set(state.staleSources ?? [])
         missingDocuments = Set(state.notFound ?? [])
         needsDiscover = state.needsDiscover ?? false
+        copiesChanged = needsDiscover && state.copiesChanged == true
         lastRefreshed = state.lastRefreshed
         lastDiscovered = state.lastDiscovered
         names = state.names

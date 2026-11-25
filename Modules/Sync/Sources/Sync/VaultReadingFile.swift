@@ -42,15 +42,17 @@ extension VaultReadingState {
                 finds.filter { VaultChoice($0).isChosen }.map { (VaultReading.normalized($0.value), VaultChoice($0)) },
                 uniquingKeysWith: { a, _ in a })) { a, _ in a }
             // What another build read IDs from is where Refresh looks first: remembered, though
-            // what it read there is let go.
+            // what it read there is let go. Each waiting ID's own document only; its other
+            // copies come back with Discover More, which a change of rules offers (VT107, owner).
             var stale = Set(staleSources ?? [])
-            stale.formUnion(finds.flatMap { $0.facts.sources.map(\.path) })
-            stale.formUnion(copies.values.flatMap(\.keys))
+            stale.formUnion(finds.compactMap { $0.facts.primary?.path })
             open.staleSources = stale.isEmpty ? nil : stale.sorted()
             // Asked for whenever anything read is let go: waiting finds, and also what saved
             // numbers took from their documents (a renewed license's expiry), which a Vault with
             // nothing left to confirm would otherwise lose without a word.
             open.needsReadAgain = needsReadAgain || !(finds.isEmpty && copies.isEmpty && read.isEmpty)
+            // Discover More is offered again for the new rules, not for copies.
+            open.copiesChanged = nil
             return (open, true)
         }
         // A Forget since: every file is read again next time.

@@ -556,7 +556,7 @@ struct VaultCard: View {
 
     /// Reading documents, in one menu. A click is Discover More: it looks through the chosen
     /// folders for IDs the Vault does not have yet. The arrow has Refresh, which reads again only
-    /// the documents IDs came from, Read Everything Again, and the folders.
+    /// the document each ID is read from, Read Everything Again, and the folders.
     private var readMenu: some View {
         Menu {
             Button {
@@ -2832,12 +2832,12 @@ struct VaultCard: View {
     private var readAgainBanner: some View {
         if model.needsReadAgain, let reading = model.reading, reading.scope.isRefresh {
             // Refresh runs by itself after an update: nothing to click, only to stop.
-            readingBanner("This version reads documents better. Updating the \(Self.documents(reading.total)) your IDs came from: \(reading.done.formatted()) done.") {
+            readingBanner("This version reads documents better. Updating the \(Self.documents(reading.total)) your IDs are read from: \(reading.done.formatted()) done.") {
                 Button("Stop") { model.stopReading() }
                     .controlSize(.small)
             }
         } else if model.needsReadAgain, model.reading == nil {
-            readingBanner("This version reads documents better. Refresh reads again the \(Self.documents(model.refreshSources.count)) your IDs came from; your choices are kept.") {
+            readingBanner("This version reads documents better. Refresh reads again the \(Self.documents(model.refreshSources.count)) your IDs are read from; your choices are kept.") {
                 Button {
                     read(.refresh())
                 } label: {
@@ -2847,7 +2847,7 @@ struct VaultCard: View {
                 .controlSize(.small)
             }
         } else if model.needsDiscover, model.reading == nil {
-            readingBanner("Your IDs are up to date. The other files in your folders have not been read with this version: Discover More looks through them, and goes on if you close the Vault.") {
+            readingBanner(Self.discoverBanner(copiesChanged: model.copiesChanged)) {
                 Button {
                     read(.discover)
                 } label: {
@@ -4414,7 +4414,15 @@ struct VaultCard: View {
 
     /// The line under Refresh in its menu: how many documents it reads again.
     static func refreshLine(documents count: Int) -> String {
-        count == 0 ? "No ID has been read from a document yet" : "The \(documents(count)) your IDs came from"
+        count == 0 ? "No ID has been read from a document yet" : "The \(documents(count)) your IDs are read from"
+    }
+
+    /// The banner offering Discover More: after a change of rules, or for other documents IDs
+    /// were also read from that changed since, which Refresh leaves to it (VT107).
+    static func discoverBanner(copiesChanged: Bool) -> String {
+        copiesChanged
+            ? "Other documents your IDs were also read from have changed. Discover More looks through them, and goes on if you close the Vault."
+            : "Your IDs are up to date. The other files in your folders have not been read with this version: Discover More looks through them, and goes on if you close the Vault."
     }
 
     static func folders(_ count: Int) -> String { count == 1 ? "1 folder" : "\(count.formatted()) folders" }
@@ -4579,7 +4587,7 @@ struct VaultCard: View {
     }
 
     /// Starts a read of `scope`: the folders (Discover More, Read Everything Again), or only the
-    /// documents IDs came from (Refresh).
+    /// document each ID is read from (Refresh).
     private func read(_ scope: VaultReadScope) {
         guard model.reading == nil else { return }
         let folders = reloadReadFolders()

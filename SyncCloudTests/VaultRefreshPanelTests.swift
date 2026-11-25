@@ -35,7 +35,10 @@ import Testing
         #expect(VaultCard.discoverLine(folders: 1) == "New and changed files in 1 folder")
         #expect(VaultCard.discoverLine(folders: 3) == "New and changed files in 3 folders")
         #expect(VaultCard.refreshLine(documents: 0) == "No ID has been read from a document yet")
-        #expect(VaultCard.refreshLine(documents: 212) == "The 212 documents your IDs came from")
+        #expect(VaultCard.refreshLine(documents: 212) == "The 212 documents your IDs are read from")
+        // Discover More's banner says what it is offered for (VT107).
+        #expect(VaultCard.discoverBanner(copiesChanged: true).hasPrefix("Other documents your IDs were also read from have changed."))
+        #expect(VaultCard.discoverBanner(copiesChanged: false).hasPrefix("Your IDs are up to date."))
     }
 
     @Test func atRestTheFooterSaysWhenEachLastRan() {

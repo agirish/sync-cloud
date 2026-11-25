@@ -51,6 +51,172 @@ import Testing
         func exists(_ file: URL) -> Bool { shelf.exists(file) }
     }
 
+    /// VT107 (owner): Refresh opens only the document each ID is read from. Its other copies
+    /// are checked, not opened, and one that changed is left for Discover More, which the panel
+    /// then offers.
+    @Test func refreshOpensOnlyEachIDsOwnDocumentAndLeavesACopyForDiscoverMore() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add(Self.root, in: rig.defaults)
+        let copy = Self.root + "/Health/Dental/Supporting Documents/card.pdf"
+        let shelf = Shelf([Self.dental: Self.card(group: "0012345"), copy: Self.card(group: "0012345")])
+        let model = rig.model()
+        await model.opened()
+        await model.readDocuments(with: shelf)
+        shelf.forgetOpened()
+        let row = try #require(Self.row(model, "XZB123456789"))
+        #expect(Set(row.documents.map(\.path)) == [Self.dental, copy], "read from both")
+        #expect(model.refreshSources == [Self.dental], "the card's own document is what Refresh opens")
+        // The ID's own document changed: it alone is opened, and nothing waits for Discover More.
+        shelf.write(Self.dental, Self.card(group: "0055555"))
+        await model.readDocuments(with: shelf, scope: .refresh())
+        #expect(shelf.opened == [Self.dental])
+        #expect(!model.needsDiscover)
+        // The copy changed: not opened, but Discover More is offered for it.
+        shelf.forgetOpened()
+        shelf.write(copy, Self.card(group: "0099999"))
+        await model.readDocuments(with: shelf, scope: .refresh())
+        #expect(shelf.opened.isEmpty, "a copy is left for Discover More")
+        #expect(model.needsDiscover)
+        #expect(model.copiesChanged, "the banner says it is for copies")
+        #expect(rig.store.loadReading()?.needsDiscover == true, "and that is sealed")
+        // Not Now holds: the same change does not ask again at the next Refresh.
+        model.dismissDiscover()
+        await model.readDocuments(with: shelf, scope: .refresh())
+        #expect(!model.needsDiscover, "asked again for a copy it had already asked about")
+        // A copy gone is still noticed, and counted apart from the documents Refresh reads.
+        shelf.remove(copy)
+        await model.readDocuments(with: shelf, scope: .refresh())
+        #expect(model.missingDocuments.contains(copy))
+        #expect((model.lastReading?.missing ?? 0) == 0, "the footer counts only what Refresh reads")
+    }
+
+    /// The copy chosen with Read from This Copy is the one Refresh opens; the document it was
+    /// first read from is then the other copy (the 2026-11-25 review).
+    @Test func refreshOpensTheCopyChosenToReadFrom() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add(Self.root, in: rig.defaults)
+        let copy = Self.root + "/Immigration/H-1B/Petition/passport.pdf"
+        let shelf = Shelf([Self.passport: VaultToConfirmTests.passportPage, copy: VaultToConfirmTests.passportPage])
+        let model = rig.model()
+        await model.opened()
+        await model.readDocuments(with: shelf)
+        let row = try #require(model.rows.first { $0.category == .passport })
+        try #require(row.sourceChoices == [copy], "a copy it can be read from")
+        #expect(model.refreshSources == [Self.passport])
+        model.readFrom(row.id, copy: copy)
+        #expect(model.refreshSources == [copy], "the chosen copy is the one it is read from")
+        shelf.forgetOpened()
+        shelf.write(copy, VaultToConfirmTests.passportPage)
+        shelf.write(Self.passport, VaultToConfirmTests.passportPage)
+        await model.readDocuments(with: shelf, scope: .refresh())
+        #expect(shelf.opened == [copy])
+        // Saved, it keeps the choice: Refresh still opens the chosen copy alone.
+        let find = try #require(model.finds.first { $0.facts.category == .passport })
+        let saved = try #require(model.confirm(find.id, as: model.confirmationDraft(find)))
+        try #require(model.entries.first { $0.id == saved }?.chosenSource == copy, "saved with the copy chosen")
+        #expect(model.refreshSources == [copy])
+        shelf.forgetOpened()
+        shelf.write(copy, VaultToConfirmTests.passportPage)
+        shelf.write(Self.passport, VaultToConfirmTests.passportPage)
+        await model.readDocuments(with: shelf, scope: .refresh())
+        #expect(shelf.opened == [copy])
+    }
+
+    /// After a Forget nothing is marked read: the next Refresh opens each ID's own document, and
+    /// says nothing of copies, which are unread, not changed (the 2026-11-25 review).
+    @Test func afterAForgetRefreshSaysNothingOfCopies() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add(Self.root, in: rig.defaults)
+        let copy = Self.root + "/Health/Dental/Supporting Documents/card.pdf"
+        let shelf = Shelf([Self.dental: Self.card(group: "0012345"), copy: Self.card(group: "0012345")])
+        let model = rig.model()
+        await model.opened()
+        await model.readDocuments(with: shelf)
+        VaultSetAside.forget(in: rig.defaults)
+        await model.readDocuments(with: shelf, scope: .refresh())
+        #expect(!model.needsDiscover && !model.copiesChanged)
+    }
+
+    /// A one-ID Refresh reads that ID's copies too: once every copy the banner was for is read,
+    /// the banner goes.
+    @Test func theBannerForCopiesGoesOnceTheyAreRead() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add(Self.root, in: rig.defaults)
+        let copy = Self.root + "/Health/Dental/Supporting Documents/card.pdf"
+        let shelf = Shelf([Self.dental: Self.card(group: "0012345"), copy: Self.card(group: "0012345")])
+        let model = rig.model()
+        await model.opened()
+        await model.readDocuments(with: shelf)
+        shelf.write(copy, Self.card(group: "0012345"))
+        await model.readDocuments(with: shelf, scope: .refresh())
+        #expect(model.copiesChanged)
+        let row = try #require(Self.row(model, "XZB123456789"))
+        await model.readDocuments(with: shelf, scope: .refresh(only: row.id))
+        #expect(!model.needsDiscover && !model.copiesChanged)
+    }
+
+    /// A copy outside the folders chosen to read never asks for Discover More, which would not
+    /// look there (the 2026-11-25 review).
+    @Test func aChangedCopyOutsideTheReadFoldersAsksNothing() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add(Self.root, in: rig.defaults)
+        let copy = Self.root + "/Health/Dental/Supporting Documents/card.pdf"
+        let shelf = Shelf([Self.dental: Self.card(group: "0012345"), copy: Self.card(group: "0012345")])
+        let model = rig.model()
+        await model.opened()
+        await model.readDocuments(with: shelf)
+        // Only the cards' own folder is read now.
+        VaultReadFolders.remove(Self.root, in: rig.defaults)
+        VaultReadFolders.add(Self.root + "/Health/Dental/ID Cards", in: rig.defaults)
+        shelf.write(copy, Self.card(group: "0099999"))
+        await model.readDocuments(with: shelf, scope: .refresh())
+        #expect(!model.needsDiscover)
+    }
+
+    /// A shelf on which one document gives nothing back, as a locked PDF does.
+    final class Locked: VaultDocumentReading, @unchecked Sendable {
+        let shelf: Shelf
+        let path: String
+        private let lock = NSLock()
+        private var triedIt = false
+        var tried: Bool { lock.withLock { triedIt } }
+        init(_ shelf: Shelf, path: String) { self.shelf = shelf; self.path = path }
+        func files() async -> [URL] { await shelf.files() }
+        func pages(in file: URL) async -> [[String]] {
+            if file.path == path { lock.withLock { triedIt = true }; return [] }
+            return await shelf.pages(in: file)
+        }
+        func stamp(of file: URL) -> String? { shelf.stamp(of: file) }
+        func modified(of file: URL) -> Date? { nil }
+        func exists(_ file: URL) -> Bool { shelf.exists(file) }
+    }
+
+    /// A copy Discover More cannot read (locked, damaged) is not marked read: Refresh asks about
+    /// it once per change all the same, never at every Refresh (the 2026-11-25 review).
+    @Test func aChangedCopyDiscoverMoreCannotReadAsksOnce() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add(Self.root, in: rig.defaults)
+        let copy = Self.root + "/Health/Dental/Supporting Documents/card.pdf"
+        let shelf = Shelf([Self.dental: Self.card(group: "0012345"), copy: Self.card(group: "0012345")])
+        let model = rig.model()
+        await model.opened()
+        await model.readDocuments(with: shelf)
+        shelf.write(copy, Self.card(group: "0066666"))
+        await model.readDocuments(with: shelf, scope: .refresh())
+        #expect(model.needsDiscover)
+        // Locked now: nothing comes back from it.
+        let locked = Locked(shelf, path: copy)
+        await model.readDocuments(with: locked)
+        #expect(locked.tried, "Discover More tried the copy")
+        #expect(!model.needsDiscover && !model.copiesChanged, "Discover More ran")
+        await model.readDocuments(with: shelf, scope: .refresh())
+        #expect(!model.needsDiscover, "the copy it could not read asked again")
+        // Changed again: it asks again.
+        shelf.write(copy, Self.card(group: "0077777"))
+        await model.readDocuments(with: shelf, scope: .refresh())
+        #expect(model.needsDiscover)
+    }
+
     /// A Refresh with nothing to open still keeps when it ran: the footer's time outlives the
     /// next lock, not only the panel's session (the 2026-11-23 review).
     @Test func aRefreshWithNothingToOpenKeepsWhenItRan() async throws {

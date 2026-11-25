@@ -162,7 +162,7 @@ struct VaultSettingsTab: View {
             }
             SettingsSection(
                 "Folders to Read",
-                caption: "Discover More in the Vault looks in these folders for passports, visas and OCI cards, I-94 records and USCIS receipt numbers, and for driver’s licenses, Social Security cards, ITINs, PAN, Aadhaar and voter IDs; under Health, Home, Vehicles and School, for account numbers, one paper per account per year. It looks only when you ask, on this Mac, opens only new and changed files after the first time, and adds nothing until you confirm it. Refresh reads again only the documents IDs came from. You can also change the folders from the arrow beside the Vault’s Discover More button."
+                caption: "Discover More in the Vault looks in these folders for passports, visas and OCI cards, I-94 records and USCIS receipt numbers, and for driver’s licenses, Social Security cards, ITINs, PAN, Aadhaar and voter IDs; under Health, Home, Vehicles and School, for account numbers, one paper per account per year. It looks only when you ask, on this Mac, opens only new and changed files after the first time, and adds nothing until you confirm it. Refresh reads again only the document each ID is read from. You can also change the folders from the arrow beside the Vault’s Discover More button."
             ) {
                 SettingsRow("Folders") {
                     // One column, right-aligned: each folder's Remove lines up under the last, and

@@ -60,7 +60,8 @@ import Testing
     }
 
     @Test func underOtherRulesWhatWasReadGoesAndTheUsersOwnStays() {
-        let state = Self.sealed(version: VaultReading.version - 1)
+        var state = Self.sealed(version: VaultReading.version - 1)
+        state.copiesChanged = true
         let (open, changed) = state.opened(generation: 3, people: Self.people)
         #expect(changed, "sealed again at once")
         #expect(open.version == VaultReading.version)
@@ -74,14 +75,29 @@ import Testing
         let carried = VaultChoice(id: UUID(), choices: VaultChoices(geo: .us))
         twice.choices[VaultReading.normalized(state.finds[0].value)] = carried
         #expect(twice.opened(generation: 3, people: Self.people).state.choices[VaultReading.normalized(state.finds[0].value)] == carried)
-        // Where the older rules read is where Refresh looks first.
-        #expect(open.staleSources == [Self.root + "/old.pdf", Self.card, Self.copy].sorted())
+        // Where the older rules read is where Refresh looks first: each waiting ID's own
+        // document, not a copy, which Discover More reads again (VT107, owner).
+        #expect(open.staleSources == [Self.root + "/old.pdf", Self.card].sorted())
         #expect(open.names == state.names)
         #expect(open.nameRoles == state.nameRoles)
         #expect(open.lessons == state.lessons)
         #expect(open.notFound == state.notFound)
         #expect(open.needsDiscover == true)
+        #expect(open.copiesChanged == nil, "Discover More is offered for the new rules, not for copies")
         #expect(open.lastRefreshed == VaultRig.t0)
+    }
+
+    /// Discover More offered for copies that changed (VT107) is sealed as such, and an older
+    /// file without the field opens without it.
+    @Test func whatRaisedDiscoverMoreIsSealed() throws {
+        var state = Self.sealed()
+        state.needsDiscover = true
+        state.copiesChanged = true
+        let back = try JSONDecoder().decode(VaultReadingState.self, from: JSONEncoder().encode(state))
+        #expect(back.copiesChanged == true && back.needsDiscover == true)
+        #expect(VaultReadingState.storedKeys.contains("copiesChanged"))
+        state.copiesChanged = nil
+        #expect(try JSONDecoder().decode(VaultReadingState.self, from: JSONEncoder().encode(state)).copiesChanged == nil)
     }
 
     @Test func underOtherRulesWithNothingReadNoReadIsAskedFor() {

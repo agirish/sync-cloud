@@ -1253,6 +1253,8 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
     /// A refresh has followed a change of rules, and the other files have not been read with
     /// the new ones: the panel offers Discover More.
     public var needsDiscover: Bool?
+    /// What raised ``needsDiscover``: copies Refresh found changed, not a change of rules.
+    public var copiesChanged: Bool?
     public var lastRefreshed: Date?
     public var lastDiscovered: Date?
     /// Names the user corrected everywhere (Edit's Name, for every ID read so): the name as read,
@@ -1270,13 +1272,14 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
                 copies: [String: [String: VaultFind]] = [:], choices: [String: VaultChoice] = [:],
                 needsReadAgain: Bool = false, lessons: [String: VaultCardID] = [:],
                 staleSources: [String]? = nil, notFound: [String]? = nil, needsDiscover: Bool? = nil,
-                lastRefreshed: Date? = nil, lastDiscovered: Date? = nil, names: [String: String] = [:],
+                copiesChanged: Bool? = nil, lastRefreshed: Date? = nil, lastDiscovered: Date? = nil, names: [String: String] = [:],
                 nameRoles: [String: VaultNameRoles]? = nil, contacts: [String: VaultContacts]? = nil) {
         self.nameRoles = nameRoles
         self.contacts = contacts
         self.staleSources = staleSources
         self.notFound = notFound
         self.needsDiscover = needsDiscover
+        self.copiesChanged = copiesChanged
         self.lastRefreshed = lastRefreshed
         self.lastDiscovered = lastDiscovered
         self.version = version
@@ -1293,7 +1296,7 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case version, generation, finds, read, mentions, copies, choices, needsReadAgain, lessons
-        case staleSources, notFound, needsDiscover, lastRefreshed, lastDiscovered, names, nameRoles, contacts
+        case staleSources, notFound, needsDiscover, copiesChanged, lastRefreshed, lastDiscovered, names, nameRoles, contacts
     }
 
     /// Every key this build reads. One outside it is a later build's, kept as it came
@@ -1325,6 +1328,7 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
         staleSources = try? c.decodeIfPresent([String].self, forKey: .staleSources)
         notFound = try? c.decodeIfPresent([String].self, forKey: .notFound)
         needsDiscover = try? c.decodeIfPresent(Bool.self, forKey: .needsDiscover)
+        copiesChanged = try? c.decodeIfPresent(Bool.self, forKey: .copiesChanged)
         lastRefreshed = try? c.decodeIfPresent(Date.self, forKey: .lastRefreshed)
         lastDiscovered = try? c.decodeIfPresent(Date.self, forKey: .lastDiscovered)
         names = (try? c.decodeIfPresent([String: String].self, forKey: .names)) ?? [:]

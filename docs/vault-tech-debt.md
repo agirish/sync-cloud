@@ -53,9 +53,8 @@ Read by [`RELEASE.md`](../RELEASE.md) §4.
 ## Open: the owner's calls
 
 Each changes what the user sees, gets or is asked.
-- **VT107 steps 3–5** (steps 1–2 done, batch 4): pass over a supporting copy whose numbers are all held
-  from a home-folder source; Refresh reopens only each ID's own file; keep Vision's page text sealed so a
-  version bump re-runs the rules, not the OCR (stores document text).
+- **VT107 step 3** (owner: yes; steps 1–2 batch 4, step 4 batch 40; step 5 not wanted, it would store
+  document text): pass over a supporting copy whose numbers are all held from a home-folder source.
 - **Reader accuracy**, each changes what is read (a made-up page that fails first, a version bump, the
   harness):
 
@@ -130,6 +129,7 @@ Each changes what the user sees, gets or is asked.
 | VT99, VT101 | A role change publishes and rebuilds no rows | 2026-11-21 |
 | VT104 | Waiting finds merged at every open: measured out (~60 ms for 200); if ever needed, key on the build that sealed the file, never a hand-bumped number | 2026-11-21 |
 | VT107 (1, 2) | A byte-identical file read once; originals first | batch 4 |
+| VT107 (4) | By the owner's call, Refresh opens only the document each ID is read from (the copy chosen with Read from This Copy, else the one saved from, else the most trusted); its other documents are checked for size and date. One gone is marked File not found; one changed in a folder Discover More reads is marked noticed in the read index and raises Discover More's banner, worded for it, once per change. A change of rules remembers only waiting IDs' own documents | batch 40 |
 | VT76 | View state that duplicated the model's: the layout and Large Type (batch 11); the household from the window's `VaultHost`, drawn from `model.people` alone, and the read folders reloaded in one place (batch 23). `namingKindFor`/`newKindName` and `copied`/`copiedDetail` stay pairs: one optional would blank the name as its sheet slides away, and an ID's and a detail's "Copied" show together | batches 11, 23 |
 | VT7 | `readDocuments`' pieces as steps of their own; last, the walk and the plan (`plannedSteps`), with every place a read can stop kept | batches 9, 10, 24 |
 | VT113 | Not done, by the owner's call (2026-11-24): what the Vault guards is the ID it read or was given, its number field; a number typed into a title or a note is the user's own text, drawn as typed. (Activity and the Touch ID prompt already mask one, from VT34.) | 2026-11-24 |
