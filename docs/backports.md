@@ -16273,6 +16273,9 @@ so IDs removed before batch 25 stop counting in Refresh; not while anything a la
 there, nor in a Vault with no ID (VT110).
 Batch 27: a save over a Vault file another copy of SyncCloud saved since is refused, the IDs are
 read again and the panel says so, so neither copy drops what the other saved (VT108).
+Batch 28: the reading file too: a seal over one another copy sealed merges what the user typed or
+chose in each (names, roles and contacts field by field, lessons, each waiting ID's choices) and
+seals again (VT111).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

@@ -1640,6 +1640,8 @@ public final class VaultModel: ObservableObject {
         readingUnreadFields = nil
         readingHeld = false
         onDisk = nil
+        readingOnDisk = nil
+        readingBase = nil
         // The rows hold every number in full: a closed, locked Vault holds none of them.
         rowsCache = nil
         // The panel's lists hold the rows, dates of birth and paths too: let go with them.
@@ -1662,7 +1664,9 @@ public final class VaultModel: ObservableObject {
             onDisk = state
             contents = .loaded
             readGeneration = VaultSetAside.generation(in: defaults)
-            switch store.openReading() {
+            let (reading, readingState) = store.openReadingAndState()
+            readingOnDisk = readingState
+            switch reading {
             case .none: break
             case .keyRefused:
                 // The Keychain would not give the key just now: what the file holds is unknown,
@@ -1677,11 +1681,14 @@ public final class VaultModel: ObservableObject {
                 if store.setAsideReading() == nil, store.hasReadingFile {
                     readingHeld = true
                     Logger.shared.warning("Vault: the reading file that did not open stays where it is, and nothing read this time is sealed")
+                } else {
+                    readingOnDisk = .absent
                 }
             case .loaded(let sealed):
                 let opened = sealed.opened(generation: readGeneration, people: people)
                 hold(opened.state)
                 if opened.changed { readingChanged = true }
+                readingBase = OwnReading(sealed)
                 dropOrphanedCopies(laterFields: !records.laterFields.isEmpty || !records.stored.isEmpty)
             }
             // Counts and the lock's settings only (VT22): never a title.
@@ -2013,7 +2020,11 @@ public final class VaultModel: ObservableObject {
 
     /// Saves `changed` and, only once the disk has it, shows it. A refused save leaves the list as
     /// it was, so the panel never shows a number that would be gone at the next launch.
-    private func write(_ changed: [VaultEntry]) -> Bool {
+    ///
+    /// `quietly`, for a write the user did not ask for just now (a correction's note, made once its
+    /// documents are read): refused because another SyncCloud saved, the Vault is read again but
+    /// nothing says "make your change again", since the change asked for was saved.
+    private func write(_ changed: [VaultEntry], quietly: Bool = false) -> Bool {
         guard let store else { notice = Self.message(for: .notWritten); return false }
         // Only over what was loaded: a list held while the Vault was let go is not the Vault.
         guard contents == .loaded else { return false }
@@ -2025,7 +2036,7 @@ public final class VaultModel: ObservableObject {
         } catch VaultError.changedElsewhere {
             do {
                 try reloadSavedIDs()
-                notice = Self.message(for: .changedElsewhere)
+                if !quietly { notice = Self.message(for: .changedElsewhere) }
             } catch {
                 // Not read again: what this copy shows is not the Vault, and saying so would be
                 // false. The reason it would not read is what is shown.
@@ -2649,11 +2660,153 @@ public final class VaultModel: ObservableObject {
         // would write that over what was read. Never over a damaged file that would not move.
         guard readingChanged, contents == .loaded, !readingHeld, let store else { return }
         do {
-            try store.saveReading(sealedReading)
-            readingChanged = false
+            try seal(in: store)
+        } catch VaultError.changedElsewhere {
+            // Another SyncCloud sealed it since: what it holds that is the user's own is merged
+            // with this copy's, and sealed again, once. Refused again, the next seal tries.
+            guard mergeOtherCopysReading(from: store) else { return }
+            do { try seal(in: store) } catch {
+                Logger.shared.warning("Vault: To Confirm could not be sealed after another SyncCloud sealed it; the next seal tries again")
+            }
         } catch {
             Logger.shared.warning("Vault: To Confirm could not be sealed; the next read finds it again")
         }
+    }
+
+    private func seal(in store: VaultStore) throws {
+        readingOnDisk = try store.saveReading(sealedReading, expecting: readingOnDisk)
+        readingBase = OwnReading(sealedReading)
+        readingChanged = false
+    }
+
+    /// The reading file as this model last read or sealed it, for a seal to expect (VT111). Nil
+    /// while nothing is loaded.
+    private var readingOnDisk: VaultFileState?
+    /// What was the user's own in it then: what a seal over another copy's merges against.
+    private var readingBase: OwnReading?
+
+    /// The fields of the reading file nothing reads back from a document: the user typed or
+    /// chose them. What was read (copies, mentions, the read index) stays this copy's: a read
+    /// finds it again. Waiting IDs are kept by number, for what was chosen about each.
+    struct OwnReading: Equatable {
+        var names: [String: String] = [:]
+        var nameRoles: [String: VaultNameRoles] = [:]
+        var contacts: [String: VaultContacts] = [:]
+        var lessons: [String: VaultCardID] = [:]
+        var choices: [String: VaultChoice] = [:]
+        /// Each waiting ID's choices, by its number.
+        var waiting: [String: VaultChoices] = [:]
+
+        init() {}
+
+        init(_ state: VaultReadingState) {
+            names = state.names
+            nameRoles = state.nameRoles ?? [:]
+            contacts = state.contacts ?? [:]
+            lessons = state.lessons
+            choices = state.choices
+            waiting = Dictionary(state.finds.map { (VaultReading.normalized($0.value), $0.choices) },
+                                 uniquingKeysWith: { first, _ in first })
+        }
+    }
+
+    /// How many times this model merged another copy's reading file, for a test.
+    private(set) var readingMerges = 0
+
+    /// Another SyncCloud sealed the reading file since this one read it: for each name, role,
+    /// contact, lesson and choice, this copy's stands where it changed it since, and the other's
+    /// everywhere else, so neither loses what was typed. Both changed one person's contacts or
+    /// roles: merged field by field, a list keeping what each added and dropping what each
+    /// removed. A waiting ID the other took out of To Confirm (confirmed, set aside) leaves it
+    /// here too, unless this copy chose something about it since. False when the other's file
+    /// does not open here: nothing is sealed over it, and the panel says so.
+    private func mergeOtherCopysReading(from store: VaultStore) -> Bool {
+        let (load, state) = store.openReadingAndState()
+        let base = readingBase ?? OwnReading(), ours = OwnReading(sealedReading)
+        let theirs: OwnReading
+        switch load {
+        case .loaded(let sealed):
+            theirs = OwnReading(sealed)
+            // What a later build stored in it goes on with it.
+            readingLaterFields = sealed.laterFields
+            readingUnreadFields = sealed.unreadFields
+        case .none:
+            // Gone: set aside by the other copy, or by this store for a key it had to make. Not a
+            // sign anything typed was let go, so nothing is: this copy's stands, as before VT111.
+            theirs = base
+        case .keyRefused, .damaged:
+            notice = "Another SyncCloud on this Mac saved what the Vault read in a form this one can’t open, so changes here to names, contacts and To Confirm aren’t kept. Quit one of them."
+            Logger.shared.warning("Vault: another SyncCloud sealed a reading file this one cannot open; nothing is sealed over it")
+            return false
+        }
+        names = Self.merged(base.names, ours.names, theirs.names) { _, ours, _ in ours }
+        nameRoles = Self.merged(base.nameRoles, ours.nameRoles, theirs.nameRoles, both: Self.mergedRoles)
+        contacts = Self.merged(base.contacts, ours.contacts, theirs.contacts, both: Self.mergedContacts)
+        lessons = Self.merged(base.lessons, ours.lessons, theirs.lessons) { _, ours, _ in ours }
+        choices = Self.merged(base.choices, ours.choices, theirs.choices) { _, ours, _ in ours }
+        let taken = Set(ours.waiting.keys.filter { base.waiting[$0] != nil && theirs.waiting[$0] == nil
+                                                   && ours.waiting[$0] == base.waiting[$0] })
+        finds.removeAll { taken.contains(VaultReading.normalized($0.value)) }
+        for index in finds.indices {
+            let key = VaultReading.normalized(finds[index].value)
+            if let chosen = theirs.waiting[key], ours.waiting[key] == base.waiting[key], chosen != base.waiting[key] {
+                finds[index].choices = chosen
+            }
+        }
+        resplitWaiting()
+        // Lessons draw no row of their own: what they move is drawn again.
+        objectWillChange.send()
+        readingOnDisk = state
+        readingBase = theirs
+        readingMerges += 1
+        // Counts only.
+        Logger.shared.info("Vault: another SyncCloud sealed the reading file; merged with it, \(taken.count) waiting ID(s) it took out of To Confirm")
+        return true
+    }
+
+    /// `ours` where this copy changed a key since `base`, `theirs` everywhere else; a key both
+    /// changed is `both`'s.
+    nonisolated static func merged<Value: Equatable>(_ base: [String: Value], _ ours: [String: Value], _ theirs: [String: Value],
+                                                    both: (Value?, Value?, Value?) -> Value?) -> [String: Value] {
+        var result = theirs
+        for key in Set(base.keys).union(ours.keys) where ours[key] != base[key] {
+            result[key] = theirs[key] == base[key] ? ours[key] : both(base[key], ours[key], theirs[key])
+        }
+        return result
+    }
+
+    /// A list both changed: the other's, with what this one added and without what it removed.
+    nonisolated static func merged<Item: Equatable>(_ base: [Item], _ ours: [Item], _ theirs: [Item]) -> [Item] {
+        let removed = base.filter { !ours.contains($0) }
+        return theirs.filter { !removed.contains($0) } + ours.filter { !base.contains($0) && !theirs.contains($0) }
+    }
+
+    /// One field both may have changed: this copy's where it did.
+    nonisolated static func merged<Field: Equatable>(_ base: Field, _ ours: Field, _ theirs: Field) -> Field {
+        ours != base ? ours : theirs
+    }
+
+    /// One person's contacts both copies changed: list by list. Taken away by one and changed by
+    /// the other, they stay: nothing typed is lost to a removal made beside it.
+    nonisolated static func mergedContacts(_ base: VaultContacts?, _ ours: VaultContacts?, _ theirs: VaultContacts?) -> VaultContacts? {
+        guard let ours, let theirs else { return ours ?? theirs }
+        let base = base ?? VaultContacts()
+        let result = VaultContacts(phones: merged(base.phones, ours.phones, theirs.phones),
+                                   emails: merged(base.emails, ours.emails, theirs.emails),
+                                   addresses: merged(base.addresses, ours.addresses, theirs.addresses),
+                                   notTheirs: merged(base.notTheirs, ours.notTheirs, theirs.notTheirs),
+                                   notTheirPhones: merged(base.notTheirPhones, ours.notTheirPhones, theirs.notTheirPhones))
+        return result.isEmpty ? nil : result
+    }
+
+    /// One person's name roles both copies changed: role by role, the kept spellings as a list.
+    nonisolated static func mergedRoles(_ base: VaultNameRoles?, _ ours: VaultNameRoles?, _ theirs: VaultNameRoles?) -> VaultNameRoles? {
+        guard let ours, let theirs else { return ours ?? theirs }
+        let base = base ?? VaultNameRoles()
+        let result = VaultNameRoles(legal: merged(base.legal, ours.legal, theirs.legal),
+                                    goesBy: merged(base.goesBy, ours.goesBy, theirs.goesBy),
+                                    kept: merged(base.kept, ours.kept, theirs.kept))
+        return result.isEmpty ? nil : result
     }
 
     /// Adds a find as an entry, as the editor left it, and takes it out of To Confirm.
@@ -2772,7 +2925,7 @@ public final class VaultModel: ObservableObject {
 
     /// Adds `notes` to the saved ID `id`, once its documents were read for them, while it is still
     /// `value`: an ID put back by Undo meanwhile gets none.
-    private func note(_ notes: [VaultReadAs], for id: UUID, as value: String, of documents: Int) {
+    private func note(_ notes: [VaultReadAs], for id: UUID, as value: String, of documents: Int, retry: Bool = true) {
         guard contents == .loaded, let index = entries.firstIndex(where: { $0.id == id }),
               VaultReading.normalized(entries[index].value) == value else {
             Logger.shared.info("Vault: a corrected ID's note was not written; the Vault locked, or the ID went or changed")
@@ -2788,7 +2941,12 @@ public final class VaultModel: ObservableObject {
         for note in notes where !kept.contains(where: { $0.contents == note.contents }) { kept.append(note) }
         guard kept != (changed[index].readAs ?? []) else { return }
         changed[index].readAs = kept
-        guard write(changed) else { return }
+        guard write(changed, quietly: true) else {
+            // Refused because another SyncCloud saved: the IDs were read again, and the note goes
+            // onto them once, if the ID is still there and still this number.
+            if retry, onDisk != nil { note(notes, for: id, as: value, of: documents, retry: false) }
+            return
+        }
         Logger.shared.info("Vault: a corrected ID keeps a note for \(notes.count) of its \(documents) document(s)")
     }
 

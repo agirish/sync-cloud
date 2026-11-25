@@ -755,8 +755,16 @@ public struct VaultStore {
     /// start's first save would make a new key and write over it. A key the Keychain will not give
     /// right now is ``ReadingLoad/keyRefused``: it may give it later in the same run, and an empty
     /// state sealed then would write over the file.
-    public func openReading() -> ReadingLoad {
-        guard let data = fileManager.contents(atPath: readingURL.path) else {
+    public func openReading() -> ReadingLoad { openReadingAndState().load }
+
+    /// ``openReading()``, and the file as it was read, for a seal to expect (VT111).
+    public func openReadingAndState() -> (load: ReadingLoad, onDisk: VaultFileState) {
+        let data = fileManager.contents(atPath: readingURL.path)
+        return (openReading(data), .of(data))
+    }
+
+    private func openReading(_ data: Data?) -> ReadingLoad {
+        guard let data else {
             guard hasReadingFile else { return .none }
             // Held, not set aside: a refused read can pass, and the next open tries again.
             Logger.shared.warning("Vault: the reading file is there but could not be read from disk — nothing is sealed over it")
@@ -836,16 +844,35 @@ public struct VaultStore {
     /// Seals Read Documents' state. Makes the key on a Mac that has neither key nor Vault file,
     /// as a first read before any number is added needs.
     /// What a later build stored in it (``VaultReadingState/laterFields``) goes back with it.
-    public func saveReading(_ state: VaultReadingState) throws {
+    ///
+    /// `expecting`: the file as the sealing copy of the app last saw it. One that no longer matches
+    /// was sealed by another SyncCloud meanwhile, and is not written over (VT111): the caller
+    /// merges what that one holds and seals again. Nil checks nothing: a restore writes what it
+    /// was asked to.
+    ///
+    /// Answers the file as it now is, for the next seal to expect.
+    @discardableResult
+    public func saveReading(_ state: VaultReadingState, expecting: VaultFileState? = nil) throws -> VaultFileState {
         let plain = try VaultFile.merging(VaultFile.merging(VaultFile.jsonEncoder().encode(state), state.laterFields),
                                           state.unreadFields, whereOursIsEmpty: true)
         let sealed = try VaultFile.sealPlain(plain, marker: VaultFile.readingMarker, with: try keyForWriting())
+        // Asked last, just before the write: the window another copy's seal can land in is the
+        // write itself.
+        if let expecting {
+            let now = fileManager.contents(atPath: readingURL.path)
+            // There and unreadable is not a change; the write below says whether it can go.
+            if !(now == nil && hasReadingFile), VaultFileState.of(now) != expecting {
+                Logger.shared.warning("Vault: the reading file changed since it was read here — another SyncCloud sealed it; nothing was written over it")
+                throw VaultError.changedElsewhere
+            }
+        }
         do {
             try SealedFile.write(sealed, to: readingURL, fileManager: fileManager)
         } catch {
             Logger.shared.warning("Vault: the reading file could not be written — \(error.localizedDescription)")
             throw VaultError.notWritten
         }
+        return .of(sealed)
     }
 
     /// The key, made here only when there is neither key nor file. With a file on disk and no

@@ -3639,6 +3639,8 @@ struct VaultCard: View {
                     newFieldLabel = ""
                     newFieldValue = ""
                     newFieldHidden = false
+                    // The sheet says why its own save was refused, never an earlier action's.
+                    model.notice = nil
                     addingFieldTo = row.id
                 }
                 .buttonStyle(.link)
@@ -3671,6 +3673,8 @@ struct VaultCard: View {
                 .autocorrectionDisabled()
             Toggle("Hide It Like an ID", isOn: $newFieldHidden)
                 .toggleStyle(.checkbox)
+            // A refused save stays open: why is said here, not behind the sheet.
+            noticeText
             HStack {
                 Spacer()
                 Button("Cancel") { addingFieldTo = nil }
@@ -3724,6 +3728,7 @@ struct VaultCard: View {
             guard await model.showTogether([id] + candidates.map(\.id), reason: "merge \(row.title)") else { return }
             mergeInto = first.id
             mergeKeepsReading = false
+            model.notice = nil
             mergingFrom = id
         }
     }
@@ -3762,6 +3767,7 @@ struct VaultCard: View {
                 .scaledFont(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            noticeText
             HStack {
                 Spacer()
                 Button("Cancel") { mergingFrom = nil }
