@@ -1076,6 +1076,22 @@ public final class VaultModel: ObservableObject {
         resplitWaiting()
     }
 
+    /// A waiting ID as Add to Vault opens it: whose it is, when nobody chose, goes by the name as
+    /// corrected, as its row does, not as printed (VT70, owner): a person the corrected name answers
+    /// to is proposed, and saved, as one the printed name answered to always was. The rows' other
+    /// answers (a folder's person, a birth date, the household for a nameless account) stay the
+    /// Vault's guesses, worked out again after Confirm as before: saved as choices they would rank
+    /// the ID otherwise (a household account grouped with others, the older one archived).
+    public func confirmationDraft(_ find: VaultFind) -> Draft {
+        var draft = Draft(find, people: people)
+        if find.assignment == nil, draft.personID == nil,
+           let corrected = rows.first(where: { $0.id == find.id })?.facts?.holder,
+           let person = VaultModel.person(named: corrected, among: people) {
+            draft.personID = person
+        }
+        return prepared(draft, for: find.id)
+    }
+
     /// `draft` as Edit opens it: its Name holding the correction in force (this ID's own, else
     /// one made everywhere), and Everywhere ticked when that is where it comes from. Saving it
     /// unchanged changes nothing for any other ID. With `id`, the name compared is the one that

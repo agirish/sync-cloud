@@ -421,6 +421,41 @@ import Testing
         #expect(chip.name.contains("-") && chip.alsoWritten.count == 1, "\(chip.name)")
     }
 
+    /// VT70: Add to Vault proposes whose a waiting ID is as its row says, the name corrected, not
+    /// by the name as printed; a choice made already stands.
+    @Test func addToVaultProposesWhoseItIsAsItsRowSays() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add(Self.root, in: rig.defaults)
+        let model = rig.model()
+        model.people = Self.people
+        await model.opened()
+        await model.readDocuments(with: VaultAccountModelTests.PlannedDocuments(pages: [
+            Self.notice: ["I-797A Approval Notice", "Receipt Number WAC2412345678", "Beneficiary OLSEN, KARI", "Received Date 01/05/2026"],
+        ]))
+        let find = try #require(model.finds.first { $0.value == "WAC2412345678" })
+        #expect(VaultModel.Draft(find, people: model.people).personID == nil, "printed, the name answers to nobody")
+        model.correctEverywhere(VaultReading.spellingKey("Kari Olsen"), to: "Anna Maria Eriksson")
+        let row = try #require(model.rows.first { $0.id == find.id })
+        try #require(row.personID == "anna", "the row goes by the name as corrected")
+        #expect(model.confirmationDraft(find).personID == "anna")
+        let id = try #require(model.confirm(find.id, as: model.confirmationDraft(find)))
+        #expect(model.entry(id: id)?.assignment == .person("anna"), "Confirm saves what the list showed")
+    }
+
+    /// A nameless account the rows give to the household stays the Vault's guess: proposed as no
+    /// choice, so Confirm saves none and it is ranked on its own, as before VT70.
+    @Test func aNamelessAccountsHouseholdStaysAGuess() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.model(rig)
+        let bill = try #require(model.finds.first { $0.category == .utilities })
+        try #require(model.rows.first { $0.id == bill.id }?.isHousehold == true)
+        let draft = model.confirmationDraft(bill)
+        #expect(!draft.isHousehold && draft.personID == nil)
+        let id = try #require(model.confirm(bill.id, as: draft))
+        #expect(model.entry(id: id)?.assignment == nil)
+        #expect(model.rows.first { $0.id == id }?.isHousehold == true, "still the household's, by the guess")
+    }
+
     @Test func aNameReadWithALineBreakOrInAnotherCaseIsTheSameName() {
         #expect(VaultPersonText.tidied("\nanna  maria\tEriksson ") == "anna maria Eriksson")
         #expect(VaultPersonText.tidied("Anna Maria Eriksson") == "Anna Maria Eriksson")

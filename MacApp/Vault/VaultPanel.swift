@@ -4564,7 +4564,7 @@ struct VaultCard: View {
     private func startConfirming(_ find: VaultFind, correcting: Bool = false) {
         Task {
             guard await model.show(find.id) else { return }
-            draft = model.prepared(VaultModel.Draft(find, people: people), for: find.id)
+            draft = model.confirmationDraft(find)
             readValue = find.value
             editing = .confirming(find.id)
             readCardForEditor(find.id)

@@ -53,8 +53,6 @@ Read by [`RELEASE.md`](../RELEASE.md) §4.
 ## Open: the owner's calls
 
 Each changes what the user sees, gets or is asked.
-- **VT70, "whose is it" worked out in two places**: the editor by the name as read, the row by the
-  corrected name and three inferences. Letting the editor take the row's changes what Confirm offers.
 - **VT50's two**: `VaultCopies` taking the read folders (a read folder inside an Archive folder makes
   every copy there archived); `recordFolders` skipping `…/Archive/` while reading `…/Archived/` and
   `…/Old/`.
@@ -125,6 +123,7 @@ Each changes what the user sees, gets or is asked.
 | VT69 | The user's choices as one value (`VaultChoices`) | batch 9 |
 | VT71, VT94–VT97, VT105 | Rows-cache, scratch-defaults, backup, swatch and name-role tests | batch 5 |
 | VT74 | Render tests wrote the backup and read Folders to Read live: both now come with the model (`VaultModel.live()`'s; none and scratch settings in tests), and `VaultReadFolders` takes no default settings. A render still reads the owner's sharing settings (capture, clipboard time); it writes nothing | batch 24 |
+| VT70 | Add to Vault proposes whose a waiting ID is by the name as corrected, as its row does, not as printed, and Confirm saves it as it always saved a printed name's person. The rows' other answers (a folder's person, a birth date, the household for a nameless account) stay guesses, worked out again after Confirm: saved as choices, a household account would be grouped and the older archived. Edit keeps what was chosen. Owner's call | batch 36 |
 | VT72 | Activity lists a title whole (`VaultMask.text`), not cut at its last slash | 2026-11-24 |
 | VT75 | Duplicated view code, but the pickers and List's empty state | batches 8, 22 |
 | VT77, VT78, VT82, VT83, VT84 | Masonry measured once, colors made once, renders and readings once per page, labels once per page | batch 6 |
