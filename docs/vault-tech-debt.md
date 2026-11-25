@@ -55,8 +55,6 @@ Read by [`RELEASE.md`](../RELEASE.md) §4.
 Each changes what the user sees, gets or is asked.
 - **VT70, "whose is it" worked out in two places**: the editor by the name as read, the row by the
   corrected name and three inferences. Letting the editor take the row's changes what Confirm offers.
-- **VT35's question**: whether copied names and dates are concealed and cleared too. (One copy path
-  done, batch 19.)
 - **VT50's two**: `VaultCopies` taking the read folders (a read folder inside an Archive folder makes
   every copy there archived); `recordFolders` skipping `…/Archive/` while reading `…/Archived/` and
   `…/Old/`.
@@ -108,7 +106,7 @@ Each changes what the user sees, gets or is asked.
 | VT22, VT25, VT26 | Session lines, reader skips counted, a whole-life log test | batches 5, 7 |
 | VT27, VT28, VT29 | App-side, privacy and lock-table tests | batches 5, 7 |
 | VT32, VT33, VT36 | Decrypt after proof, a way out of an unreadable Vault, screen capture | VF4, VF6, VF9 |
-| VT35 | One copy path (`VaultPasteboard.copyPlain`) | batch 19 |
+| VT35 | One copy path (`VaultPasteboard.copyPlain`); copied names and dates stay ordinary copies, by the owner's call (only an ID's number and a birth date are concealed and cleared) | batch 19, 2026-11-25 |
 | VT40–43, VT45 | Reader bugs | `f7e441a7a`, `fd0377535` |
 | VT44 | EXIF orientation: not a defect, measured; do not re-propose | 2026-11-20 |
 | VT50 | The readers' toolkit, one `PrintedPage` per page | batch 19 |
