@@ -20,8 +20,9 @@ public struct VaultPersonSection: Identifiable, Equatable, Sendable {
         case household
     }
 
-    /// A name as documents print it, and the kinds of document that print it that way: forms ask
-    /// for a name "exactly as on your passport", and a license may print it differently.
+    /// A name as documents print it, and the kinds of document that print it: forms ask for a name
+    /// "exactly as on your passport", and a license may print it differently. Written one way when
+    /// its papers differ only in case or the marks between its words (``alsoWritten``).
     public struct PrintedName: Equatable, Sendable {
         public var name: String
         /// "passport", "driver’s license": lowercase, in the cards' order.
@@ -31,8 +32,23 @@ public struct VaultPersonSection: Identifiable, Equatable, Sendable {
         /// One or two letters from the legal name on a single kind of paper, and not kept as real:
         /// worth a look. A guess shown, never acted on.
         public var looksMisread = false
-        /// Their IDs whose papers print it so, in the cards' order: what “From 5 IDs” counts.
+        /// Their IDs whose papers print it, in the cards' order: what “From 5 IDs” counts.
         public var rows: [VaultModel.Row] = []
+        /// The other ways papers write this same name, differing only in case or the marks between
+        /// its words ("Anna Maria" beside "Anna-Maria"): one name to the Vault, one chip (VT100). An
+        /// apostrophe or an accent is part of a word ("O'Brien", "José"), so those stay apart, as
+        /// they do for corrections.
+        public var alsoWritten: [String] = []
+
+        public init(name: String, on: [String], role: VaultNameRole = .alsoUsed, looksMisread: Bool = false,
+                    rows: [VaultModel.Row] = [], alsoWritten: [String] = []) {
+            self.name = name
+            self.on = on
+            self.role = role
+            self.looksMisread = looksMisread
+            self.rows = rows
+            self.alsoWritten = alsoWritten
+        }
     }
 
     /// A home address: the IDs whose papers print it, and how new it is. The newest leads.
@@ -166,7 +182,9 @@ public enum VaultPersonText {
         // The name they go by leads, then the legal one forms ask for, then other real spellings.
         if let goesBy = section.names.first(where: { $0.role == .goesBy }) { lines.append("Goes by: \(goesBy.name)") }
         if let legal = section.names.first(where: { $0.role == .legal }) { lines.append("Legal name: \(legal.name)") }
+        // Every real spelling, and each other way the papers write a name (VT100).
         let others = section.names.filter { $0.role == .alsoUsed && !$0.looksMisread }.map(\.name)
+            + section.names.flatMap(\.alsoWritten)
         if !others.isEmpty { lines.append("Also printed as: \(others.joined(separator: "; "))") }
         if numbers {
             for date in section.born { lines.append("Date of birth: \(VaultReading.formDate(date))") }

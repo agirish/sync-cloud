@@ -158,20 +158,48 @@ struct VaultRowFilter: Equatable {
             // On Archive, someone with past addresses is shown though no ID of theirs is there:
             // a past address is never out of reach. Not under a search or a filter that hides them.
             guard !rows.isEmpty || (tab == .archive && addresses.count > 1 && showsWithoutIDs(id)) else { return nil }
-            // Names by how they are printed, each with the kinds that print it so.
+            // Names by how they are printed, each with the kinds that print it. Spellings that differ
+            // only in case or the marks between words are one name, as its roles and corrections are
+            // (``VaultReading/spellingKey(_:)``): one chip, written as most of its papers write it.
             var names: [VaultPersonSection.PrintedName] = []
+            var written: [[String: Int]] = []
+            var firstSeen: [[String]] = []
             let order = VaultCategory.mainView
             let papers = theirs.sorted { (order.firstIndex(of: $0.category) ?? 99) < (order.firstIndex(of: $1.category) ?? 99) }
             for row in papers where id != .household {
                 // An identity paper's name: an account's holder line is the plan's, not the form's.
                 guard let holder = row.facts?.holder.map(VaultPersonText.tidied), !holder.isEmpty,
                       let kind = VaultPersonText.paper(row.category) else { continue }
-                if let index = names.firstIndex(where: { $0.name.caseInsensitiveCompare(holder) == .orderedSame }) {
+                // No letters at all (a scan's noise): one name only with its own case-blind match.
+                let key = VaultReading.spellingKey(holder)
+                if let index = names.firstIndex(where: {
+                    key.isEmpty ? $0.name.caseInsensitiveCompare(holder) == .orderedSame : VaultReading.spellingKey($0.name) == key
+                }) {
                     if !names[index].on.contains(kind) { names[index].on.append(kind) }
                     names[index].rows.append(row)
+                    // Counted as written, case aside: "ANNA-MARIA" is how "Anna-Maria" is written too.
+                    let form = holder.lowercased()
+                    if written[index][form] == nil { firstSeen[index].append(holder) }
+                    written[index][form, default: 0] += 1
                 } else {
                     names.append(.init(name: holder, on: [kind], rows: [row]))
+                    written.append([holder.lowercased(): 1])
+                    firstSeen.append([holder])
                 }
+            }
+            for index in names.indices {
+                // The way most of its papers write it; the first seen of those, in the cards' order.
+                let forms = firstSeen[index]
+                // A tie goes to the form that keeps its marks: a passport's machine line can print no
+                // hyphen, so it never outvotes the papers that do.
+                func marks(_ form: String) -> Int { form.filter { !$0.isLetter && !$0.isWhitespace }.count }
+                var most = forms[0]
+                for form in forms {
+                    let (count, best) = (written[index][form.lowercased(), default: 0], written[index][most.lowercased(), default: 0])
+                    if count > best || (count == best && marks(form) > marks(most)) { most = form }
+                }
+                names[index].name = most
+                names[index].alsoWritten = forms.filter { $0 != most }
             }
             names = roled(names, for: id, roles: roles)
             // A name nobody in People answers to is titled as its Name tile leads: the spelling

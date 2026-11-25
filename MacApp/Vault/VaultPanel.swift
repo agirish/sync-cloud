@@ -2040,8 +2040,9 @@ struct VaultCard: View {
         } source: {
             if let lead {
                 factSource(VaultPersonText.sourceLine(lead.rows), rows: lead.rows, key: key + "-source",
-                           title: "“\(lead.name)” is printed on \(lead.rows.count) IDs")
-                    .help("Printed this way on \(ListFormatter.localizedString(byJoining: lead.on)).")
+                           title: lead.alsoWritten.isEmpty ? "“\(lead.name)” is printed on \(lead.rows.count) IDs"
+                               : "This name is printed on \(lead.rows.count) IDs")
+                    .help(Self.printedHelp(lead))
             } else {
                 factSource("From People")
             }
@@ -2105,7 +2106,7 @@ struct VaultCard: View {
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .help("Printed this way on \(ListFormatter.localizedString(byJoining: name.on)).")
+                    .help(Self.printedHelp(name))
                 if name.looksMisread, let person, let legal {
                     HStack(spacing: 8) {
                         Button("Correct to Legal Name") {
@@ -2124,6 +2125,14 @@ struct VaultCard: View {
             let copyKey = "name-\(section.title)-\(name.name)"
             copyIcon(copyKey, help: "Copy “\(name.name)”") { copyString(name.name, key: copyKey) }
         }
+    }
+
+    /// Where a name is printed, and how else its papers write it: one name, one chip (VT100).
+    static func printedHelp(_ name: VaultPersonSection.PrintedName) -> String {
+        let papers = ListFormatter.localizedString(byJoining: name.on)
+        guard !name.alsoWritten.isEmpty else { return "Printed this way on \(papers)." }
+        let others = ListFormatter.localizedString(byJoining: name.alsoWritten.map { "“\($0)”" })
+        return "Printed on \(papers); some papers write it \(others)."
     }
 
     /// The spelling's role as a chip; for someone in People it swaps the popover to the roles.

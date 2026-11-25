@@ -16281,6 +16281,8 @@ and without Touch ID set up the Vault is not used at all, saying how to set it u
 Batch 30: a Social Security or Aadhaar number's ending is no longer drawn while hidden in Activity's
 titles, the Touch ID prompt, "Its document reads differently now", the editor's card list or a
 document's name; the correction note masks its document's name (VT34).
+Batch 32: one person's name written two ways that differ only in case or the marks between its
+words is one chip in People, written as most papers write it (VT100).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

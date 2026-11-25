@@ -370,6 +370,57 @@ import Testing
         #expect(VaultNameGuess.distance(Array("dant"), Array("dani")) == 1)
     }
 
+    /// VT100: spellings that differ only in punctuation, spaces or case are one name to the Vault
+    /// (its roles and corrections go by ``VaultReading/spellingKey(_:)``), so one chip, written as
+    /// most of its papers write it; Legal on it marks the name, never another chip.
+    @Test func aNameWrittenWithAHyphenOrWithoutIsOneChip() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add(Self.root, in: rig.defaults)
+        let model = rig.model()
+        model.people = Self.people
+        await model.opened()
+        await model.readDocuments(with: VaultAccountModelTests.PlannedDocuments(pages: [
+            Self.passport: VaultToConfirmTests.passportPage,
+            Self.notice: ["I-797A Approval Notice", "Receipt Number WAC2412345678", "Beneficiary ERIKSSON, ANNA-MARIA", "Received Date 01/05/2026"],
+            Self.root + "/Immigration/USCIS/2025/I-797C.pdf": ["I-797C Notice of Action", "Receipt Number EAC2512345678",
+                                                             "Beneficiary ERIKSSON, ANNA-MARIA", "Received Date 03/02/2025"],
+        ]))
+        for row in model.rows where row.personID != "anna" && row.facts?.holder != nil { model.assign(row.id, to: .person("anna")) }
+        let key = "anna maria eriksson"
+        let all = try Self.anna(model).names
+        let names = all.filter { VaultReading.spellingKey($0.name) == key }
+        #expect(names.count == 1, "\(all.map(\.name))")
+        let chip = try #require(names.first)
+        #expect(chip.name.contains("-"), "written as most of its papers write it: \(chip.name)")
+        #expect(chip.alsoWritten.count == 1 && chip.alsoWritten.first?.contains("-") == false)
+        #expect(chip.rows.count == 3, "every paper behind each way of writing it")
+
+        #expect(chip.on.count == 2, "the passport and the notices, though they write it two ways")
+        #expect(chip.role == .legal, "the passport's name, written as its papers mostly write it")
+        let summary = VaultPersonText.text(try Self.anna(model), numbers: false)
+        #expect(summary.contains("Also printed as:") && summary.contains(chip.alsoWritten[0]))
+
+        model.setRole(.goesBy, of: "Anna Maria Eriksson", for: "anna")
+        let after = try Self.anna(model).names.filter { VaultReading.spellingKey($0.name) == key }
+        #expect(after.count == 1 && after.first?.role == .goesBy, "the one chip takes the role")
+    }
+
+    /// A tie goes to the form that keeps its marks: a passport's machine line prints no hyphen.
+    @Test func aTieGoesToTheNameWrittenWithItsHyphen() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add(Self.root, in: rig.defaults)
+        let model = rig.model()
+        model.people = Self.people
+        await model.opened()
+        await model.readDocuments(with: VaultAccountModelTests.PlannedDocuments(pages: [
+            Self.passport: VaultToConfirmTests.passportPage,
+            Self.notice: ["I-797A Approval Notice", "Receipt Number WAC2412345678", "Beneficiary ERIKSSON, ANNA-MARIA", "Received Date 01/05/2026"],
+        ]))
+        for row in model.rows where row.personID != "anna" && row.facts?.holder != nil { model.assign(row.id, to: .person("anna")) }
+        let chip = try #require(try Self.anna(model).names.first { VaultReading.spellingKey($0.name) == "anna maria eriksson" })
+        #expect(chip.name.contains("-") && chip.alsoWritten.count == 1, "\(chip.name)")
+    }
+
     @Test func aNameReadWithALineBreakOrInAnotherCaseIsTheSameName() {
         #expect(VaultPersonText.tidied("\nanna  maria\tEriksson ") == "anna maria Eriksson")
         #expect(VaultPersonText.tidied("Anna Maria Eriksson") == "Anna Maria Eriksson")

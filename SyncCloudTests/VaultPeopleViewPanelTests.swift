@@ -7,6 +7,14 @@ import Testing
 /// The People layout as the panel draws it. Every ID is made up.
 @MainActor
 @Suite struct VaultPeopleViewPanelTests {
+    /// VT100: one chip for a name its papers write two ways; its tip says how else it is written.
+    @Test func aNamesTipSaysHowElseItsPapersWriteIt() {
+        var name = VaultPersonSection.PrintedName(name: "Anna-Maria Eriksson", on: ["passport", "approval notice"])
+        #expect(VaultCard.printedHelp(name) == "Printed this way on passport and approval notice.")
+        name.alsoWritten = ["Anna Maria Eriksson"]
+        #expect(VaultCard.printedHelp(name) == "Printed on passport and approval notice; some papers write it “Anna Maria Eriksson”.")
+    }
+
     @Test func theSwitchOffersCardsListAndPeople() {
         #expect(VaultViewSwitch.segments.map(\.title) == ["Cards", "List", "People"])
         #expect(VaultViewSwitch.segments.map(\.layout) == [.cards, .list, .people])
