@@ -255,6 +255,58 @@ import Testing
         #expect(VaultReading.isArchivePath("/Users/a/Documents/Archive/Immigration/Passport/Anna/Archive/p.pdf", under: roots))
     }
 
+    /// VT50 (owner): Backup files an old copy, as Archive does; TODO (SyncCloud's inbox) and TMP
+    /// rank a copy below a filed one but never archive an ID.
+    @Test func backupIsAnArchiveAndTODORanksBelowButIsNot() {
+        let roots = ["/Users/a/Documents"]
+        #expect(VaultReading.isArchivePath("/Users/a/Documents/Immigration/Backup/p.pdf", under: roots))
+        #expect(!VaultReading.isArchivePath("/Users/a/Documents/TODO/p.pdf", under: roots))
+        #expect(!VaultReading.isArchivePath("/Users/a/Documents/tmp/p.pdf", under: roots))
+        let filed = VaultSource(path: "/Users/a/Documents/Immigration/Passport/p.pdf", role: "", rank: 0)
+        let inbox = VaultSource(path: "/Users/a/Documents/TODO/p.pdf", role: "", rank: 0)
+        let loose = VaultSource(path: "/Users/a/Documents/Immigration/p.pdf", role: "", rank: 0)
+        #expect(inbox.placement(for: .passport) < loose.placement(for: .passport), "a TODO copy ranks below")
+        #expect(filed.placement(for: .passport) > inbox.placement(for: .passport))
+        // TODO by SyncCloud's own inbox rule, anywhere in a folder's name; Temp as TMP.
+        for waiting in ["EDD - TODO", "Inbox", "Unfiled", "Temp"] {
+            let source = VaultSource(path: "/Users/a/Documents/\(waiting)/p.pdf", role: "", rank: 0)
+            #expect(source.placement(for: .passport) < loose.placement(for: .passport), "\(waiting)")
+        }
+        // Not a word inside another: Mastodon is no inbox.
+        let other = VaultSource(path: "/Users/a/Documents/Mastodon/p.pdf", role: "", rank: 0)
+        #expect(other.placement(for: .passport) == loose.placement(for: .passport))
+    }
+
+    /// The 2026-11-25 review: Backup archives a copy only below the folder read. A drive or folder
+    /// called Backup above it is where everything lives, so it archives nothing; Archive above
+    /// still does, as it always has.
+    @Test func aBackupFolderAboveTheReadFolderArchivesNothing() {
+        let roots = ["/Volumes/Backup/Documents"]
+        #expect(!VaultReading.isArchivePath("/Volumes/Backup/Documents/Immigration/p.pdf", under: roots))
+        #expect(!VaultReading.isArchivePath("/Volumes/Backup/Documents/Immigration/p.pdf"))
+        #expect(VaultReading.isArchivePath("/Volumes/Backup/Documents/Immigration/Backup/p.pdf", under: roots))
+        #expect(VaultReading.isArchivePath("/Users/a/Archive/Documents/Immigration/p.pdf"))
+        // Between two copies, though, the one in a Backup folder is the older.
+        #expect(VaultReading.isOldCopyPath("/Volumes/Backup/Documents/Immigration/p.pdf"))
+        #expect(!VaultReading.isOldCopyPath("/Users/a/Documents/Immigration/p.pdf"))
+        // An account's papers on such a drive are read.
+        #expect(VaultReadPlan.accountYear(of: URL(fileURLWithPath: "/Volumes/Backup/Documents/Home/Utilities/PG&E/2024/statement.pdf"),
+                                          under: roots, modified: { _ in nil }) != nil)
+    }
+
+    /// VT50 (owner): an account's papers in any folder that files them away are records, not its
+    /// number to read: Archived, Old and Backup, as Archive; a statement waiting in TODO is read.
+    @Test func anAccountsPapersFiledAwayAreNotReadForItsNumber() {
+        let roots = ["/Users/a/Documents"]
+        func year(_ path: String) -> (account: String, year: String)? {
+            VaultReadPlan.accountYear(of: URL(fileURLWithPath: path), under: roots, modified: { _ in nil })
+        }
+        #expect(year("/Users/a/Documents/Home/Utilities/PG&E/2024/statement.pdf") != nil)
+        for away in ["Archive", "Archived", "Old", "Backup"] {
+            #expect(year("/Users/a/Documents/Home/Utilities/PG&E/\(away)/2024/statement.pdf") == nil, "\(away)")
+        }
+    }
+
     @Test func aCenterCodeFollowedByAWordIsNotAReceiptNumber() {
         #expect(VaultReading.receiptNumbers(in: "LIN DOGBOSSILLIGO", from: "/a").isEmpty)
         #expect(VaultReading.receiptNumbers(in: "Send to EAC 12345", from: "/a").isEmpty)

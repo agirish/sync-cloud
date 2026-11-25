@@ -71,6 +71,25 @@ import Vision
         try #require(PDFDocument(url: URL(fileURLWithPath: path))?.page(at: 0))
     }
 
+    /// VT81 (owner): a document grown past the walk's cap since it was read is passed over by
+    /// Refresh too, which opens it by name: nothing comes back, so what it gave before stays.
+    @Test func aFileOverTheCapIsPassedOverWhenOpenedByName() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("vault-cap-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let big = folder.appendingPathComponent("scan.pdf")
+        try Self.writePDF(picture: nil, text: ["Passport No. L898902C3"], to: big.path)
+        let handle = try FileHandle(forWritingTo: big)
+        try handle.truncate(atOffset: UInt64(VaultFolderReader.largestFile + 1))
+        try handle.close()
+        let reader = VaultFolderReader(folders: [folder.path])
+        let read = await reader.noted(big)
+        #expect(read.pages.isEmpty && read.complete && read.notes.tooLarge == 1, "marked read as it is")
+        let walked = await reader.walk()
+        #expect(walked.files.isEmpty, "the walk passes it over too")
+        #expect(walked.unreachable.contains { $0.hasSuffix("/scan.pdf") }, "and what it gave before is kept")
+    }
+
     @Test func aPageDrawingAPictureTheSizeOfAScanIsOne() throws {
         let dir = FixtureDir()
         try Self.writePDF(picture: Self.scan(of: Self.passport), text: [Self.stamp], to: dir.path("stamped.pdf"))

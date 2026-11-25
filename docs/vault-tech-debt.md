@@ -53,13 +53,8 @@ Read by [`RELEASE.md`](../RELEASE.md) §4.
 ## Open: the owner's calls
 
 Each changes what the user sees, gets or is asked.
-- **VT50's two**: `VaultCopies` taking the read folders (a read folder inside an Archive folder makes
-  every copy there archived); `recordFolders` skipping `…/Archive/` while reading `…/Archived/` and
-  `…/Old/`.
 - **VT75's two**: `VaultColorPicker` (pop-up, Customize Groups) and `VaultColorPopover` (swatches)
   choose one thing two ways; the List layout lacks the others' empty state.
-- **VT81**: Refresh reads a source that grew past 60 MB, which Discover skips; check the caps in
-  `pages(in:)`.
 - **VT107 steps 3–5** (steps 1–2 done, batch 4): pass over a supporting copy whose numbers are all held
   from a home-folder source; Refresh reopens only each ID's own file; keep Vision's page text sealed so a
   version bump re-runs the rules, not the OCR (stores document text).
@@ -107,6 +102,7 @@ Each changes what the user sees, gets or is asked.
 | VT40–43, VT45 | Reader bugs | `f7e441a7a`, `fd0377535` |
 | VT44 | EXIF orientation: not a defect, measured; do not re-propose | 2026-11-20 |
 | VT50 | The readers' toolkit, one `PrintedPage` per page | batch 19 |
+| VT50 | Archive folders, by the owner's call: Backup joins Archive, Archived, Old and Expired (an ID's tab, a copy's rank, and an account's papers there are records, not read for its number: all of them now, not Archive alone), but archives an ID only below the folder read, since a drive or folder called Backup is often where everything lives; TODO by SyncCloud's own inbox rule (TODO anywhere in a folder's name, Inbox, Unfiled), TMP and Temp rank a copy below a filed one but never archive an ID; an Archive folder above the folder read keeps counting as before. On the owner's papers no file sits under the new archive names and the new lower ranks touch only which copy is preferred, so no version bump | batch 38 |
 | VT52, VT54, VT58, VT73 (a, c) | PDFKit lane, a partly read file, backup key off the main actor, capture gaps | batches 3–4 |
 | VT73 (b) | Quick Look's own panel is out of capture while it shows a Vault document (batch 16), now from before a first preview appears (asking for the panel creates it; it used to be set only if it already existed), and sharing again once the preview ends or the Vault closes mid-preview | batches 16, 37 |
 | VT56, VT57, VT59, VT63 | Replace sets aside first, Add Missing ids, activity file set aside, name sealed after save | `5e33b3c47`, `976b30712`, reviews |
@@ -128,6 +124,7 @@ Each changes what the user sees, gets or is asked.
 | VT75 | Duplicated view code, but the pickers and List's empty state | batches 8, 22 |
 | VT77, VT78, VT82, VT83, VT84 | Masonry measured once, colors made once, renders and readings once per page, labels once per page | batch 6 |
 | VT79, VT80, VT103, VT106 | Retroactive conformance, dead code, People's groups by id, small duplications | batch 11 |
+| VT81 | A document grown past 60 MB is passed over by Refresh, as by Discover More, and what it gave before stays in both (owner's call): Discover More had let it go as deleted. Refresh marks it read with its size and date, so it is opened again only once it changes | batch 38 |
 | VT85 | Regexes per line: measured out (Foundation caches them); do not re-propose | 2026-11-21 |
 | VT86 | Magic numbers named | batch 19 |
 | VT87 | The account-number regex as a reader (`VaultAccountValue`) | batch 20 |

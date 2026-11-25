@@ -269,6 +269,9 @@ public struct VaultReadNotes: Equatable, Sendable {
     public var sharper = 0
     /// Pages on colored paper whose reading in their ink alone was taken.
     public var inkOnly = 0
+    /// Files over the 60 MB cap, passed over when opened by name (VT81): marked read as they are,
+    /// so they are opened again only once they change.
+    public var tooLarge = 0
 
     public init() {}
 
@@ -276,6 +279,7 @@ public struct VaultReadNotes: Equatable, Sendable {
         var sum = a
         sum.locked += b.locked; sum.unopenable += b.unopenable; sum.unrecognised += b.unrecognised
         sum.fromPicture += b.fromPicture; sum.sharper += b.sharper; sum.inkOnly += b.inkOnly
+        sum.tooLarge += b.tooLarge
         return sum
     }
 
@@ -283,7 +287,8 @@ public struct VaultReadNotes: Equatable, Sendable {
     /// picture, 2 rendered sharper, 5 taken in their ink alone": only what is not zero.
     public var summary: String {
         var out = ""
-        let skipped = [(locked, "locked"), (unopenable, "could not be opened"), (unrecognised, "page(s) not recognized")]
+        let skipped = [(locked, "locked"), (unopenable, "could not be opened"), (tooLarge, "over 60 MB"),
+                       (unrecognised, "page(s) not recognized")]
             .filter { $0.0 > 0 }.map { "\($0.0) \($0.1)" }
         if !skipped.isEmpty { out += "; " + skipped.joined(separator: ", ") }
         let how = [(fromPicture, "page(s) read from their picture"), (sharper, "rendered sharper"), (inkOnly, "taken in their ink alone")]

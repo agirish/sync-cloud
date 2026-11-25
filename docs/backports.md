@@ -16292,6 +16292,10 @@ Batch 35: each choice about an ID, a name correction, a person's IDs copied in f
 copied each have an Activity line (VT23).
 Batch 36: Add to Vault proposes whose a waiting ID is by the name as corrected, as its row does (VT70).
 Batch 37: Quick Look's panel is kept out of capture from its first Vault preview on (VT73 b).
+Batch 38: a document past 60 MB keeps what it gave, on Refresh and on Discover More, and Refresh
+does not reopen it until it changes (VT81); Backup counts as an archive folder below the folder
+read, account papers in any archive folder are not read for a number, and TODO (the inbox rule),
+TMP or Temp rank a copy lower without archiving it (VT50).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

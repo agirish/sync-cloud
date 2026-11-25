@@ -46,7 +46,7 @@ struct VaultFolderReader: VaultDocumentReading {
 
     private static func walk(_ folders: [String]) -> (files: [URL], unreachable: [String]) {
         var found: [URL] = []
-        var tooLarge = 0
+        var tooLarge: [String] = []
         let unreachable = Unreachable()
         for folder in folders {
             guard let walk = FileManager.default.enumerator(
@@ -55,17 +55,20 @@ struct VaultFolderReader: VaultDocumentReading {
                 errorHandler: { url, _ in unreachable.paths.append(url.path); return true }) else { continue }
             for case let url as URL in walk where extensions.contains(url.pathExtension.lowercased()) {
                 let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                if size <= largestFile { found.append(url) } else { tooLarge += 1 }
+                if size <= largestFile { found.append(url) } else { tooLarge.append(url.path) }
             }
         }
         // Counts only, here and below: a file's name can hold the very number it carries.
-        if tooLarge > 0 {
-            Logger.shared.info("Vault: \(tooLarge) file(s) over \(largestFile / 1024 / 1024) MB passed over")
+        if !tooLarge.isEmpty {
+            Logger.shared.info("Vault: \(tooLarge.count) file(s) over \(largestFile / 1024 / 1024) MB passed over")
         }
         if !unreachable.paths.isEmpty {
             Logger.shared.info("Vault: \(unreachable.paths.count) folder(s) could not be opened; what was read in them is kept")
         }
-        return (found.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }, unreachable.paths)
+        // A file passed over is not seen, so not gone: what it gave before stays, as for a folder
+        // that could not be opened (VT81).
+        return (found.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending },
+                unreachable.paths + tooLarge)
     }
 
     /// Where files are read: a queue of its own, off the cooperative pool, so a wait for the
@@ -112,6 +115,15 @@ struct VaultFolderReader: VaultDocumentReading {
                              vision: @escaping @Sendable (CGImage, Processor) throws -> [String])
         -> (pages: [[String]], complete: Bool, notes: VaultReadNotes) {
         var notes = VaultReadNotes()
+        // Past the walk's cap since it was read (a scan grown into a bundle): passed over here
+        // too, as Discover More passes it over (VT81, owner). Nothing comes back, so what it gave
+        // before stays; it is marked read as it is (`tooLarge`), so Refresh opens it again only
+        // once it changes.
+        if let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > largestFile {
+            Logger.shared.info("Vault: a file over \(largestFile / 1024 / 1024) MB passed over")
+            notes.tooLarge = 1
+            return ([], true, notes)
+        }
         // The image's lines, any license barcode's text after them; nil when Vision failed on
         // both processors, which is not the same as a page with no text.
         func recognise(_ image: CGImage) -> [String]? { recognised(image, read: vision) }

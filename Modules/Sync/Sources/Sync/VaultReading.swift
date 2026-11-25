@@ -627,19 +627,47 @@ public enum VaultReading {
 
     // MARK: Archive folders
 
-    /// Whether `path` sits in an Archive folder (or Archived, Old, Expired) below the folder it was
-    /// read from. A folder above that, such as all of `~/Documents/Archive` being read, says
-    /// nothing about one copy against another.
+    /// Whether `path` sits in an Archive folder (or Archived, Old, Expired, Backup) below the folder
+    /// it was read from. A folder above that, such as all of `~/Documents/Archive` being read, says
+    /// nothing about one copy against another. Given no read folder that holds `path`, an Archive
+    /// folder anywhere counts, as it always has, but a Backup folder does not: a whole drive or
+    /// folder called Backup is often where everything lives (VT50, the 2026-11-25 review).
     public static func isArchivePath(_ path: String, under readFolders: [String] = []) -> Bool {
         let root = readFolders.filter { path.hasPrefix($0 + "/") }.max { $0.count < $1.count }
         let below = root.map { String(path.dropFirst($0.count + 1)) } ?? path
-        return (below as NSString).deletingLastPathComponent.split(separator: "/")
-            .contains { archiveNames.contains($0.lowercased()) }
+        return (below as NSString).deletingLastPathComponent.split(separator: "/").contains {
+            let name = $0.lowercased()
+            return archiveNames.contains(name) || (root != nil && backupNames.contains(name))
+        }
+    }
+
+    /// Whether `path` sits in an Archive or Backup folder anywhere: for ranking one copy against
+    /// another (``VaultReadFacts/supersedes(_:_:)``), where a folder above both copies weighs on
+    /// each alike.
+    static func isOldCopyPath(_ path: String) -> Bool {
+        (path as NSString).deletingLastPathComponent.split(separator: "/").contains {
+            let name = $0.lowercased()
+            return archiveNames.contains(name) || backupNames.contains(name)
+        }
     }
 
     /// The folder names that file an old copy, in lower case: what ``isArchivePath(_:under:)``,
-    /// a copy's placement and a read's file order all go by.
+    /// a copy's placement, a read's file order and an account's papers all go by.
     static let archiveNames: Set<String> = ["archive", "archived", "archives", "old", "older", "expired"]
+
+    /// Backup folders count as Archive (owner, 2026-11-25), but only below the folder read
+    /// (``isArchivePath(_:under:)``).
+    static let backupNames: Set<String> = ["backup", "backups"]
+
+    /// Whether a folder name puts a copy below a filed one: Archive and Backup, and folders that
+    /// hold papers not yet filed or set down for a while. Those last two rank lower but are not
+    /// archived (owner, 2026-11-25): SyncCloud's own inbox rule (TODO anywhere in the name, Inbox,
+    /// Unfiled; ``FolderProfile/isInboxPath(_:)``), and TMP or Temp.
+    static func ranksBelowFiled(_ folder: String) -> Bool {
+        let name = folder.lowercased()
+        return archiveNames.contains(name) || backupNames.contains(name)
+            || FolderProfile.isInboxPath(name) || name == "tmp" || name == "temp"
+    }
 
     // MARK: Shared
 

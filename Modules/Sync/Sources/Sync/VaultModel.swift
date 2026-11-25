@@ -2473,11 +2473,13 @@ public final class VaultModel: ObservableObject {
                 ? bytes.map { VaultReadPlan.area(of: file.path, under: roots).description + " " + $0 }
                 : nil
             let (pages, complete): ([[String]], Bool)
+            var tooLarge = false
             if let content, let read = readByContent[content] {
                 (pages, complete) = read
             } else {
                 let read = await reader.noted(file)
                 (pages, complete) = (read.pages, read.complete)
+                tooLarge = read.notes.tooLarge > 0
                 run.tally.notes = run.tally.notes + read.notes
                 if let content, !pages.isEmpty { readByContent[content] = (pages, complete) }
             }
@@ -2487,6 +2489,11 @@ public final class VaultModel: ObservableObject {
             // and the choices made about it, stay; it is not marked read, so the next read tries again.
             guard !pages.isEmpty else {
                 run.tally.record(pages, ([], []))
+                // Over the size cap (VT81): what it gave before stays too, but it is marked read
+                // as it is, so it is not opened again until it changes.
+                if tooLarge, let stamp {
+                    if ownDocuments.contains(file.path) { ownStamps[file.path] = stamp } else { readIndex[file.path] = stamp }
+                }
                 return true
             }
             // A changed file is read afresh: what it said before is let go first. A number it

@@ -125,14 +125,17 @@ public struct VaultSource: Codable, Equatable, Hashable, Sendable {
     /// How fitting a home the file's folders are for a number of `category`, among copies of one
     /// page: `…/Immigration/Passport/Shweta` for a passport is where it lives; a copy attached to
     /// a petition or an application ("Supporting Documents", "Petition", "Evidence") is a copy;
-    /// one in an Archive folder is an old copy.
+    /// one in an Archive or Backup folder is an old copy, and one not yet filed (TODO, TMP) ranks
+    /// below a filed one too.
     public func placement(for category: VaultCategory) -> Int {
         let folders = (path as NSString).deletingLastPathComponent.lowercased()
             .split(separator: "/").map(String.init)
         var score = 0
         if folders.contains(where: Self.homes(for: category).contains) { score += 2 }
         if folders.contains(where: Self.copyFolders.contains) { score -= 2 }
-        if folders.contains(where: VaultReading.archiveNames.contains) { score -= 1 }
+        if folders.contains(where: VaultReading.ranksBelowFiled) {
+            score -= 1
+        }
         return score
     }
 
@@ -657,8 +660,8 @@ public enum VaultCopies {
     static func supersedes(_ incoming: VaultReadFacts, _ held: VaultReadFacts) -> Bool {
         let (ra, rb) = (incoming.primary?.rank ?? 0, held.primary?.rank ?? 0)
         if ra != rb { return ra > rb }
-        let (aa, ab) = (incoming.primary.map { VaultReading.isArchivePath($0.path) } ?? false,
-                        held.primary.map { VaultReading.isArchivePath($0.path) } ?? false)
+        let (aa, ab) = (incoming.primary.map { VaultReading.isOldCopyPath($0.path) } ?? false,
+                        held.primary.map { VaultReading.isOldCopyPath($0.path) } ?? false)
         if aa != ab { return !aa }
         switch (incoming.validUntil ?? incoming.dated, held.validUntil ?? held.dated) {
         case let (a?, b?) where a != b: return a > b
@@ -683,7 +686,7 @@ public enum VaultCopies {
     static func sameCopy(_ a: VaultReadFacts, _ b: VaultReadFacts) -> Bool {
         guard let pa = a.primary, let pb = b.primary else { return false }
         return pa.rank == pb.rank && pa.rank > VaultReading.Rank.mention
-            && VaultReading.isArchivePath(pa.path) == VaultReading.isArchivePath(pb.path)
+            && VaultReading.isOldCopyPath(pa.path) == VaultReading.isOldCopyPath(pb.path)
             && a.dated == b.dated && a.validUntil == b.validUntil
     }
 

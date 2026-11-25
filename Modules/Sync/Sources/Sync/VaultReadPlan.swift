@@ -78,13 +78,15 @@ public struct VaultReadPlan: Equatable, Sendable {
     /// How much a file's folders say it is an original, from the folder words
     /// ``VaultSource/placement(for:)`` weighs, with no kind yet known: a packet of copies (−2) is
     /// last wherever it is filed, even in an ID's own folder; otherwise an ID's own folder is +2,
-    /// and an archive −1.
+    /// and an Archive, Backup or unfiled folder −1 (``VaultReading/ranksBelowFiled(_:)``).
     static func originalScore(_ path: String) -> Int {
         let folders = (path as NSString).deletingLastPathComponent.lowercased().split(separator: "/").map(String.init)
         if folders.contains(where: VaultSource.copyFolders.contains) { return -2 }
         var score = 0
         if folders.contains(where: VaultSource.homeFolders.contains) { score += 2 }
-        if folders.contains(where: VaultReading.archiveNames.contains) { score -= 1 }
+        if folders.contains(where: VaultReading.ranksBelowFiled) {
+            score -= 1
+        }
         return score
     }
 
@@ -186,7 +188,13 @@ public struct VaultReadPlan: Equatable, Sendable {
     static func accountYear(of file: URL, under roots: [String] = [], modified: (URL) -> Date?) -> (account: String, year: String)? {
         let folders = file.deletingLastPathComponent().path.split(separator: "/").map(String.init)
         let place = Self.place(of: file.path, under: roots)
-        guard !place.contains(where: { recordFolders.contains($0.lowercased()) }) else { return nil }
+        // An account's papers filed away (Archive, Archived, Old, Backup) are records of it, not
+        // its number to read: not only Archive (VT50, owner).
+        guard !place.contains(where: {
+            let name = $0.lowercased()
+            return recordFolders.contains(name) || VaultReading.archiveNames.contains(name) || VaultReading.backupNames.contains(name)
+        })
+        else { return nil }
         let name = file.deletingPathExtension().lastPathComponent
         if place.first?.lowercased() == "school",
            schoolPapers.firstMatch(in: name, range: NSRange(location: 0, length: (name as NSString).length)) == nil {

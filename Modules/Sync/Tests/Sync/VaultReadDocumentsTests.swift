@@ -434,4 +434,39 @@ import Testing
         await model.readDocuments(with: WalkWithAGap(pages: ["/r/B.pdf": ["nothing here"]], unreachable: ["/r/Sub"]))
         #expect(model.finds.count == 1, "a folder that could not be opened was taken for deleted")
     }
+
+    /// A file grown past the reader's size cap since it was read: passed over, as the reader says
+    /// (``VaultReadNotes/tooLarge``), and counted each time it is opened.
+    final class GrownPastTheCap: VaultDocumentReading, @unchecked Sendable {
+        private let lock = NSLock()
+        private var opens = 0
+        var opened: Int { lock.withLock { opens } }
+        func files() async -> [URL] { [URL(fileURLWithPath: "/r/A.pdf")] }
+        func pages(in file: URL) async -> [[String]] { [] }
+        func noted(_ file: URL) async -> (pages: [[String]], complete: Bool, notes: VaultReadNotes) {
+            lock.withLock { opens += 1 }
+            var notes = VaultReadNotes()
+            notes.tooLarge = 1
+            return ([], true, notes)
+        }
+        func stamp(of file: URL) -> String? { "2" }
+    }
+
+    /// VT81 (owner): what a file gave stays once it grows past the cap, and it is marked read as
+    /// it is, so the next read does not open it again until it changes.
+    @Test func aFileGrownPastTheCapKeepsItsIDAndIsNotOpenedAgain() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add("/r", in: rig.defaults)
+        let model = rig.model()
+        await model.opened()
+        await model.readDocuments(with: VaultFakeDocuments(pages: ["/r/A.pdf": VaultFixtures.front(expiring: "05/16/2030")]))
+        #expect(model.finds.count == 1)
+        let grown = GrownPastTheCap()
+        await model.readDocuments(with: grown)
+        #expect(grown.opened == 1)
+        #expect(model.finds.count == 1, "what it gave before was let go")
+        await model.readDocuments(with: grown)
+        #expect(grown.opened == 1, "opened again though it has not changed")
+        #expect(model.finds.count == 1)
+    }
 }
