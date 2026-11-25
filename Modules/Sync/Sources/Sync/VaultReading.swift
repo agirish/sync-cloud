@@ -133,7 +133,7 @@ public enum VaultReading {
 
     /// Raised whenever a rule changes what is read, so the next Read Documents reads every file
     /// again rather than trusting what an older build made of it.
-    public static let version = 23
+    public static let version = 24
 
     /// Every number on a document, once each, and the numbers it only names.
     /// `roots` are the read folders and `people` the household's, for account numbers: which area
@@ -908,7 +908,10 @@ public struct MachineZone: Equatable, Sendable {
 
     /// Upper case, no spaces, and the shapes Vision gives the filler `<`.
     static func clean(_ line: String) -> String {
+        // A letter Vision gave an accent ("Ž" for Z, "Š" for S) is that letter: no zone holds an
+        // accent (VT47). "Ø" is no accent and stays unreadable, as a slashed zero should.
         var text = line.uppercased().replacingOccurrences(of: " ", with: "")
+            .folding(options: .diacriticInsensitive, locale: nil)
         for (seen, filler) in [("«", "<<"), ("‹", "<"), ("≤", "<"), ("〈", "<"), ("＜", "<")] {
             text = text.replacingOccurrences(of: seen, with: filler)
         }
@@ -959,10 +962,11 @@ public struct MachineZone: Equatable, Sendable {
         }
         // More than two is too much guessing to trust a number by.
         guard unknown.count <= 2 else { return nil }
-        // An Indian number's first character is a letter, and the check accepts any character worth
-        // the same modulo 10 in its place (V as 1, L as 1, B as 1): unread, no one letter can be
-        // told (VT46, the 2026-11-25 review). A US visa's foil may still print it.
-        if unknown.contains(0), Self.isIndianNumber(chars, nameLine: nameLine, kind: kind) { return nil }
+        // A character of the number unreadable: the check passes a digit and every letter worth ten,
+        // twenty or thirty more alike (5, F, P, Z), so no one reading can be told, and the number is
+        // not guessed: a Z once came back as 5 (VT47; VT46 for an Indian number's first letter). A
+        // visa's foil may still print it (``readWithPrintedNumber(_:nameLine:page:)``).
+        if unknown.contains(where: { $0 < 9 }) { return nil }
         // Each unreadable character tried as a digit or a filler. A check digit fixes one missing
         // character of its field, so a wrong fill fails a check; a reading counts only when one
         // fill alone passes every check.

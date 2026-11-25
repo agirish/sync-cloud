@@ -60,6 +60,24 @@ import Testing
         String(line.enumerated().map { at[$0.offset] ?? $0.element })
     }
 
+    /// VT47: an unreadable character in the number field was filled with the one digit that
+    /// passes, though a letter worth ten, twenty or thirty more passes alike: a Z read as "Ž" came
+    /// back as 5. An accent is now read as its letter, and a character that stays unreadable in the
+    /// number field leaves no one reading, so the number is not guessed. Every number is made up.
+    @Test func anUnreadableCharacterInTheNumberIsNotGuessed() throws {
+        let lines = VaultReadingTests.zone("P", number: "L898902C3", born: "740812", expires: "120415")
+        // C read as "Č": the accent goes, and the C is read.
+        #expect(MachineZone.read([lines[0], Self.misread(lines[1], [7: "Č"])])?.number == "L898902C3")
+        // Unreadable: a 2 would pass, and so would C, M and W. No reading.
+        #expect(MachineZone.read([lines[0], Self.misread(lines[1], [7: "~"])]) == nil)
+        // A digit of the number unreadable too: 8, I and S alike.
+        #expect(MachineZone.read([lines[0], Self.misread(lines[1], [3: "~"])]) == nil)
+        // Elsewhere an unreadable character is filled as before; a slashed zero is no accented O,
+        // so it is still unreadable rather than a letter in a date.
+        let expiry = try #require(MachineZone.read([lines[0], Self.misread(lines[1], [24: "Ø"])]))
+        #expect(expiry.number == "L898902C3" && expiry.recovery == .fill)
+    }
+
     @Test func eachZoneSaysHowItsNumberLineWasRead() throws {
         let specimen = try #require(MachineZone.read([VaultReadingTests.nameLine, VaultReadingTests.numberLine]))
         #expect(specimen.recovery == .asRead)

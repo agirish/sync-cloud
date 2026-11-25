@@ -16303,6 +16303,8 @@ from that changed raises Discover More, once per change (VT107 step 4).
 Batch 41: Discover More passes over a packet's copy whose numbers are all held from their own
 folders, by what it gave when last read (VT107 step 3).
 Batch 42: an Indian passport's leading G, L or U read as 6, 1 or 0 is read as the letter (VT46).
+Batch 43: an accented zone letter is read as the letter; an unreadable character of a zone's number
+is no longer filled with a digit (VT47).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed
