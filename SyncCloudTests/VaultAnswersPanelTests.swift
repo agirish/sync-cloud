@@ -81,6 +81,10 @@ import Testing
 
     @Test func aCorrectionAndAnIDAlreadySavedAreSaidInWords() {
         let id = UUID()
+        // The note stays up after the number hides: a number in the file's name never shows in it.
+        let named = VaultModel.Correction(id: id, file: "SSN 123-45-6789.pdf", changed: 1)
+        #expect(!VaultCard.correctionLine(named, keep: 0).contains("6789"))
+        #expect(!VaultCard.correctionLine(named).contains("123-45"))
         #expect(VaultCard.correctionLine(.init(id: id, file: "card.pdf", changed: 1)) == "Corrected one character of what card.pdf reads.")
         #expect(VaultCard.correctionLine(.init(id: id, file: "card.pdf", changed: 3)) == "Corrected 3 characters of what card.pdf reads.")
         #expect(VaultCard.correctionLine(.init(id: id, file: "card.pdf", changed: nil)) == "Corrected what card.pdf reads.")

@@ -125,6 +125,18 @@ import Testing
         #expect(rig.model.rows.first { $0.value == "VSP99887766" }?.documentMissing == true)
     }
 
+    /// VT34: what a refresh read differently is hidden as the saved ID's row hides it.
+    @Test func aDifferentReadingHidesASocialSecurityNumberWhole() {
+        #expect(VaultCard.readsDifferently("123-45-6789", saved: .ssn, read: .ssn).contains("6789") == false)
+        #expect(VaultCard.readsDifferently("123-45-6789", saved: .ssn, read: .other).contains("6789") == false,
+                "saved as a Social Security number, its ending stays hidden")
+        #expect(VaultCard.readsDifferently("123-45-6789", saved: .other, read: .ssn).contains("6789") == false,
+                "read as one, too")
+        #expect(VaultCard.readsDifferently("0482917365", saved: .loans, read: .loans).contains("7365"))
+        #expect(!VaultCard.lockedOnCard("123-45-6789", as: .ssn).contains("6789"), "on the editor's card list too")
+        #expect(VaultCard.lockedOnCard("0482917365", as: .loans).hasSuffix("7365"))
+    }
+
     @Test func afterAnUpdateTheBannerOffersDiscoverMoreUntilNotNow() async throws {
         // A refresh that follows a change of rules leaves the folders to be looked at.
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("vault-refresh-\(UUID().uuidString)")

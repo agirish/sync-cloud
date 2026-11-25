@@ -216,8 +216,10 @@ public enum VaultMask {
     /// A number is often written with spaces or dashes ("WAC 26 901 23456"), so letters and digits
     /// joined by single separators are judged as one run: five or more of them, four or more
     /// digits. A date ("2024-03-01", "01.04.2024") is not a number.
-    public static func fileName(_ path: String) -> String {
-        name((path as NSString).lastPathComponent)
+    ///
+    /// `keep`: none for a document of a kind whose ending is itself a secret (VT34).
+    public static func fileName(_ path: String, keep: Int = 4) -> String {
+        name((path as NSString).lastPathComponent, keep: keep)
     }
 
     /// A title or a label, whole, with any number in it cut to its ending as a file's name is. A
@@ -226,15 +228,23 @@ public enum VaultMask {
     /// unless a year follows it ("Form 1040 / 2023", "I-94 / 2024"). One without a space joins, as a
     /// dash does, so a number written with slashes is one number ("4417/9921/0038",
     /// "ABCDE/1234/F"), and a date written with them ("03/01/2024", "08/2024") is still a date.
-    public static func text(_ text: String) -> String {
-        name(text, runs: textRun)
+    ///
+    /// `keep`: how much of a number's ending stays. None for a title of a kind whose ending is
+    /// itself a secret (``VaultCategory/hidesEnding``): a Social Security number written into one
+    /// is hidden whole, as its row hides it (VT34).
+    public static func text(_ text: String, keep: Int = 4) -> String {
+        name(text, runs: textRun, keep: keep)
     }
 
     /// A folder path, each folder's name masked as a file's is: people name a folder after what
     /// is in it, too ("Passport A38291647/").
-    public static func folder(_ path: String) -> String {
-        path.split(separator: "/", omittingEmptySubsequences: false).map { name(String($0)) }.joined(separator: "/")
+    public static func folder(_ path: String, keep: Int = 4) -> String {
+        path.split(separator: "/", omittingEmptySubsequences: false).map { name(String($0), keep: keep) }.joined(separator: "/")
     }
+
+    /// How much of a number's ending a kind shows while hidden: four, or none when the ending is
+    /// itself a secret (``VaultCategory/hidesEnding``).
+    public static func keep(for category: VaultCategory) -> Int { category.hidesEnding ? 0 : 4 }
 
     /// Letters and digits joined by up to three separators: "123 - 45 - 6789", "(123) 45 6789",
     /// "2345,6789,0123" are each one number written out.
@@ -253,7 +263,7 @@ public enum VaultMask {
 
     /// A slash is never in a file's or a folder's name (``joinedRun``), so a date's slash in
     /// `dateLike` matters only to ``text(_:)``.
-    private static func name(_ text: String, runs: NSRegularExpression = joinedRun) -> String {
+    private static func name(_ text: String, runs: NSRegularExpression = joinedRun, keep: Int = 4) -> String {
         let ns = text as NSString
         var out = text
         // Right to left, so earlier ranges stay put as later ones are replaced.
@@ -269,8 +279,9 @@ public enum VaultMask {
                 let digits = alnum.filter(\.isNumber).count
                 let piece = Self.piece(of: whole, words: words, from: from, to: to)
                 let isDate = dateLike.firstMatch(in: piece, range: NSRange(location: 0, length: (piece as NSString).length)) != nil
-                guard alnum.count >= 5, digits >= 4, !isDate else { return }
-                masked = masked.replacingOccurrences(of: piece, with: Self.masked(piece))
+                // Kept to nothing, four digits alone are the ending itself ("xxx-xx-6789").
+                guard alnum.count >= (keep == 0 ? 4 : 5), digits >= 4, !isDate else { return }
+                masked = masked.replacingOccurrences(of: piece, with: Self.masked(piece, keep: keep))
             }
             // Digit groups, and a short capital prefix such as "WAC", join into one stretch; a word
             // mixing letters and digits ("V9416925", "797A") is judged on its own.

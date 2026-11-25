@@ -1636,11 +1636,12 @@ struct VaultCard: View {
     /// The row's document's name: in full while its number may be shown, else with any number in
     /// it masked, as the documents list draws it (a scan is often named for its number).
     static func fileName(_ row: VaultModel.Row, shown: Bool) -> String? {
-        documentName(row.facts?.primary?.path, shown: shown)
+        documentName(row.facts?.primary?.path, shown: shown, keep: VaultMask.keep(for: row.category))
     }
 
-    static func documentName(_ path: String?, shown: Bool) -> String? {
-        path.map { shown ? ($0 as NSString).lastPathComponent : VaultMask.fileName($0) }
+    /// `keep`: none for a kind whose ending is itself a secret (VT34).
+    static func documentName(_ path: String?, shown: Bool, keep: Int = 4) -> String? {
+        path.map { shown ? ($0 as NSString).lastPathComponent : VaultMask.fileName($0, keep: keep) }
     }
 
 
@@ -3335,7 +3336,7 @@ struct VaultCard: View {
             VStack(alignment: .leading, spacing: 12) {
                 // The document the number was read from, at a glance. A typed-in number has none.
                 if let path = row.documents.first?.path {
-                    VaultDocumentPreview(path: path, shown: shown) {
+                    VaultDocumentPreview(path: path, shown: shown, keep: VaultMask.keep(for: row.category)) {
                         if shown { toggleQuickLook() } else { Task { await model.show(row.id) } }
                     }
                     // A fresh preview for each number, so nothing of one number's scan is drawn
@@ -3412,6 +3413,19 @@ struct VaultCard: View {
         }
     }
 
+    /// Another ID on the card, locked: as its row hides it, so a Social Security number shows no
+    /// ending (VT34).
+    static func lockedOnCard(_ value: String, as category: VaultCategory?) -> String {
+        category.map { VaultMask.described(value, as: $0) } ?? VaultMask.masked(value)
+    }
+
+    /// What a refresh read for a saved ID that differs from it. Hidden as the saved ID's row hides
+    /// it: a Social Security number, saved or read as one, shows no ending (VT34).
+    static func readsDifferently(_ value: String, saved: VaultCategory, read: VaultCategory) -> String {
+        let shown = VaultMask.described(value, as: saved.hidesEnding ? saved : read)
+        return "Its document reads differently now: \(shown). Your saved ID has not been changed."
+    }
+
     /// What the last refresh found about this ID: what reads differently now, a document that
     /// reads as another number (asked about, never taken), and a document that is not where it was.
     @ViewBuilder
@@ -3432,7 +3446,7 @@ struct VaultCard: View {
         }
         if row.isSaved, let other = model.rereads[row.id], let find = model.find(id: other) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Its document reads differently now: \(VaultMask.masked(find.value)). Your saved ID has not been changed.")
+                Text(Self.readsDifferently(find.value, saved: row.category, read: find.category))
                     .scaledFont(.callout)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 6) {
@@ -3565,7 +3579,7 @@ struct VaultCard: View {
         if let corrected = model.lastCorrection, corrected.id == row.id, editing == nil {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(SemanticColor.success)
-                Text(Self.correctionLine(corrected))
+                Text(Self.correctionLine(corrected, keep: VaultMask.keep(for: row.category)))
                     .fixedSize(horizontal: false, vertical: true)
                 Button("Undo") { model.undoCorrection() }
                     .buttonStyle(.link)
@@ -3576,7 +3590,11 @@ struct VaultCard: View {
         }
     }
 
-    static func correctionLine(_ corrected: VaultModel.Correction) -> String {
+    /// The document is named as the documents list names it while hidden: the note stays up after
+    /// the number hides again, so a number in the file's name never shows in it.
+    static func correctionLine(_ corrected: VaultModel.Correction, keep: Int = 4) -> String {
+        let corrected = VaultModel.Correction(id: corrected.id, file: corrected.file.map { VaultMask.fileName($0, keep: keep) },
+                                              changed: corrected.changed, merged: corrected.merged)
         if corrected.merged {
             return corrected.file.map { "Merged the reading from \($0) into this ID." } ?? "Merged a reading into this ID."
         }
@@ -3604,12 +3622,14 @@ struct VaultCard: View {
     private func moreFields(_ row: VaultModel.Row, shown: Bool) -> some View {
         let open = moreFieldsRead?.id == row.id
         let file = row.documents.first.map { ($0.path as NSString).lastPathComponent }
+        // Masked as the documents list masks it while hidden (VT34).
+        let named = file.map { shown ? $0 : VaultMask.fileName($0, keep: VaultMask.keep(for: row.category)) }
         VStack(alignment: .leading, spacing: 6) {
-            if let file {
+            if let named {
                 Button {
                     if open { moreFieldsRead = nil } else { readMoreFields(row) }
                 } label: {
-                    Label("More Fields on \(shown ? file : VaultMask.fileName(file))",
+                    Label("More Fields on \(named)",
                           systemImage: open ? "chevron.down" : "chevron.right")
                 }
                 .buttonStyle(.plain)
@@ -3901,7 +3921,8 @@ struct VaultCard: View {
                         Button {
                             quickLook(source.path, for: row)
                         } label: {
-                            Text(shown ? (source.path as NSString).lastPathComponent : VaultMask.fileName(source.path))
+                            Text(shown ? (source.path as NSString).lastPathComponent
+                                 : VaultMask.fileName(source.path, keep: VaultMask.keep(for: row.category)))
                                 .scaledFont(.callout)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
@@ -3909,13 +3930,13 @@ struct VaultCard: View {
                         .buttonStyle(.plain)
                         .help("Quick Look")
                         let folder = (source.path as NSString).deletingLastPathComponent
-                        Text(Self.shortFolder(shown ? folder : VaultMask.folder(folder)))
+                        Text(Self.shortFolder(shown ? folder : VaultMask.folder(folder, keep: VaultMask.keep(for: row.category))))
                             .scaledFont(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.head)
                             // Masked in its tip even while shown: a tooltip is a window screen sharing sees.
-                            .help((VaultMask.folder(folder) as NSString).abbreviatingWithTildeInPath)
+                            .help((VaultMask.folder(folder, keep: VaultMask.keep(for: row.category)) as NSString).abbreviatingWithTildeInPath)
                         if index == 0, row.chosenSource != nil {
                             Button("Let the Vault Choose") { model.readFrom(row.id, copy: nil) }
                                 .buttonStyle(.link)
@@ -4186,9 +4207,11 @@ struct VaultCard: View {
                 let locked = listed.compactMap { model.lockedRow(holding: $0.value) }
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(listed, id: \.self) { value in
-                        let hidden = model.lockedRow(holding: value.value) != nil
+                        let lockedID = model.lockedRow(holding: value.value)
+                        let hidden = lockedID != nil
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text(hidden ? VaultMask.masked(value.value) : value.value)
+                            Text(hidden ? Self.lockedOnCard(value.value, as: model.rows.first { $0.id == lockedID }?.category)
+                                 : value.value)
                                 .fontDesign(.monospaced)
                             Text("Next to \(value.label)")
                                 .foregroundStyle(.secondary)

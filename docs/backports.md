@@ -16278,6 +16278,9 @@ chose in each (names, roles and contacts field by field, lessons, each waiting I
 seals again (VT111).
 Batch 29: the Vault's lock is always on (Settings ▸ Vault's Require Touch ID and its seal are gone),
 and without Touch ID set up the Vault is not used at all, saying how to set it up (VT60).
+Batch 30: a Social Security or Aadhaar number's ending is no longer drawn while hidden in Activity's
+titles, the Touch ID prompt, "Its document reads differently now", the editor's card list or a
+document's name; the correction note masks its document's name (VT34).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

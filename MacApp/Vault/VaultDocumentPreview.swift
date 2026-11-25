@@ -14,6 +14,8 @@ import Sync
 struct VaultDocumentPreview: View {
     let path: String
     let shown: Bool
+    /// How much of a number in the file's name stays while hidden (``VaultMask/keep(for:)``).
+    var keep: Int = 4
     let onTap: () -> Void
 
     /// The rendered page, with the file it was rendered from: drawn only for that file, so a
@@ -58,7 +60,7 @@ struct VaultDocumentPreview: View {
                 }
                 HStack(spacing: 6) {
                     // The file's name can hold the number too: masked while the number is.
-                    Text(shown ? (path as NSString).lastPathComponent : VaultMask.fileName(path))
+                    Text(shown ? (path as NSString).lastPathComponent : VaultMask.fileName(path, keep: keep))
                         .scaledFont(.caption.weight(.medium))
                         .lineLimit(1)
                         .truncationMode(.middle)

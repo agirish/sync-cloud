@@ -1385,10 +1385,14 @@ public final class VaultModel: ObservableObject {
 
     /// Adds a line to the activity list, when Settings ▸ Vault keeps one. `what` is a name or a
     /// label, with any number in it cut to its ending: a title can be typed with one in it.
-    private func record(_ kind: VaultActivityEvent.Kind, _ what: String = "", whose: String? = nil) {
+    /// `hidesEnding`: the line is about an ID whose ending is itself a secret, so a number in
+    /// its title is hidden whole (VT34).
+    private func record(_ kind: VaultActivityEvent.Kind, _ what: String = "", whose: String? = nil,
+                        hidesEnding: Bool = false) {
         guard let activity, VaultActivitySettings.keeps(in: defaults) else { return }
         let at = clock()
-        activity.append([VaultActivityEvent(at: at, kind: kind, what: VaultMask.text(what), whose: whose)], now: at)
+        let line = VaultMask.text(what, keep: hidesEnding ? 0 : 4)
+        activity.append([VaultActivityEvent(at: at, kind: kind, what: line, whose: whose)], now: at)
     }
 
     /// The same for one ID, named as its row names it.
@@ -1397,7 +1401,9 @@ public final class VaultModel: ObservableObject {
         let row = rows.first { $0.id == id }
         let name = row.map(\.kindTitle)
             ?? entry(id: id)?.title ?? find(id: id)?.title ?? "an ID"
-        record(kind, detail.map { "\($0) of \(name)" } ?? name, whose: row?.whose)
+        let category = row?.category ?? entry(id: id)?.category ?? find(id: id)?.category
+        record(kind, detail.map { "\($0) of \(name)" } ?? name, whose: row?.whose,
+               hidesEnding: category?.hidesEnding ?? false)
     }
 
     /// The Vault's file was replaced by a restore: lock, stop any read, and let go of what was
@@ -1766,12 +1772,21 @@ public final class VaultModel: ObservableObject {
         return await prove(reason, forEach: Set(ids))
     }
 
+    /// Whether any of `ids` is of a kind whose ending is itself a secret.
+    private func secretEnding(_ ids: Set<UUID>) -> Bool {
+        rows.contains { ids.contains($0.id) && $0.category.hidesEnding }
+    }
+
     /// ``prove(_:for:)`` for several IDs at once; none is a proof to open the Vault.
     private func prove(_ reason: String, forEach ids: Set<UUID>) async -> Bool {
         guard !isAsking, touchIDReady() else { return false }
         isAsking = true
         defer { isAsking = false }
         let epoch = session.epoch
+        // macOS draws the reason in its own prompt, over whatever is on screen: a number typed
+        // into an ID's title is cut to its ending there, or hidden whole for a kind whose ending
+        // is a secret, as the Activity line is (VT34).
+        let reason = VaultMask.text(reason, keep: secretEnding(ids) ? 0 : 4)
         let proof = await authenticator.prove(reason: reason)
         now = clock()
         // What was asked for, never for which ID or person (VT22).
@@ -1796,11 +1811,11 @@ public final class VaultModel: ObservableObject {
             return true
         case .cancelled:
             // Someone asked and did not prove it: worth a line, since it may not have been the owner.
-            record(.proofRefused, reason)
+            record(.proofRefused, reason, hidesEnding: secretEnding(ids))
             return false
         case .unavailable(let message), .failed(let message):
             notice = message
-            record(.proofRefused, reason)
+            record(.proofRefused, reason, hidesEnding: secretEnding(ids))
             return false
         }
     }
@@ -1988,7 +2003,7 @@ public final class VaultModel: ObservableObject {
         // Named before it goes: a removed ID has no row to be named by.
         let whose = rows.first { $0.id == id }?.whose
         guard write(entries.filter { $0.id != id }) else { return false }
-        record(.removed, entry.title, whose: whose)
+        record(.removed, entry.title, whose: whose, hidesEnding: entry.category.hidesEnding)
         if entry.sourcePath != nil { remember(entry.value) }
         forgetReading(of: entry.value, readAgain: entry.sourcePath == nil)
         keepSelectionVisible()
@@ -2893,7 +2908,7 @@ public final class VaultModel: ObservableObject {
     /// until Settings ▸ Vault forgets the numbers set aside.
     public func setAside(_ findID: UUID) {
         guard let find = find(id: findID) else { return }
-        record(.setAside, find.title, whose: rows.first { $0.id == findID }?.whose)
+        record(.setAside, find.title, whose: rows.first { $0.id == findID }?.whose, hidesEnding: find.category.hidesEnding)
         remember(find.value)
         finds.removeAll { $0.id == findID }
         copies[VaultReading.normalized(find.value)] = nil
@@ -3097,6 +3112,7 @@ public final class VaultModel: ObservableObject {
             return false
         }
         let title = entries[index].title
+        let secretEnding = entries[index].category.hidesEnding
         var changed = entries
         if let before = undo.before { changed[index] = before } else { changed.remove(at: index) }
         guard write(changed) else { return false }
@@ -3109,7 +3125,8 @@ public final class VaultModel: ObservableObject {
         for find in undo.dropped where !finds.contains(where: { $0.id == find.id }) { finds.append(find) }
         readingChanged = true
         saveReading()
-        record(.other, (lastCorrection?.merged == true ? "Undid the merge into " : "Undid the correction of ") + title)
+        record(.other, (lastCorrection?.merged == true ? "Undid the merge into " : "Undid the correction of ") + title,
+               hidesEnding: secretEnding)
         correctionUndo = nil
         lastCorrection = nil
         return true

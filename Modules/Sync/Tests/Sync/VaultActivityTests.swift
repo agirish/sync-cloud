@@ -36,6 +36,75 @@ import Testing
                                                 "Copied Passport · Anna", "Unlocked"])
     }
 
+    /// VT34: a number written into a title is cut to its ending, but a Social Security number's
+    /// ending is itself a secret, so it is hidden whole, as its row hides it.
+    @Test func aSocialSecurityNumbersEndingIsNeverListed() async throws {
+        let (rig, activity, model) = try Self.rig(); defer { rig.cleanUp() }
+        let ssn = VaultEntry(title: "SSN 123-45-6789", value: "123-45-6789", addedAt: VaultRig.t0, category: .ssn)
+        let loan = VaultEntry(title: "Loan 0482917365", value: "0482917365", addedAt: VaultRig.t0, category: .loans)
+        try rig.seed([ssn, loan])
+        await model.opened()
+        #expect(await model.copy(ssn.id))
+        #expect(await model.copy(loan.id))
+        #expect(await model.delete(ssn.id))
+
+        let lines = activity.load().map(\.line)
+        #expect(!lines.contains { $0.contains("6789") }, "\(lines.count) lines, one with the ending")
+        // The SSN's lines: its copy and its removal, each with no digit left.
+        let ssnLines = lines.filter { ($0.hasPrefix("Copied") || $0.hasPrefix("Removed")) && !$0.contains("Loan") }
+        #expect(ssnLines.count == 2 && ssnLines.allSatisfy { !$0.contains(where: \.isNumber) })
+        #expect(lines.contains { $0.hasPrefix("Copied Loan") && $0.contains("7365") }, "another kind keeps its ending")
+    }
+
+    /// macOS's prompt draws the reason over the screen: a number in a title is masked there too.
+    @Test func thePromptNeverCarriesANumberInFull() async throws {
+        let (rig, _, model) = try Self.rig(); defer { rig.cleanUp() }
+        let ssn = VaultEntry(title: "SSN 123-45-6789", value: "123-45-6789", addedAt: VaultRig.t0, category: .ssn)
+        let loan = VaultEntry(title: "Loan 0482917365", value: "0482917365", addedAt: VaultRig.t0, category: .loans)
+        try rig.seed([ssn, loan])
+        VaultFixtures.everyNumber(rig)
+        await model.opened()
+        _ = await model.copy(ssn.id)
+        _ = await model.copy(loan.id)
+        let asked = rig.auth.reasons.joined(separator: " | ")
+        #expect(!asked.contains("6789") && !asked.contains("123-45"), "a Social Security number's ending was asked with")
+        #expect(asked.contains("7365") && !asked.contains("048291"), "another kind's ending, and no more")
+    }
+
+    /// A refused proof's line names the ID as the others do: a Social Security number, no ending.
+    @Test func aRefusedProofForASocialSecurityNumberListsNoEnding() async throws {
+        let (rig, activity, model) = try Self.rig(); defer { rig.cleanUp() }
+        let ssn = VaultEntry(title: "SSN 123-45-6789", value: "123-45-6789", addedAt: VaultRig.t0, category: .ssn)
+        try rig.seed([ssn])
+        VaultFixtures.everyNumber(rig)
+        await model.opened()
+        rig.auth.answer = .cancelled
+        #expect(await model.copy(ssn.id) == false)
+        let refused = activity.load().map(\.line).filter { $0.hasPrefix("Proof refused") }
+        let digitLeft = refused.contains { $0.contains(where: \.isNumber) }
+        #expect(refused.count == 1 && !digitLeft)
+    }
+
+    /// Kept to nothing, the last four written alone are a number too; and a document's name is
+    /// masked the same way.
+    @Test func theLastFourWrittenAloneAreHiddenForASecretEnding() {
+        for title in ["SSN xxx-xx-6789", "Anna (6789)", "SSN ***-**-6789"] {
+            #expect(!VaultMask.text(title, keep: 0).contains("6789"), "\(title)")
+        }
+        #expect(VaultMask.text("Anna (6789)").contains("6789"), "another kind's ending is not a number on its own")
+        #expect(!VaultMask.fileName("/Scans/SSN 123-45-6789.pdf", keep: 0).contains("6789"))
+        #expect(VaultMask.fileName("/Scans/Loan 0482917365.pdf").contains("7365"))
+        #expect(!VaultMask.folder("/Scans/SSN 123-45-6789", keep: 0).contains("6789"))
+    }
+
+    @Test func aTitleCanHideANumberWhole() {
+        let whole = VaultMask.text("SSN 123-45-6789", keep: 0), ending = VaultMask.text("SSN 123-45-6789")
+        // "SSN" is a short capital prefix, judged part of the number, so it goes too.
+        let digitLeft = whole.contains(where: \.isNumber)
+        #expect(!digitLeft)
+        #expect(ending.hasSuffix("6789") && !ending.contains("123"))
+    }
+
     @Test func aRefusedProofIsListedThoughNothingOpened() async throws {
         let (rig, activity, model) = try Self.rig(); defer { rig.cleanUp() }
         try rig.seed([Self.mortgage])

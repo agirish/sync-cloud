@@ -9,7 +9,7 @@ the visual design. An item marked **owner's call** changes behaviour: ask first,
 internal half.
 
 **Rules.**
-- IDs (`VT…`) are stable: never renumber; cite them in commit bodies. Next free: **VT113** (VT61 and VT62 were never used).
+- IDs (`VT…`) are stable: never renumber; cite them in commit bodies. Next free: **VT114** (VT61 and VT62 were never used).
 - **Never log, print or assert on a number in full.** Raise `VaultReading.version` when what a reader
   finds changes; it makes the next Read Documents read every file again.
 - **Proof for every refactor** (`CLAUDE.md` §5): the same rows, sealed JSON (decrypted, key-sorted)
@@ -53,6 +53,10 @@ Read by [`RELEASE.md`](../RELEASE.md) §4.
 ## Open: the owner's calls
 
 Each changes what the user sees, gets or is asked.
+- **VT113, a number typed into an ID's own title** is drawn as typed: the row, VoiceOver, Large
+  Type's heading, the copied People summary ("made to be passed on", no proof). Activity and the
+  Touch ID prompt mask it (VT34). Masking titles everywhere changes what every row says. Also: the
+  editor's other IDs on a card hide a locked one only when it matches a saved number exactly.
 - **VT112, Save again from an Edit after another copy's save** writes the old draft over that copy's
   edit of the same ID. *Fix:* the editor keeps the ID as it opened it, and a save refuses when the
   fields it edits changed since (not the whole entry: a correction's note lands on it later).
@@ -66,8 +70,6 @@ Each changes what the user sees, gets or is asked.
 - **VT23, record lines**: pin, assign, place, kind, name correction, Read from This Copy and
   `copyPerson(numbers: true)` record nothing; `copyBirth` is titled by the first ID. Each addition is a
   new Activity line.
-- **VT34's drawn part**: an activity line's title and "Its document reads differently now" show a
-  Social Security number's last four. (Descriptions done, batch 19.)
 - **VT35's question**: whether copied names and dates are concealed and cleared too. (One copy path
   done, batch 19.)
 - **VT50's two**: `VaultCopies` taking the read folders (a read folder inside an Archive folder makes
@@ -151,7 +153,8 @@ Each changes what the user sees, gets or is asked.
 | VT107 (1, 2) | A byte-identical file read once; originals first | batch 4 |
 | VT76 | View state that duplicated the model's: the layout and Large Type (batch 11); the household from the window's `VaultHost`, drawn from `model.people` alone, and the read folders reloaded in one place (batch 23). `namingKindFor`/`newKindName` and `copied`/`copiedDetail` stay pairs: one optional would blank the name as its sheet slides away, and an ID's and a detail's "Copied" show together | batches 11, 23 |
 | VT7 | `readDocuments`' pieces as steps of their own; last, the walk and the plan (`plannedSteps`), with every place a read can stop kept | batches 9, 10, 24 |
-| VT1, VT10, VT34 | Parts done; the rest is open above | batches 4–19 |
+| VT34 | A Social Security or Aadhaar number's ending, never drawn while hidden: in descriptions (batch 19); and now in Activity titles, the Touch ID prompt's reason (every kind's number there cut to its ending), "Its document reads differently now", the editor's other IDs on the card, and a document's or folder's name wherever it is drawn hidden (list, tips, More Fields, the preview). Kept to nothing, the last four written alone ("xxx-xx-6789") count as a number. The correction note names its document masked, for every kind. Activity lines listed before keep what they said | batches 19, 30 |
+| VT1, VT10 | Parts done; the rest is open above | batches 4–19 |
 
 Kept on purpose: `sessionLine` in production code (the shared log capture sees sibling cases); the
 reader protocol's three levels (`pages`, `reading`, `noted`); leftover `.writing-` and set-aside files
