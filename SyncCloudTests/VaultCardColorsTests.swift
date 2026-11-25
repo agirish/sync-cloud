@@ -10,13 +10,12 @@ import Testing
 @Suite struct VaultCardColorsTests {
     // MARK: The shades
 
-    /// The colors are made once (VT78), and one color serves both appearances, as a swatch drawn
-    /// with it does: its shade for whichever it is drawn in, light after dark and dark after light.
+    /// The colors are made once (VT78), and one color serves both appearances: drawn with it, a
+    /// swatch takes its shade for whichever it is drawn in, light after dark and dark after light.
     @Test func oneColorPerTintDrawsTheShadeOfEachAppearance() throws {
         for tint in VaultTint.allCases {
             #expect(VaultTintPalette.nsColor(tint) === VaultTintPalette.nsColor(tint), "\(tint): made once")
         }
-        let image = VaultTintPalette.swatch(.clay)
         func middle(_ name: NSAppearance.Name) throws -> (red: Double, green: Double, blue: Double) {
             let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 12, pixelsHigh: 12, bitsPerSample: 8,
                                                     samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
@@ -24,7 +23,8 @@ import Testing
             try #require(NSAppearance(named: name)).performAsCurrentDrawingAppearance {
                 NSGraphicsContext.saveGraphicsState()
                 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-                image.draw(in: NSRect(x: 0, y: 0, width: 12, height: 12))
+                VaultTintPalette.nsColor(.clay).setFill()
+                NSRect(x: 0, y: 0, width: 12, height: 12).fill()
                 NSGraphicsContext.restoreGraphicsState()
             }
             let color = try #require(rep.colorAt(x: 6, y: 6))

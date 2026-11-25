@@ -62,27 +62,6 @@ enum VaultTintPalette {
             return NSColor(srgbRed: parts.red, green: parts.green, blue: parts.blue, alpha: 1)
         }
     }
-
-    /// A small round swatch for a menu line: a menu draws an item's image, never a SwiftUI shape.
-    /// Nil is "no color", an empty ring. A new image per draw, on purpose: SwiftUI keeps an
-    /// `Image(nsImage:)` it has drawn and never draws a held one again when the appearance
-    /// changes, so a swatch made once would keep the other appearance's shade (VT78).
-    static func swatch(_ tint: VaultTint?) -> NSImage {
-        let image = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
-            let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1))
-            if let tint {
-                nsColor(tint).setFill()
-                circle.fill()
-            } else {
-                NSColor.tertiaryLabelColor.setStroke()
-                circle.lineWidth = 1
-                circle.stroke()
-            }
-            return true
-        }
-        image.isTemplate = false
-        return image
-    }
 }
 
 extension VaultTint {
@@ -259,23 +238,22 @@ struct VaultColorPopover: View {
     let turnOn: () -> Void
 
     static let width: CGFloat = 310
-    /// A swatch's diameter and the gap to the next: nine fit the width.
-    static let swatch: CGFloat = 20
-    static let gap: CGFloat = 10
+    static let swatch = VaultSwatches.swatch
+    static let gap = VaultSwatches.gap
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if choice.isOn {
                 VStack(alignment: .leading, spacing: 8) {
                     heading("This Card", choice.title)
-                    if choice.group != nil { followsGroup }
-                    swatches(chosen: choice.own, of: "\(choice.title) card") { pickCard($0) }
+                    if choice.group != nil { VaultSameAsGroup(chosen: choice.own == nil, accent: accent) { pickCard(nil) } }
+                    VaultSwatches(chosen: choice.own, of: "\(choice.title) card") { pickCard($0) }
                 }
                 if let name = choice.groupName, let color = choice.groupColor {
                     Divider()
                     VStack(alignment: .leading, spacing: 8) {
                         heading("Its Group", name)
-                        swatches(chosen: color, of: "group \(name)", pick: pickGroup)
+                        VaultSwatches(chosen: color, of: "group \(name)", pick: pickGroup)
                         Text(choice.reach)
                             .scaledFont(.caption)
                             .foregroundStyle(.secondary)
@@ -302,13 +280,18 @@ struct VaultColorPopover: View {
                 .lineLimit(1)
         }
     }
+}
 
-    /// The card's first choice: no color of its own. Chosen, no swatch in its row is ringed.
-    private var followsGroup: some View {
-        let chosen = choice.own == nil
-        return Button {
-            pickCard(nil)
-        } label: {
+/// A card's first choice where it has a group: no color of its own. Chosen, no swatch in its row
+/// is ringed.
+struct VaultSameAsGroup: View {
+    let chosen: Bool
+    /// The window's hue, for the chosen look.
+    let accent: Color
+    let pick: () -> Void
+
+    var body: some View {
+        Button(action: pick) {
             HStack(spacing: 5) {
                 if chosen {
                     Image(systemName: "checkmark")
@@ -327,72 +310,129 @@ struct VaultColorPopover: View {
         .help("No color of its own: the card takes its group’s")
         .accessibilityAddTraits(chosen ? .isSelected : [])
     }
+}
 
-    private func swatches(chosen: VaultCardColor?, of what: String, pick: @escaping (VaultCardColor) -> Void) -> some View {
+/// One row of every color, then none, the chosen one ringed: the one way a color is chosen,
+/// wherever it is (VT75, owner: swatches everywhere).
+struct VaultSwatches: View {
+    let chosen: VaultCardColor?
+    /// What the row colors, for VoiceOver: "Passports card", "group Travel".
+    let what: String
+    let pick: (VaultCardColor) -> Void
+
+    /// A swatch's diameter and the gap to the next: nine fit ``VaultColorPopover/width``.
+    static let swatch: CGFloat = 20
+    static let gap: CGFloat = 10
+
+    init(chosen: VaultCardColor?, of what: String, pick: @escaping (VaultCardColor) -> Void) {
+        self.chosen = chosen
+        self.what = what
+        self.pick = pick
+    }
+
+    var body: some View {
         HStack(spacing: Self.gap) {
             ForEach(VaultTint.allCases, id: \.self) { tint in
-                swatch(.tint(tint), chosen: chosen == .tint(tint), of: what, pick: pick)
+                swatch(.tint(tint))
             }
-            swatch(.plain, chosen: chosen == .plain, of: what, pick: pick)
+            swatch(.plain)
         }
     }
 
-    private func swatch(_ color: VaultCardColor, chosen: Bool, of what: String, pick: @escaping (VaultCardColor) -> Void) -> some View {
-        let name: String = { if case .tint(let tint) = color { return tint.title } else { return "No Color" } }()
+    private func swatch(_ color: VaultCardColor) -> some View {
+        let isChosen = chosen == color
         return Button {
             pick(color)
         } label: {
-            ZStack {
-                if case .tint(let tint) = color {
-                    Circle().fill(tint.color)
-                } else {
-                    // No color: an empty ring with a stroke through it.
-                    Circle().strokeBorder(Color.secondary.opacity(0.7), lineWidth: 1)
-                    Rectangle().fill(Color.secondary.opacity(0.7)).frame(width: Self.swatch - 4, height: 1).rotationEffect(.degrees(-45))
-                }
-            }
-            .frame(width: Self.swatch, height: Self.swatch)
-            // The chosen one: a ring round it, in the text color so it reads over any shade.
-            .overlay(Circle().strokeBorder(Color.primary.opacity(chosen ? 0.85 : 0), lineWidth: 2).padding(-4))
-            .contentShape(Circle().inset(by: -4))
+            VaultSwatchDot(color: color, size: Self.swatch)
+                // The chosen one: a ring round it, in the text color so it reads over any shade.
+                .overlay(Circle().strokeBorder(Color.primary.opacity(isChosen ? 0.85 : 0), lineWidth: 2).padding(-4))
+                .contentShape(Circle().inset(by: -4))
         }
         .buttonStyle(.plain)
-        .help(name)
-        .accessibilityLabel("\(name), color of the \(what)")
-        .accessibilityAddTraits(chosen ? .isSelected : [])
+        .help(color.title)
+        .accessibilityLabel("\(color.title), color of the \(what)")
+        .accessibilityAddTraits(isChosen ? .isSelected : [])
     }
 }
 
-/// A color popup for Customize Groups: the tints with their swatches, and none; with
-/// `followsGroup`, also "Group’s" for a card that has no color of its own.
-struct VaultColorPicker: View {
-    /// The choice: a ``VaultCardColor/key``, or "group".
-    @Binding var key: String
-    var followsGroup = false
-    let accessibilityLabel: String
-
-    static let groupKey = "group"
+/// A color drawn as a swatch: a disc of the tint, or for no color an empty ring with a stroke
+/// through it.
+struct VaultSwatchDot: View {
+    let color: VaultCardColor
+    let size: CGFloat
 
     var body: some View {
-        Picker(accessibilityLabel, selection: $key) {
-            if followsGroup {
-                Text("Group’s").tag(Self.groupKey)
-                Divider()
+        ZStack {
+            if case .tint(let tint) = color {
+                Circle().fill(tint.color)
+            } else {
+                Circle().strokeBorder(Color.secondary.opacity(0.7), lineWidth: 1)
+                Rectangle().fill(Color.secondary.opacity(0.7)).frame(width: size - 4, height: 1).rotationEffect(.degrees(-45))
             }
-            ForEach(VaultTint.allCases, id: \.self) { tint in
-                Label {
-                    Text(tint.title)
-                } icon: {
-                    Image(nsImage: VaultTintPalette.swatch(tint))
-                }
-                .tag(tint.rawValue)
-            }
-            Divider()
-            Text("No Color").tag(VaultCardColor.plain.key)
         }
-        .labelsHidden()
-        .fixedSize()
-        .accessibilityLabel(accessibilityLabel)
+        .frame(width: size, height: size)
+    }
+}
+
+extension VaultCardColor {
+    /// The color's name: a tint's, or "No Color".
+    var title: String { if case .tint(let tint) = self { tint.title } else { "No Color" } }
+}
+
+/// A color in a row of Customize Groups: the color it is set to, as a swatch, which opens the
+/// row of swatches (``VaultSwatches``) to choose another. With `follows`, a card that has no color
+/// of its own: the swatch shows its group's, and "Same as Group" leads the choice.
+struct VaultColorWell: View {
+    /// The color chosen; nil follows the group.
+    @Binding var color: VaultCardColor?
+    /// The group's color, for a card that may follow it; nil where there is no group to follow.
+    var follows: VaultCardColor? = nil
+    /// The window's hue, for the chosen "Same as Group".
+    var accent: Color = .accentColor
+    /// The well's name for VoiceOver: "Color of the group Travel".
+    let label: String
+    /// What its swatches color, for VoiceOver: "group Travel", "Passports card".
+    let what: String
+    @State private var choosing = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    /// The color the row is drawn in: its own, else its group's.
+    private var shown: VaultCardColor { color ?? follows ?? .plain }
+    /// Said by VoiceOver and the help: the color, or that it is the group's.
+    var value: String { color == nil && follows != nil ? "Same as Group (\(shown.title))" : shown.title }
+
+    var body: some View {
+        Button {
+            choosing = true
+        } label: {
+            HStack(spacing: 4) {
+                VaultSwatchDot(color: shown, size: 14)
+                    // A card following its group: a dashed ring says the color is borrowed.
+                    .overlay {
+                        if color == nil, follows != nil {
+                            Circle().strokeBorder(Color.primary.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
+                                .padding(-3)
+                        }
+                    }
+                    .padding(3)
+                Image(systemName: "chevron.down")
+                    .scaledFont(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .opacity(isEnabled ? 1 : 0.4)
+        }
+        .buttonStyle(.bordered)
+        .help(value)
+        .accessibilityLabel(label)
+        .accessibilityValue(value)
+        .popover(isPresented: $choosing, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 8) {
+                if follows != nil { VaultSameAsGroup(chosen: color == nil, accent: accent) { color = nil } }
+                VaultSwatches(chosen: color, of: what) { color = $0 }
+            }
+            .padding(14)
+        }
     }
 }
 

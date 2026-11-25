@@ -1064,15 +1064,7 @@ struct VaultCard: View {
                     readAgainBanner
                     tabBanner
                     let drawn = model.cardGroups
-                    if drawn.isEmpty {
-                        if hiddenByChoices {
-                            hiddenByChoicesState
-                        } else {
-                            EmptyStateView(icon: "magnifyingglass", title: emptyTitle, message: emptyMessage, layout: .compact)
-                                .padding(.top, 24)
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
+                    if drawn.isEmpty { noIDsState }
                     // Group by group in the groups' order: under each group's heading while Show
                     // Group Headings is on, else one wall in the same order.
                     if showsGroupHeadings {
@@ -1289,23 +1281,24 @@ struct VaultCard: View {
         withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { model.setGroups(groups) }
     }
 
-    /// A group's color, from its heading: the same choice as in Customize Groups.
+    /// A group's color, from its heading: the same swatches as everywhere else (VT75).
     private func groupColorPopover(_ group: VaultCardGroup) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Color of \(group.name)")
                 .scaledFont(.callout.weight(.semibold))
-            VaultColorPicker(key: Binding(get: { model.colors.color(ofGroup: group.id).key },
-                                          set: { model.setColor(VaultCardColor(key: $0) ?? .plain, ofGroup: group.id) }),
-                             accessibilityLabel: "Color of the group \(group.name)")
-                .disabled(!model.colors.isOn)
+            VaultSwatches(chosen: model.colors.color(ofGroup: group.id), of: "group \(group.name)") {
+                model.setColor($0, ofGroup: group.id)
+            }
+            .disabled(!model.colors.isOn)
+            .opacity(model.colors.isOn ? 1 : 0.4)
             if !model.colors.isOn {
                 Text("Colors are off in Customize Groups.")
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(12)
-        .frame(width: 260, alignment: .leading)
+        .padding(14)
+        .frame(width: VaultColorPopover.width, alignment: .leading)
         .onDisappear { if groupColoring == group.id { groupColoring = nil } }
     }
 
@@ -1662,11 +1655,7 @@ struct VaultCard: View {
                     readAgainBanner
                     tabBanner
                     let drawn = model.cardGroups
-                    if drawn.isEmpty {
-                        EmptyStateView(icon: "magnifyingglass", title: emptyTitle, message: emptyMessage, layout: .compact)
-                            .padding(.top, 24)
-                            .frame(maxWidth: .infinity)
-                    }
+                    if drawn.isEmpty { noIDsState }
                     ForEach(drawn) { group in
                         // Each group's name over its kinds' while Show Group Headings is on.
                         if showsGroupHeadings {
@@ -1724,15 +1713,7 @@ struct VaultCard: View {
                         Color.clear.frame(height: 0)
                     }
                     let sections = model.peopleSections
-                    if sections.isEmpty {
-                        if hiddenByChoices {
-                            hiddenByChoicesState
-                        } else {
-                            EmptyStateView(icon: "magnifyingglass", title: emptyTitle, message: emptyMessage, layout: .compact)
-                                .padding(.top, 24)
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
+                    if sections.isEmpty { noIDsState }
                     ForEach(sections) { section in personSection(section, isFirst: section.id == sections.first?.id) }
                 }
                 .padding(12)
@@ -2796,7 +2777,20 @@ struct VaultCard: View {
         return parts.joined(separator: " · ")
     }
 
-    /// The empty state when the tab has IDs but the choices hide them all (VT75: one for each layout that has it).
+    /// What Cards, List and People show when the tab draws no ID: the choices hiding them all,
+    /// with the way back, or nothing here or matching the search (VT75: one for every layout).
+    @ViewBuilder
+    private var noIDsState: some View {
+        if hiddenByChoices {
+            hiddenByChoicesState
+        } else {
+            EmptyStateView(icon: "magnifyingglass", title: emptyTitle, message: emptyMessage, layout: .compact)
+                .padding(.top, 24)
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    /// The empty state when the tab has IDs but the choices hide them all.
     private var hiddenByChoicesState: some View {
         EmptyStateView(icon: "line.3.horizontal.decrease.circle", title: "Nothing here for these choices",
                        message: "IDs on this tab belong to another country, person or kind.",
@@ -5163,16 +5157,16 @@ struct VaultGroupsSheet: View {
         original = kinds
     }
 
-    /// A group's color, as its popup's choice.
-    private func groupColor(_ id: VaultGroups.ID) -> Binding<String> {
-        Binding(get: { colors.color(ofGroup: id).key },
-                set: { colors.groups[id] = VaultCardColor(key: $0) })
+    /// A group's color, as its swatch's choice.
+    private func groupColor(_ id: VaultGroups.ID) -> Binding<VaultCardColor?> {
+        Binding(get: { colors.color(ofGroup: id) },
+                set: { colors.groups[id] = $0 })
     }
 
-    /// A card's own color as its popup's choice, or the group's when it has none.
-    private func cardColor(_ card: VaultCardID) -> Binding<String> {
-        Binding(get: { colors.own(card)?.key ?? VaultColorPicker.groupKey },
-                set: { colors.cards[card.key] = VaultCardColor(key: $0) })
+    /// A card's own color as its swatch's choice; nil, its group's.
+    private func cardColor(_ card: VaultCardID) -> Binding<VaultCardColor?> {
+        Binding(get: { colors.own(card) },
+                set: { colors.cards[card.key] = $0 })
     }
 
     private func edit(_ id: VaultCustomKind.ID, _ change: (inout VaultCustomKind) -> Void) {
@@ -5206,7 +5200,8 @@ struct VaultGroupsSheet: View {
                                                             set: { groups.names[id] = $0 }))
                                 .labelsHidden()
                                 .accessibilityLabel("Name of the group \(groups.name(id))")
-                            VaultColorPicker(key: groupColor(id), accessibilityLabel: "Color of the group \(groups.name(id))")
+                            VaultColorWell(color: groupColor(id), label: "Color of the group \(groups.name(id))",
+                                           what: "group \(groups.name(id))")
                                 .disabled(!colors.isOn)
                             ControlGroup {
                                 Button { groups.move(id, by: -1) } label: { Image(systemName: "chevron.up") }
@@ -5239,8 +5234,9 @@ struct VaultGroupsSheet: View {
                                 }
                                 .labelsHidden()
                                 .fixedSize()
-                                VaultColorPicker(key: cardColor(.builtIn(category)), followsGroup: true,
-                                                 accessibilityLabel: "Color of \(category.title)")
+                                VaultColorWell(color: cardColor(.builtIn(category)),
+                                               follows: groups.group(of: category).map { colors.color(ofGroup: $0) },
+                                               label: "Color of \(category.title)", what: "\(category.title) card")
                                     .disabled(!colors.isOn)
                             }
                         }
@@ -5265,8 +5261,9 @@ struct VaultGroupsSheet: View {
                             }
                             .labelsHidden()
                             .fixedSize()
-                            VaultColorPicker(key: cardColor(.custom(kind.id)), followsGroup: true,
-                                             accessibilityLabel: "Color of the kind \(kind.name)")
+                            VaultColorWell(color: cardColor(.custom(kind.id)),
+                                           follows: colors.color(ofGroup: kinds.kind(kind.id)?.group ?? kind.group),
+                                           label: "Color of the kind \(kind.name)", what: "\(kind.name) card")
                                 .disabled(!colors.isOn)
                             Button("Remove") { kinds.custom.removeAll { $0.id == kind.id } }
                                 .controlSize(.small)

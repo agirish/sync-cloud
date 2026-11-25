@@ -53,13 +53,9 @@ Read by [`RELEASE.md`](../RELEASE.md) §4.
 ## Open: the owner's calls
 
 Each changes what the user sees, gets or is asked.
-- **VT75's two**: `VaultColorPicker` (pop-up, Customize Groups) and `VaultColorPopover` (swatches)
-  choose one thing two ways; the List layout lacks the others' empty state.
 - **VT107 steps 3–5** (steps 1–2 done, batch 4): pass over a supporting copy whose numbers are all held
   from a home-folder source; Refresh reopens only each ID's own file; keep Vision's page text sealed so a
   version bump re-runs the rules, not the OCR (stores document text).
-- **Under "For every number"**, `assign`, `pin`, `setGeo`, `setAside` and `confirm` need no proof:
-  whether a locked Vault is read-only.
 - **Reader accuracy**, each changes what is read (a made-up page that fails first, a version bump, the
   harness):
 
@@ -121,7 +117,8 @@ Each changes what the user sees, gets or is asked.
 | VT74 | Render tests wrote the backup and read Folders to Read live: both now come with the model (`VaultModel.live()`'s; none and scratch settings in tests), and `VaultReadFolders` takes no default settings. A render still reads the owner's sharing settings (capture, clipboard time); it writes nothing | batch 24 |
 | VT70 | Add to Vault proposes whose a waiting ID is by the name as corrected, as its row does, not as printed, and Confirm saves it as it always saved a printed name's person. The rows' other answers (a folder's person, a birth date, the household for a nameless account) stay guesses, worked out again after Confirm: saved as choices, a household account would be grouped and the older archived. Edit keeps what was chosen. Owner's call | batch 36 |
 | VT72 | Activity lists a title whole (`VaultMask.text`), not cut at its last slash | 2026-11-24 |
-| VT75 | Duplicated view code, but the pickers and List's empty state | batches 8, 22 |
+| VT75 | Duplicated view code, batches 8 and 22; then, by the owner's call, one way to choose a color: the swatches (`VaultSwatches`) in a card's Color…, a group heading's Color… and every row of Customize Groups (`VaultColorWell`), the pop-up gone; and one empty state for Cards, List and People (`noIDsState`), so List also offers Show Everything when the choices hide every ID | batches 8, 22, 39 |
+| — | Under "For every number", `assign`, `pin`, `setGeo`, `setAside` and `confirm` still need no proof: changes that show no number stay open to an unlocked Vault (owner's call, kept as it is) | 2026-11-25 |
 | VT77, VT78, VT82, VT83, VT84 | Masonry measured once, colors made once, renders and readings once per page, labels once per page | batch 6 |
 | VT79, VT80, VT103, VT106 | Retroactive conformance, dead code, People's groups by id, small duplications | batch 11 |
 | VT81 | A document grown past 60 MB is passed over by Refresh, as by Discover More, and what it gave before stays in both (owner's call): Discover More had let it go as deleted. Refresh marks it read with its size and date, so it is opened again only once it changes | batch 38 |
@@ -142,9 +139,8 @@ Each changes what the user sees, gets or is asked.
 
 Kept on purpose: `sessionLine` in production code (the shared log capture sees sibling cases); the
 reader protocol's three levels (`pages`, `reading`, `noted`); leftover `.writing-` and set-aside files
-unswept (the second may be the only readable copy); the swatch image made per draw (a held one keeps
-the other appearance's shade); a page's letters made with the page (made at first use, three of the
-owner's papers read differently).
+unswept (the second may be the only readable copy); a page's letters made with the page (made at
+first use, three of the owner's papers read differently).
 
 **Vision's compiled model, missing.** For two to three minutes after a differently signed build's
 first text request, every request can fail (`E5RT … (Code: 13)`, "Missing E5 bundle resource"):

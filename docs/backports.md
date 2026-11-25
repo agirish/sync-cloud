@@ -16296,6 +16296,8 @@ Batch 38: a document past 60 MB keeps what it gave, on Refresh and on Discover M
 does not reopen it until it changes (VT81); Backup counts as an archive folder below the folder
 read, account papers in any archive folder are not read for a number, and TODO (the inbox rule),
 TMP or Temp rank a copy lower without archiving it (VT50).
+Batch 39: colors are chosen one way, by swatches, in Customize Groups and a group heading as on a
+card; List offers Show Everything when the choices hide every ID, as Cards and People do (VT75).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed
