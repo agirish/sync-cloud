@@ -1266,6 +1266,10 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
     /// What the user typed for each person, by person: phones, emails and home addresses, and
     /// addresses read that are not theirs. Kept across a change of rules.
     public var contacts: [String: VaultContacts]?
+    /// What each copy filed in a packet gave when last read whole, by its size and date: kept
+    /// across a change of rules, so a copy whose numbers are all held from their own folders is
+    /// known before it is opened (VT107 step 3, ``VaultCopyNumbers``).
+    public var copyNumbers: [String: VaultCopyNumbers]?
 
     public init(version: Int = VaultReading.version, generation: Int = 0,
                 finds: [VaultFind] = [], read: [String: String] = [:], mentions: [String: [VaultSource]] = [:],
@@ -1273,7 +1277,9 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
                 needsReadAgain: Bool = false, lessons: [String: VaultCardID] = [:],
                 staleSources: [String]? = nil, notFound: [String]? = nil, needsDiscover: Bool? = nil,
                 copiesChanged: Bool? = nil, lastRefreshed: Date? = nil, lastDiscovered: Date? = nil, names: [String: String] = [:],
-                nameRoles: [String: VaultNameRoles]? = nil, contacts: [String: VaultContacts]? = nil) {
+                nameRoles: [String: VaultNameRoles]? = nil, contacts: [String: VaultContacts]? = nil,
+                copyNumbers: [String: VaultCopyNumbers]? = nil) {
+        self.copyNumbers = copyNumbers
         self.nameRoles = nameRoles
         self.contacts = contacts
         self.staleSources = staleSources
@@ -1297,6 +1303,7 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case version, generation, finds, read, mentions, copies, choices, needsReadAgain, lessons
         case staleSources, notFound, needsDiscover, copiesChanged, lastRefreshed, lastDiscovered, names, nameRoles, contacts
+        case copyNumbers
     }
 
     /// Every key this build reads. One outside it is a later build's, kept as it came
@@ -1334,6 +1341,22 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
         names = (try? c.decodeIfPresent([String: String].self, forKey: .names)) ?? [:]
         nameRoles = try? c.decodeIfPresent([String: VaultNameRoles].self, forKey: .nameRoles)
         contacts = try? c.decodeIfPresent([String: VaultContacts].self, forKey: .contacts)
+        copyNumbers = try? c.decodeIfPresent([String: VaultCopyNumbers].self, forKey: .copyNumbers)
+    }
+}
+
+/// A copy filed in a packet (a petition's, an application's) and the numbers it gave, as it
+/// was when read whole (VT107 step 3, owner). While it stays as it was and every one of those
+/// numbers is held from a document in its own kind's folder, a read passes it over.
+public struct VaultCopyNumbers: Codable, Equatable, Sendable {
+    /// Its size and date then (``VaultDocumentReading/stamp(of:)``).
+    public var stamp: String
+    /// What it gave, normalized (``VaultReading/normalized(_:)``).
+    public var numbers: [String]
+
+    public init(stamp: String, numbers: [String]) {
+        self.stamp = stamp
+        self.numbers = numbers
     }
 }
 

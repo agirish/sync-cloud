@@ -17,6 +17,8 @@ public struct VaultReadTally: Equatable, Sendable {
     public private(set) var mentions = 0
     /// New to To Confirm.
     public var added = 0
+    /// Copies in packets not opened: every number each gave is held from its own folder (VT107).
+    public var copiesPassedOver = 0
     /// Files passed over and why, pages not recognised, and how pages were read (VT25).
     public var notes = VaultReadNotes()
     private var seen = Set<String>()
@@ -44,6 +46,7 @@ public struct VaultReadTally: Equatable, Sendable {
         }
         var line = "Vault: \(documents) document(s), \(opened) opened in \(Self.duration(seconds))"
         if textless > 0 { line += " (\(textless) gave no text)" }
+        if copiesPassedOver > 0 { line += ", \(copiesPassedOver) copies in packets passed over" }
         line += kinds.isEmpty ? "; no numbers read" : "; read " + kinds.joined(separator: ", ")
         if mentions > 0 { line += "; \(mentions) named only" }
         return line + "; \(added) new number(s) to confirm" + notes.summary

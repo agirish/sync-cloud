@@ -30,6 +30,8 @@ extension VaultReadingState {
         var open = self
         open.version = VaultReading.version
         open.generation = generation
+        // A Forget since, even one made under older rules: the copies' numbers go with it.
+        if self.generation != generation { open.copyNumbers = nil }
         guard version == VaultReading.version else {
             // Another build's rules: read every file again next time. What another build read is
             // let go with it, as its finds were made by older rules; what the user chose about
@@ -55,7 +57,7 @@ extension VaultReadingState {
             open.copiesChanged = nil
             return (open, true)
         }
-        // A Forget since: every file is read again next time.
+        // A Forget since: every file is read again next time, its copies too.
         if self.generation != generation { open.read = [:] }
         // Merged by an older build of the same rules: rebuilt, so each names the document it is
         // read from and copies are weighed as they are now.

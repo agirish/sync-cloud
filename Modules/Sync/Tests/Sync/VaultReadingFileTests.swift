@@ -87,6 +87,17 @@ import Testing
         #expect(open.lastRefreshed == VaultRig.t0)
     }
 
+    /// What packets' copies gave is kept across a change of rules (VT107 step 3), and goes with
+    /// a Forget, even one made before the change of rules (the 2026-11-25 review).
+    @Test func copiesNumbersOutliveNewRulesButNotAForget() {
+        var state = Self.sealed(version: VaultReading.version - 1)
+        state.copyNumbers = [Self.copy: VaultCopyNumbers(stamp: "1", numbers: ["XZB123456789"])]
+        #expect(state.opened(generation: 3, people: Self.people).state.copyNumbers == state.copyNumbers)
+        #expect(state.opened(generation: 4, people: Self.people).state.copyNumbers == nil)
+        state.version = VaultReading.version
+        #expect(state.opened(generation: 4, people: Self.people).state.copyNumbers == nil)
+    }
+
     /// Discover More offered for copies that changed (VT107) is sealed as such, and an older
     /// file without the field opens without it.
     @Test func whatRaisedDiscoverMoreIsSealed() throws {

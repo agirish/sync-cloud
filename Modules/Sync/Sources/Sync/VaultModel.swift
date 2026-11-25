@@ -348,6 +348,9 @@ public final class VaultModel: ObservableObject {
     @Published public private(set) var lastDiscovered: Date?
     /// Documents an older build read IDs from, for the refresh that follows a change of rules.
     private var staleSources: Set<String> = []
+    /// What each copy in a packet gave when last read whole (VT107 step 3): sealed with what was
+    /// read, kept across a change of rules.
+    private var copyNumbers: [String: VaultCopyNumbers] = [:]
 
     /// Numbers read from documents and not yet confirmed. Sealed in Read Documents' own file
     /// between reads, and let go from memory with the entries when the Vault locks.
@@ -1759,6 +1762,7 @@ public final class VaultModel: ObservableObject {
         choices = [:]
         lessons = [:]
         staleSources = []
+        copyNumbers = [:]
         missingDocuments = []
         // What a refresh changed holds numbers too, and is news only while the Vault is up.
         changes = [:]
@@ -2217,7 +2221,7 @@ public final class VaultModel: ObservableObject {
         guard copies[key] != nil || mentions[key] != nil,
               !entries.contains(where: { VaultReading.normalized($0.value) == key }),
               !finds.contains(where: { VaultReading.normalized($0.value) == key }) else { return }
-        if readAgain, let byFile = copies[key] { for path in byFile.keys { readIndex[path] = nil } }
+        if readAgain, let byFile = copies[key] { for path in byFile.keys { readIndex[path] = nil; copyNumbers[path] = nil } }
         copies[key] = nil
         mentions[key] = nil
         readingChanged = true
@@ -2348,6 +2352,7 @@ public final class VaultModel: ObservableObject {
         // belongs to before it, and every file is read again so the forgotten come back.
         let generation = VaultSetAside.generation(in: defaults)
         if scope == .everything || generation != readGeneration { readIndex = [:] }
+        if generation != readGeneration { copyNumbers = [:] }
         readGeneration = generation
         let began = Date()
         // A refresh that follows a change of rules has nothing to compare against: what the
@@ -2366,6 +2371,7 @@ public final class VaultModel: ObservableObject {
             // One ID's documents are read whether or not they changed: it was asked for.
             let index = only == nil ? readIndex : [:]
             let checkIndex = readIndex
+            let packetStamps = copyNumbers.mapValues(\.stamp)
             // Asked off the main actor: a file's size and date, for a few hundred files.
             let look = await Task.detached {
                 () -> (changed: [URL], missing: [String], othersMissing: [String], othersChanged: [String: String]) in
@@ -2382,7 +2388,10 @@ public final class VaultModel: ObservableObject {
                     guard reader.exists(url) else { othersMissing.append(path); continue }
                     // Never read under these rules (after a Forget or a change of rules): not
                     // changed, only unread, and a change of rules offers Discover More itself.
-                    guard folders.contains(where: { path.hasPrefix($0 + "/") }), let mark = checkIndex[path],
+                    // A packet's copy passed over is not marked read: its last read size and date
+                    // stand in (VT107 step 3).
+                    guard folders.contains(where: { path.hasPrefix($0 + "/") }),
+                          let mark = checkIndex[path] ?? packetStamps[path],
                           let stamp = reader.stamp(of: url), !Self.readAsItIs(mark, stamp: stamp) else { continue }
                     othersChanged[path] = stamp
                 }
@@ -2507,6 +2516,21 @@ public final class VaultModel: ObservableObject {
             return Set(found).union(saved)
         }
         func settle(_ step: VaultReadPlan.Step) { run.settle(step, numbers: accountNumbers(in: step.file.path)) }
+        let onDisk = Set(files.map(\.path))
+        /// Whether a number is held from a document filed in its kind's own folder, not archived
+        /// or set down there, other than `path`, that this read sees: the original, read before
+        /// its copies (originals first). By what was read, waiting and per file, never by a saved
+        /// ID's facts as saved: those can name a home scan replaced since (the 2026-11-25 review).
+        func heldAtHome(_ key: String, besides path: String) -> Bool {
+            var readings = finds.filter { VaultReading.normalized($0.value) == key }.map(\.facts)
+            readings += (copies[key] ?? [:]).values.map(\.facts)
+            return readings.contains { facts in
+                facts.sources.contains {
+                    $0.path != path && onDisk.contains($0.path) && !missingDocuments.contains($0.path)
+                        && $0.placement(for: facts.category) > 1
+                }
+            }
+        }
         /// Looks at one planned file: false when the read stopped while it was opened.
         func look(at step: VaultReadPlan.Step, _ index: Int) async -> Bool {
             let file = step.file
@@ -2515,6 +2539,19 @@ public final class VaultModel: ObservableObject {
             let stamp = stamps[file.path]
             if let stamp, readIndex[file.path] == stamp {
                 settle(step)
+                return true
+            }
+            // A copy in a packet, as it was when it was last read whole, whose every number is held
+            // from its own folder: not opened (VT107 step 3, owner). Not marked read either, so it
+            // is opened again once one of its numbers is held from nowhere else. Never a copy an
+            // ID is read from (chosen with Read from This Copy, or saved from), and only in
+            // Discover More: Read Everything Again reads every file. What only it says
+            // (a later date, a detail, a number it merely names) is let go with a change of rules,
+            // as the owner accepted.
+            if scope == .discover, step.account == nil, let stamp, let known = copyNumbers[file.path],
+               known.stamp == stamp, !known.numbers.isEmpty, VaultReadPlan.isPacketCopy(file.path, under: roots),
+               !refreshSources.contains(file.path), known.numbers.allSatisfy({ heldAtHome($0, besides: file.path) }) {
+                run.tally.copiesPassedOver += 1
                 return true
             }
             // A file whose bytes were read already in this read (a copy saved in two folders) gives
@@ -2575,6 +2612,12 @@ public final class VaultModel: ObservableObject {
                 read.mentions.removeAll { dropped.contains(VaultReading.normalized($0.value)) }
             }
             readNow[file.path] = read.finds
+            // What a packet's copy gave, read whole, for passing it over later (VT107 step 3).
+            if VaultReadPlan.isPacketCopy(file.path, under: roots), let stamp {
+                copyNumbers[file.path] = complete
+                    ? VaultCopyNumbers(stamp: stamp, numbers: Set(read.finds.map { VaultReading.normalized($0.value) }).sorted())
+                    : nil
+            }
             run.tally.record(pages, read)
             for var find in read.finds {
                 let key = VaultReading.normalized(find.value)
@@ -2695,6 +2738,7 @@ public final class VaultModel: ObservableObject {
             return reached.contains { path.hasPrefix($0 + "/") }
         }
         readIndex = readIndex.filter { !isGone($0.key) }
+        copyNumbers = copyNumbers.filter { !isGone($0.key) }
         let documents = Set(finds.flatMap { $0.facts.sources.map(\.path) } + mentions.values.flatMap { $0.map(\.path) }
                             + copies.values.flatMap(\.keys))
         for path in documents where isGone(path) {
@@ -2900,7 +2944,8 @@ public final class VaultModel: ObservableObject {
                                       copiesChanged: copiesChanged ? true : nil,
                                       lastRefreshed: lastRefreshed, lastDiscovered: lastDiscovered, names: names,
                                       nameRoles: nameRoles.isEmpty ? nil : nameRoles,
-                                      contacts: contacts.isEmpty ? nil : contacts)
+                                      contacts: contacts.isEmpty ? nil : contacts,
+                                      copyNumbers: copyNumbers.isEmpty ? nil : copyNumbers)
         state.laterFields = readingLaterFields
         state.unreadFields = readingUnreadFields
         return state
@@ -2924,6 +2969,7 @@ public final class VaultModel: ObservableObject {
         names = state.names
         nameRoles = state.nameRoles ?? [:]
         contacts = state.contacts ?? [:]
+        copyNumbers = state.copyNumbers ?? [:]
         needsReadAgain = state.needsReadAgain
         readingLaterFields = state.laterFields
         readingUnreadFields = state.unreadFields
@@ -3547,6 +3593,8 @@ public final class VaultModel: ObservableObject {
         mentions[key]?.removeAll { $0.path == path }
         if mentions[key]?.isEmpty == true { mentions[key] = nil }
         readIndex[path] = nil
+        // Read again, never passed over on what it gave before (VT107 step 3).
+        copyNumbers[path] = nil
         readingChanged = true
         saveReading()
         record(.takenOff, id: id)

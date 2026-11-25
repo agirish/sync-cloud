@@ -75,6 +75,12 @@ public struct VaultReadPlan: Equatable, Sendable {
         return String(path.dropFirst(root.count))
     }
 
+    /// Whether a file is a copy filed in a packet (a petition's, an application's, evidence):
+    /// what ``originalScore(_:)`` puts last, below the read folder.
+    static func isPacketCopy(_ path: String, under roots: [String]) -> Bool {
+        originalScore(below(roots, path)) <= -2
+    }
+
     /// How much a file's folders say it is an original, from the folder words
     /// ``VaultSource/placement(for:)`` weighs, with no kind yet known: a packet of copies (−2) is
     /// last wherever it is filed, even in an ID's own folder; otherwise an ID's own folder is +2,
