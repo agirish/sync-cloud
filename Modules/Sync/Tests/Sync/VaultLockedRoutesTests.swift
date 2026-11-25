@@ -82,7 +82,7 @@ import Testing
         auth.model = model
         model.people = [Person(id: "divit", displayName: "Divit")]
         await model.opened()
-        // Opened without a proof only where the lock is off; here it asks, and the proof locks it.
+        // It asks as it opens, and the proof locks it.
         let vault = try Data(contentsOf: rig.store.fileURL)
         #expect(await model.copy(entry.id) == false, "Copy")
         await model.opened()

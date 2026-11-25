@@ -16276,6 +16276,8 @@ read again and the panel says so, so neither copy drops what the other saved (VT
 Batch 28: the reading file too: a seal over one another copy sealed merges what the user typed or
 chose in each (names, roles and contacts field by field, lessons, each waiting ID's choices) and
 seals again (VT111).
+Batch 29: the Vault's lock is always on (Settings ▸ Vault's Require Touch ID and its seal are gone),
+and without Touch ID set up the Vault is not used at all, saying how to set it up (VT60).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

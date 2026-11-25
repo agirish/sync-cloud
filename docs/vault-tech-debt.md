@@ -75,10 +75,6 @@ Each changes what the user sees, gets or is asked.
   `…/Old/`.
 - **VT75's two**: `VaultColorPicker` (pop-up, Customize Groups) and `VaultColorPopover` (swatches)
   choose one thing two ways; the List layout lacks the others' empty state.
-- **VT60's two** (internal half done: `sealOff` answers whether the Keychain took the seal, VT29's
-  table covers a sitting that starts with nothing sealed, and a test pins today's close): what Settings
-  says when sealing fails (today the switch shows the lock off while the Vault still asks), and whether
-  a lock-off Vault lets its numbers go at close (today it keeps them).
 - **VT73 (b)**: Quick Look's own panel follows the capture setting while it shows a Vault document.
 - **VT81**: Refresh reads a source that grew past 60 MB, which Discover skips; check the caps in
   `pages(in:)`.
@@ -131,6 +127,7 @@ Each changes what the user sees, gets or is asked.
 | VT50 | The readers' toolkit, one `PrintedPage` per page | batch 19 |
 | VT52, VT54, VT58, VT73 (a, c) | PDFKit lane, a partly read file, backup key off the main actor, capture gaps | batches 3–4 |
 | VT56, VT57, VT59, VT63 | Replace sets aside first, Add Missing ids, activity file set aside, name sealed after save | `5e33b3c47`, `976b30712`, reviews |
+| VT60 | Settled by the owner's call (2026-11-24): the lock is always on. Settings ▸ Vault's Require Touch ID and the lock-off seal are gone from the code; an "off", a seal or its Keychain secret left by an earlier build is ignored (none on the owner's Mac). Without Touch ID set up (no fingerprint, no login password, no sensor) the Vault is not used at all: nothing is loaded, read or asked for, and the panel and Settings say how to set it up (Back Up Now, Restore and Show… wait for it); found gone while loaded, it locks and lets the numbers go; set up meanwhile, coming back to the app opens it. Out of reach (the lid closed, a lockout, a Touch ID keyboard unplugged) it stays locked. Owed: a check with the lid closed that macOS still reports the sensor | batch 29 |
 | VT64 | A removed ID takes what its documents said with it (`forgetReading`, sealed): from then on Refresh stops counting and opening documents only it came from; a typed one's documents are read again, so it is offered from them; owner's go-ahead | batch 25 |
 | VT108 | Two copies of SyncCloud on one Vault: a save expects the file as this copy last read or wrote it (`VaultFileState`), compared with the very bytes it writes over; over another copy's save it is refused, the IDs are read again (a number the other saved leaves To Confirm) and "Another SyncCloud on this Mac changed the Vault…" shown, or why it would not read. The reading file: VT111; owner's go-ahead | batch 27 |
 | VT111 | Two copies of SyncCloud and the reading file: a seal expects the file as this copy last read or sealed it; over another copy's it merges and seals again. What the user typed or chose stands as each copy changed it: names, lessons and older-rules choices by key; one person's contacts and roles field by field, a list keeping what each added and dropping what each removed; each waiting ID's choices by number, and one the other took out of To Confirm goes. A file gone keeps this copy's; a later build's fields go on; one this build cannot open is not sealed over, and the panel says so. A refused correction note is tried once more, quietly; Merge and Add a Field show only their own refusal. Not merged: a Misread's name and role are two keys, so two copies can leave them disagreeing; owner's go-ahead | batch 28 |

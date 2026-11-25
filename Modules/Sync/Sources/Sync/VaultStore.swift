@@ -977,48 +977,6 @@ public struct VaultStore {
         }
     }
 
-    // MARK: The lock-off seal's secret
-
-    private static let sealService = "com.synccloud.vault-lock-off"
-
-    private func sealQuery() -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: Self.sealService,
-         kSecAttrAccount as String: "default"]
-    }
-
-    /// A new random secret for "the lock is off", replacing any before it, and its seal.
-    func makeLockOffSeal() -> String? {
-        var bytes = [UInt8](repeating: 0, count: 16)
-        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return nil }
-        keychain.delete(sealQuery())
-        var item = sealQuery()
-        item[kSecValueData as String] = Data(bytes)
-        guard keychain.add(item) == errSecSuccess else { return nil }
-        // Sealing makes the Vault's key when there is none yet, as on a Mac whose Vault is still
-        // empty: without one there is nothing to seal with, and Settings would show the lock off
-        // while the Vault kept asking.
-        guard let seal = lockOffSeal(makingKey: true) else {
-            keychain.delete(sealQuery())
-            return nil
-        }
-        return seal
-    }
-
-    /// The seal the current secret makes; nil with no secret, as after the lock went back on.
-    func lockOffSeal(makingKey: Bool = false) -> String? {
-        var query = sealQuery()
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        let (status, result) = keychain.copyMatching(query)
-        guard status == errSecSuccess, let secret = result as? Data else { return nil }
-        return fingerprint("vault lock off " + secret.map { String(format: "%02x", $0) }.joined(), makingKey: makingKey)
-    }
-
-    func forgetLockOffSeal() {
-        keychain.delete(sealQuery())
-    }
-
     /// A number's fingerprint under this Mac's Vault key: HMAC-SHA256 of its letters and digits.
     ///
     /// What the Vault keeps outside the sealed file to remember a number without holding it, such

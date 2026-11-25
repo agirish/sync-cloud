@@ -377,7 +377,7 @@ public final class VaultModel: ObservableObject {
         self.defaults = defaults
         self.clock = clock
         self.copyToPasteboard = copyToPasteboard
-        sessionState = VaultSession(lock: VaultLock(settings: VaultLockSettings(defaults: defaults, store: store)))
+        sessionState = VaultSession(lock: VaultLock(settings: VaultLockSettings(defaults: defaults)))
         now = clock()
         // Read, not chosen: set past the observer, which would save it.
         _layout = Published(initialValue: Self.storedLayout(in: defaults))
@@ -892,7 +892,7 @@ public final class VaultModel: ObservableObject {
     @discardableResult
     public func copyPerson(_ owner: VaultPersonSection.Owner, numbers: Bool) async -> Bool {
         guard let title = peopleSections.first(where: { $0.id == owner })?.title else { return false }
-        if numbers, lock.settings.requiresAuthentication, !lock.isOpen(at: clock()) {
+        if numbers, !lock.isOpen(at: clock()) {
             guard await prove("copy \(title)’s IDs", for: nil) else { return false }
         }
         // Looked up again after the proof: the panel may have closed and let the numbers go.
@@ -1266,6 +1266,9 @@ public final class VaultModel: ObservableObject {
     /// The panel appeared. Reads the settings again, since Settings may have changed them, loads
     /// the file, and asks for a proof when the lock says to ask as it opens.
     public func opened() async {
+        // Touch ID not set up on this Mac: the Vault is not used at all. Nothing is loaded, read or
+        // asked for; the panel says how to set it up (owner, 2026-11-24).
+        guard touchIDReady() else { return }
         let before = now
         now = clock()
         // Left open by "even if closed" and run out before the timer said so: locked now, said once.
@@ -1274,9 +1277,9 @@ public final class VaultModel: ObservableObject {
         // numbers now, under its lock, so the read's end has nothing to let go.
         session.panelOpened()
         releaseWhenIdle?.cancel()
-        let settings = VaultLockSettings(defaults: defaults, store: store)
+        let settings = VaultLockSettings(defaults: defaults)
         if settings != lock.settings {
-            if settings.requiresAuthentication { logLocked("the lock’s settings changed") }
+            logLocked("the lock’s settings changed")
             // The settings, then the lock: each is its own change to what the panel draws.
             lock.settings = settings
             session.lockAll()
@@ -1342,8 +1345,7 @@ public final class VaultModel: ObservableObject {
 
     /// How the lock is set, in Settings ▸ Vault's words, for the log.
     static func lockMode(_ settings: VaultLockSettings) -> String {
-        guard settings.requiresAuthentication else { return "lock off" }
-        return "asks " + settings.ask.label.lowercased()
+        "asks " + settings.ask.label.lowercased()
             + (settings.ask == .whenOpened ? ", locks " + settings.relock.label.lowercased() : "")
     }
 
@@ -1351,7 +1353,7 @@ public final class VaultModel: ObservableObject {
     /// only ever one under "As soon as Vault opens". `wasOpen` is for a caller that has already seen
     /// the lock run out.
     private func logLocked(_ why: String, wasOpen: Bool? = nil) {
-        guard contents == .loaded, lock.settings.requiresAuthentication, wasOpen ?? lock.isOpen(at: clock()) else { return }
+        guard contents == .loaded, wasOpen ?? lock.isOpen(at: clock()) else { return }
         logSession("Vault: locked (\(why))")
     }
 
@@ -1654,8 +1656,46 @@ public final class VaultModel: ObservableObject {
         selection = nil
     }
 
+    /// Why the Vault cannot be used on this Mac: Touch ID is not set up. Nil when it is, or before
+    /// the panel first asked.
+    @Published public private(set) var touchIDMissing: String?
+
+    /// Asks whether this Mac has Touch ID set up, and keeps the answer for the panel. Asked at
+    /// every open and before anything is loaded, so setting it up while the app runs is enough.
+    ///
+    /// Found gone while the Vault is loaded (a fingerprint removed with it unlocked, or kept open
+    /// under "even if closed"): it locks, any read stops, and the numbers go, as when the Mac locks.
+    private func touchIDReady() -> Bool {
+        if case .notSetUp(let why) = authenticator.touchID {
+            if touchIDMissing != why {
+                touchIDMissing = why
+                logSession("Vault: not used, Touch ID is not set up on this Mac")
+            }
+            if contents == .loaded {
+                session.lockAll()
+                now = clock()
+                readingTask?.cancel()
+                readingTask = nil
+                session.readStopped()
+                release()
+            }
+            return false
+        }
+        touchIDMissing = nil
+        return true
+    }
+
+    /// The app came back to the front: Touch ID asked again, so setting it up in System Settings
+    /// opens the Vault without closing the panel, and removing it lets the Vault go.
+    public func touchIDMayHaveChanged() async {
+        let wasMissing = touchIDMissing != nil
+        guard touchIDReady() else { return }
+        if wasMissing { await opened() }
+    }
+
     private func load() {
         guard contents != .loaded else { keepSelectionVisible(); return }
+        guard touchIDReady() else { return }
         guard let store else { contents = .unreadable(.unreadableFile); return }
         do {
             let (records, state) = try store.loadRecordsAndState()
@@ -1728,7 +1768,7 @@ public final class VaultModel: ObservableObject {
 
     /// ``prove(_:for:)`` for several IDs at once; none is a proof to open the Vault.
     private func prove(_ reason: String, forEach ids: Set<UUID>) async -> Bool {
-        guard !isAsking else { return false }
+        guard !isAsking, touchIDReady() else { return false }
         isAsking = true
         defer { isAsking = false }
         let epoch = session.epoch
@@ -2165,7 +2205,7 @@ public final class VaultModel: ObservableObject {
         reading = ReadingProgress(done: 0, total: 0, scope: scope)
         defer {
             // However the read ended (Stop included), what it read so far is sealed: it was sealed
-            // only every 25 files, and with the lock off nothing else would before a quit (VT68).
+            // only every 25 files, and nothing else might before a quit (VT68).
             // Nothing to seal, or the numbers already let go, and this does nothing.
             saveReading()
             reading = nil

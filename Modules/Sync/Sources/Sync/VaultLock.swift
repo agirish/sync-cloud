@@ -54,20 +54,17 @@ public struct VaultLockSettings: Equatable, Sendable {
         var locksOnClose: Bool { self != .afterTenMinutes }
     }
 
-    public var requiresAuthentication: Bool
+    // The lock is always on: Touch ID guards every number in full (owner, 2026-11-24).
     public var ask: Ask
     public var relock: Relock
 
-    public init(requiresAuthentication: Bool = true, ask: Ask = .whenOpened,
-                relock: Relock = .afterOneMinute) {
-        self.requiresAuthentication = requiresAuthentication
+    public init(ask: Ask = .whenOpened, relock: Relock = .afterOneMinute) {
         self.ask = ask
         self.relock = relock
     }
 
     // MARK: UserDefaults
 
-    public static let requiresAuthenticationKey = "vaultRequiresAuthentication"
     public static let askKey = "vaultAsk"
     public static let relockKey = "vaultRelock"
 
@@ -75,7 +72,6 @@ public struct VaultLockSettings: Equatable, Sendable {
     /// locked one each time: a damaged preference must not open the Vault.
     public init(defaults: UserDefaults) {
         self.init(
-            requiresAuthentication: defaults.object(forKey: Self.requiresAuthenticationKey) as? Bool ?? true,
             ask: defaults.string(forKey: Self.askKey).flatMap(Ask.init(rawValue:)) ?? .whenOpened,
             relock: defaults.string(forKey: Self.relockKey).flatMap(Relock.init(rawValue:)) ?? .afterOneMinute)
     }
@@ -108,23 +104,21 @@ public struct VaultLock: Equatable, Sendable {
             && lhs.shown?.ids == rhs.shown?.ids && lhs.shown?.until == rhs.shown?.until
     }
 
-    /// Whether every number is available without asking: the lock is off, or it was opened and
-    /// has not run out.
+    /// Whether every number is available without asking: it was opened and has not run out.
     public func isOpen(at now: Date) -> Bool {
-        guard settings.requiresAuthentication else { return true }
         guard settings.ask == .whenOpened, let lastActivity else { return false }
         guard let limit = settings.relock.idleLimit else { return true }
         return now.timeIntervalSince(lastActivity) < limit
     }
 
-    /// Whether the panel is to show nothing at all: the lock is on, it asks as the Vault opens,
-    /// and nobody has proved it since (or the proof has run out). Locked means locked: not a
+    /// Whether the panel is to show nothing at all: it asks as the Vault opens, and nobody has
+    /// proved it since (or the proof has run out). Locked means locked: not a
     /// name, a date or an ending is drawn then, and nothing is read from disk for the panel.
     ///
     /// Never under "For every ID", which has no unlocking of the whole: there the list is what
     /// a number is chosen from, so it shows, each number behind its own proof.
     public func hidesEverything(at now: Date) -> Bool {
-        settings.requiresAuthentication && settings.ask == .whenOpened && !isOpen(at: now)
+        settings.ask == .whenOpened && !isOpen(at: now)
     }
 
     /// The numbers shown under "every number", while their time lasts.
@@ -155,8 +149,7 @@ public struct VaultLock: Equatable, Sendable {
 
     /// Seconds until an open Vault locks from idleness, or nil when no timer is running.
     public func secondsLeft(at now: Date) -> Int? {
-        guard settings.requiresAuthentication, settings.ask == .whenOpened,
-              let lastActivity, let limit = settings.relock.idleLimit else { return nil }
+        guard settings.ask == .whenOpened, let lastActivity, let limit = settings.relock.idleLimit else { return nil }
         let left = limit - now.timeIntervalSince(lastActivity)
         return left > 0 ? Int(left.rounded(.up)) : nil
     }
@@ -169,7 +162,6 @@ public struct VaultLock: Equatable, Sendable {
     /// The owner proved it for every one of `ids` at once, under "every number": they show
     /// together, and hide together. Any number shown before hides, as after any other proof.
     public mutating func proved(for ids: Set<UUID>, at now: Date) {
-        guard settings.requiresAuthentication else { return }
         switch settings.ask {
         case .whenOpened:
             lastActivity = now
@@ -217,9 +209,21 @@ public enum VaultProof: Equatable, Sendable {
     case allowed
     /// The owner dismissed the prompt.
     case cancelled
-    /// This Mac cannot ask: it has no login password, so no Touch ID. The message says what to do.
+    /// This Mac cannot ask: Touch ID is not set up (``VaultTouchID/notSetUp(_:)``). The message
+    /// says what to do.
     case unavailable(String)
     case failed(String)
+}
+
+/// Whether this Mac has Touch ID to prove it with.
+public enum VaultTouchID: Equatable, Sendable {
+    case ready
+    /// Set up, and out of reach for now: the lid closed, or locked after too many tries. The Vault
+    /// stays locked until it can ask.
+    case outOfReach
+    /// Not set up: no fingerprint, no login password, or no sensor. The Vault is not used at all
+    /// until it is (owner, 2026-11-24); the message says what to do.
+    case notSetUp(String)
 }
 
 /// Asks the Mac’s owner to prove it with Touch ID, and only Touch ID. The app’s
@@ -227,65 +231,8 @@ public enum VaultProof: Equatable, Sendable {
 public protocol VaultAuthenticating: Sendable {
     /// `reason` completes "SyncCloud is trying to …".
     func prove(reason: String) async -> VaultProof
+    /// Whether this Mac has Touch ID, asked without a prompt. Required: a proof that leaves it out
+    /// must not pass for one with Touch ID set up.
+    var touchID: VaultTouchID { get }
 }
 
-/// Settings ▸ Vault's "Require Touch ID", when it is being unticked.
-public enum VaultLockSwitch {
-    /// What the prompt says after "SyncCloud is trying to".
-    public static let reason = "turn off the Vault’s lock"
-
-    /// Whether the lock may come off: only once the owner has proved it, so someone at an unlocked
-    /// Mac cannot remove the lock to get at what it guards.
-    ///
-    /// A Mac with no login password (so no Touch ID) has nothing to prove with, and a lock
-    /// nobody can open is worse than none, so there it may be turned off.
-    public static func mayTurnOff(using authenticator: VaultAuthenticating) async -> Bool {
-        switch await authenticator.prove(reason: reason) {
-        case .allowed, .unavailable: return true
-        case .cancelled, .failed: return false
-        }
-    }
-
-    /// Where the seal on "the lock is off" is kept.
-    public static let sealKey = "vaultLockOffSeal"
-
-    /// Seals the lock as off, once the owner proved it: a keyed fingerprint of a fresh random
-    /// secret kept in the Keychain, which only this Mac's Vault key makes. The setting itself is a
-    /// plain preference, which `defaults write` can change without any proof; unsealed, an "off"
-    /// is read as on (``VaultLockSettings/init(defaults:store:)``). Fresh each time, and its
-    /// secret deleted when the lock goes back on, so a seal copied from an old backup of the
-    /// preferences matches nothing.
-    ///
-    /// Answers whether the seal was made and kept. False means it could not be made (the Keychain
-    /// refused the secret or the Vault's key, this Mac lacks the key to the Vault file it has, or
-    /// there is no store). `defaults` is left as it was, but any earlier secret may be gone (it is
-    /// replaced first), so an earlier seal can stop matching and the lock read as on.
-    public static func sealOff(in defaults: UserDefaults, store: VaultStore?) -> Bool {
-        guard let seal = store?.makeLockOffSeal() else { return false }
-        defaults.set(seal, forKey: sealKey)
-        return true
-    }
-
-    /// The lock is on again: the seal and its secret both go, so neither can be used again.
-    public static func unseal(in defaults: UserDefaults, store: VaultStore? = nil) {
-        defaults.removeObject(forKey: sealKey)
-        store?.forgetLockOffSeal()
-    }
-
-    /// Whether "off" was set by Settings after a proof on this Mac, since the lock was last on.
-    static func isSealedOff(in defaults: UserDefaults, store: VaultStore?) -> Bool {
-        guard let seal = defaults.string(forKey: sealKey), let expected = store?.lockOffSeal() else { return false }
-        return seal == expected
-    }
-}
-
-extension VaultLockSettings {
-    /// The saved settings as the Vault obeys them: an "off" that Settings did not seal after a
-    /// proof is read as on, so the lock cannot be taken off from Terminal.
-    public init(defaults: UserDefaults, store: VaultStore?) {
-        self.init(defaults: defaults)
-        if !requiresAuthentication, !VaultLockSwitch.isSealedOff(in: defaults, store: store) {
-            requiresAuthentication = true
-        }
-    }
-}

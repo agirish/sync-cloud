@@ -176,7 +176,8 @@ for: a passport number, a member ID, a loan number.
   out, grouped as its card prints it, with its details under it. A copy clears from the clipboard
   after a minute.
 - **Locks itself** when it closes, after a minute with nothing done in it, and when the Mac
-  sleeps. **Settings ▸ Vault** changes when it asks, or turns the lock off after one more Touch ID.
+  sleeps. **Settings ▸ Vault** changes when it asks; the lock is always on, and a Mac without
+  Touch ID set up can't use the Vault.
 - **Cards by kind**: Passports, US Visas, I-94 Records, USCIS Cases, Driver's Licenses, Social
   Security & ITIN, PAN Cards, Aadhaar, Voter IDs, Health & Medical, Utilities & Phone, Loans &
   Mortgage, or one list. Each detail beside an ID (an expiry, a validity's start and end) has its

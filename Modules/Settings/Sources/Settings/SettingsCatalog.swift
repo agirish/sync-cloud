@@ -520,22 +520,16 @@ public enum SettingsCatalog {
           control: .button("Clear…"), tier: .asksTwice, raises: .always),
 
         // MARK: Vault
-        // `.notInChat`, all three: the lock is the user's own, and Claude neither reads nor proposes it.
-        // Turning it off is the less safe way, and the switch itself asks for Touch ID first
-        // (`VaultSettingsTab`).
-        e("vault.requiresAuthentication", .vault, "Require Touch ID", indexed: true,
-          storage: app(VaultLockSettings.requiresAuthenticationKey, "VaultLockSettings.requiresAuthenticationKey", "true"),
-          control: .toggle, default: .bool(true), tier: .notInChat, lessSafe: .turningOff),
+        // `.notInChat`, both: the lock is the user's own, and Claude neither reads nor proposes it.
+        // The lock itself is always on (owner, 2026-11-24).
         e("vault.ask", .vault, "When to ask", indexed: true,
           storage: app(VaultLockSettings.askKey, "VaultLockSettings.askKey", ".whenOpened"),
           control: .menu(VaultLockSettings.Ask.allCases.map { SettingChoice(.string($0.rawValue), $0.label) }),
-          default: .string(VaultLockSettings.Ask.whenOpened.rawValue), tier: .notInChat,
-          dependsOn: ["vault.requiresAuthentication"]),
+          default: .string(VaultLockSettings.Ask.whenOpened.rawValue), tier: .notInChat),
         e("vault.relock", .vault, "Lock again", indexed: true,
           storage: app(VaultLockSettings.relockKey, "VaultLockSettings.relockKey", ".afterOneMinute"),
           control: .menu(VaultLockSettings.Relock.allCases.map { SettingChoice(.string($0.rawValue), $0.label) }),
-          default: .string(VaultLockSettings.Relock.afterOneMinute.rawValue), tier: .notInChat,
-          dependsOn: ["vault.requiresAuthentication"]),
+          default: .string(VaultLockSettings.Relock.afterOneMinute.rawValue), tier: .notInChat),
         // Never in chat, and a count only: a folder's name can say what kind of papers are in it.
         e("vault.readFolders", .vault, "Folders to read", indexed: true, others: ["Add…"],
           storage: .owner("VaultReadFolders"), control: .list, tier: .notInChat, privacy: .countOnly),

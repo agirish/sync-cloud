@@ -272,8 +272,11 @@ struct VaultCard: View {
                 .allowsHitTesting(!model.isAsking)
                 .accessibilityHidden(model.isAsking)
                 .designAnimation(.easeOut(duration: 0.18), value: model.isAsking)
-            Divider()
-            footer
+            // Its keys act on a Vault that is not used without Touch ID.
+            if model.touchIDMissing == nil {
+                Divider()
+                footer
+            }
         }
         .overlay {
             if let row = model.rows.first(where: { $0.id == largeType?.id }), model.lock.canShow(row.id, at: model.now) {
@@ -317,9 +320,14 @@ struct VaultCard: View {
         // it opened. Only on coming back, never the moment it relocks, so no prompt waits at a
         // Mac left alone; a cancelled prompt waits for the next return.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Touch ID set up, or taken away, in System Settings meanwhile: asked again. Set up now,
+            // the Vault opens as it does at an open; taken away, it locks and lets the numbers go.
+            let waitingForTouchID = model.touchIDMissing != nil
+            Task { await model.touchIDMayHaveChanged() }
+            guard !waitingForTouchID else { return }
             let settings = model.lock.settings
             // The same rule as opening: only a Vault with something sealed asks at once.
-            guard settings.requiresAuthentication, settings.ask == .whenOpened, model.isSealedShut, !model.isAsking else { return }
+            guard settings.ask == .whenOpened, model.isSealedShut, !model.isAsking else { return }
             Task { await model.unlock() }
         }
         // Access ran out (Lock Now, the idle limit, a number's thirty seconds): nothing that draws
@@ -504,18 +512,23 @@ struct VaultCard: View {
                 .foregroundStyle(.secondary)
             Text("Vault")
                 .scaledFont(.headline)
-            statePill
-            Spacer(minLength: 12)
-            lockButton
-            // Every button here says what it does in words beside its symbol.
-            Button {
-                startAdding()
-            } label: {
-                Label("Add", systemImage: "plus")
+            if model.touchIDMissing == nil {
+                statePill
+                Spacer(minLength: 12)
+                lockButton
+                // Every button here says what it does in words beside its symbol.
+                Button {
+                    startAdding()
+                } label: {
+                    Label("Add", systemImage: "plus")
+                }
+                .help("Add an ID")
+                .disabled(contentsUnreadable)
+                readMenu
+            } else {
+                // Without Touch ID nothing here can be used: no adding, no reading.
+                Spacer(minLength: 12)
             }
-            .help("Add an ID")
-            .disabled(contentsUnreadable)
-            readMenu
             Button(action: onOpenSettings) {
                 Label("Settings", systemImage: "gearshape")
             }
@@ -595,9 +608,7 @@ struct VaultCard: View {
     @ViewBuilder
     private var statePill: some View {
         let settings = model.lock.settings
-        if !settings.requiresAuthentication {
-            Pill(.mini, tint: SemanticColor.warning, systemImage: "lock.open", text: "Lock is off")
-        } else if settings.ask == .everyNumber {
+        if settings.ask == .everyNumber {
             Pill(.mini, tint: .secondary, systemImage: "lock", text: "Asks for every ID")
         } else if let left = model.secondsBeforeLock {
             // Counted down only in its last seconds, when a click would keep it open.
@@ -613,7 +624,7 @@ struct VaultCard: View {
     @ViewBuilder
     private var lockButton: some View {
         let settings = model.lock.settings
-        if settings.requiresAuthentication, settings.ask == .whenOpened {
+        if settings.ask == .whenOpened {
             if model.isOpen, model.contents == .loaded {
                 Button {
                     model.lockNow()
@@ -883,6 +894,25 @@ struct VaultCard: View {
 
     @ViewBuilder
     private var content: some View {
+        if let why = model.touchIDMissing {
+            // Not used at all without Touch ID: nothing was loaded, so nothing else is drawn.
+            EmptyStateView(icon: "touchid", tint: SemanticColor.warning,
+                           title: "Set up Touch ID to use the Vault",
+                           message: why,
+                           caption: "The Vault shows an ID only after Touch ID confirms it’s you.",
+                           primary: .init("Open Touch ID Settings…", systemImage: "touchid") {
+                               if let url = URL(string: "x-apple.systempreferences:com.apple.Touch-ID-Settings.extension") {
+                                   NSWorkspace.shared.open(url)
+                               }
+                           })
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            unlockedOrLockedContent
+        }
+    }
+
+    @ViewBuilder
+    private var unlockedOrLockedContent: some View {
         switch model.contents {
         case .unreadable(let error):
             if case .keyUnreadable = error {

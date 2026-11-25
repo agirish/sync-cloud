@@ -186,8 +186,8 @@ import Testing
         #expect(reader.opened.count == 3, "a page that never reads reopens its file at every read")
     }
 
-    /// Stop keeps what was read: sealed at once, not at the next 25th file, so a quit with the
-    /// lock off loses none of it (VT68).
+    /// Stop keeps what was read: sealed at once, not at the next 25th file, so a quit loses none
+    /// of it (VT68).
     @Test @MainActor func whatAStoppedReadFoundIsSealed() async throws {
         let rig = try VaultModelTests.Rig(); defer { rig.cleanUp() }
         VaultReadFolders.add("/Users/anna/Documents", in: rig.defaults)

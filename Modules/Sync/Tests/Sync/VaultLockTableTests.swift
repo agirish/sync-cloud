@@ -30,12 +30,6 @@ import Testing
         .afterFiveMinutes: (300, true), .afterTenMinutes: (600, false),
     ]
 
-    /// With the lock off nothing is asked and the Vault is always open; only sleep lets the
-    /// numbers go.
-    static func expectedOff(_ event: Event) -> Outcome {
-        Outcome(open: true, loaded: event != .sleep, proofs: 0)
-    }
-
     static func expected(_ ask: VaultLockSettings.Ask, _ relock: VaultLockSettings.Relock, _ event: Event) -> Outcome {
         let rule = rules[relock]!
         let whole = ask == .whenOpened
@@ -94,12 +88,8 @@ import Testing
     }
 
     func outcome(_ ask: VaultLockSettings.Ask, _ relock: VaultLockSettings.Relock, _ event: Event,
-                 lockOff: Bool = false, fromEmpty: Bool = false) async throws -> Outcome {
+                 fromEmpty: Bool = false) async throws -> Outcome {
         let rig = try VaultRig(); defer { rig.cleanUp() }
-        if lockOff {
-            rig.defaults.set(false, forKey: VaultLockSettings.requiresAuthenticationKey)
-            #expect(VaultLockSwitch.sealOff(in: rig.defaults, store: rig.store))   // as Settings does after a proof
-        }
         rig.defaults.set(ask.rawValue, forKey: VaultLockSettings.askKey)
         rig.defaults.set(relock.rawValue, forKey: VaultLockSettings.relockKey)
         let passport = VaultEntry(title: "Passport", value: "Z0000009", personID: "anna", addedAt: VaultRig.t0)
@@ -118,7 +108,7 @@ import Testing
             let id = try await open(model)
             // Under "For every number", or from empty (nothing is asked as it opens), the proof is
             // the number's own: asked as it is shown.
-            if model.contents == .loaded, !lockOff { #expect(await model.show(id) == false) }
+            if model.contents == .loaded { #expect(await model.show(id) == false) }
             return Outcome(open: model.isOpen, loaded: model.contents == .loaded, proofs: auth.asked)
         }
         let model = rig.model()
@@ -157,13 +147,7 @@ import Testing
                 }
             }
         }
-        // The lock off: the same events, whatever Ask and Relock say.
-        for event in Event.allCases {
-            let got = try await outcome(.whenOpened, .afterOneMinute, event, lockOff: true)
-            #expect(got == Self.expectedOff(event), "lock off · \(event): \(got)")
-            rows += 1
-        }
-        #expect(rows == 2 * 5 * 8 + 8)
+        #expect(rows == 2 * 5 * 8)
     }
 
     @Test func aSittingThatStartsWithNothingSealedMeetsEveryEventAsItsRulesSay() async throws {
@@ -177,12 +161,6 @@ import Testing
                 }
             }
         }
-        // The lock off: as for a Vault that opened with something sealed.
-        for event in Event.allCases {
-            let got = try await outcome(.whenOpened, .afterOneMinute, event, lockOff: true, fromEmpty: true)
-            #expect(got == Self.expectedOff(event), "from empty · lock off · \(event): \(got)")
-            rows += 1
-        }
-        #expect(rows == 2 * 5 * 8 + 8)
+        #expect(rows == 2 * 5 * 8)
     }
 }

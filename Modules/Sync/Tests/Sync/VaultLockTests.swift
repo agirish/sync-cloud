@@ -11,9 +11,8 @@ import Testing
     static let a = UUID(), b = UUID()
 
     static func lock(_ ask: VaultLockSettings.Ask = .whenOpened,
-                     _ relock: VaultLockSettings.Relock = .afterTwoMinutes,
-                     requires: Bool = true) -> VaultLock {
-        VaultLock(settings: VaultLockSettings(requiresAuthentication: requires, ask: ask, relock: relock))
+                     _ relock: VaultLockSettings.Relock = .afterTwoMinutes) -> VaultLock {
+        VaultLock(settings: VaultLockSettings(ask: ask, relock: relock))
     }
 
     @Test func itStartsLockedAndAProofOpensEverything() {
@@ -103,16 +102,6 @@ import Testing
         #expect(!open.isOpen(at: Self.after(1)))
     }
 
-    @Test func withTheLockOffEverythingShowsAndNothingAsks() {
-        var lock = Self.lock(requires: false)
-        #expect(lock.isOpen(at: Self.t0))
-        #expect(!lock.needsProof(for: nil, at: Self.t0))
-        #expect(!lock.needsProof(for: Self.a, at: Self.t0))
-        #expect(lock.secondsLeft(at: Self.t0) == nil)
-        lock.closed()
-        #expect(lock.isOpen(at: Self.after(1)))
-    }
-
     @Test func anExpiredProofCannotBeRevivedByALooserSetting() {
         var lock = Self.lock(.whenOpened, .afterTwoMinutes)
         lock.proved(at: Self.t0)
@@ -125,33 +114,14 @@ import Testing
         let defaults = vaultScratchDefaults("vault-lock-tests")
 
         #expect(VaultLockSettings(defaults: defaults) == VaultLockSettings())
-        #expect(VaultLockSettings().requiresAuthentication)
 
         defaults.set("nonsense", forKey: VaultLockSettings.askKey)
         defaults.set("nonsense", forKey: VaultLockSettings.relockKey)
-        defaults.set("yes please", forKey: VaultLockSettings.requiresAuthenticationKey)
         #expect(VaultLockSettings(defaults: defaults) == VaultLockSettings())
 
-        defaults.set(false, forKey: VaultLockSettings.requiresAuthenticationKey)
         defaults.set(VaultLockSettings.Ask.everyNumber.rawValue, forKey: VaultLockSettings.askKey)
         defaults.set(VaultLockSettings.Relock.whenClosed.rawValue, forKey: VaultLockSettings.relockKey)
-        #expect(VaultLockSettings(defaults: defaults)
-                == VaultLockSettings(requiresAuthentication: false, ask: .everyNumber, relock: .whenClosed))
-    }
-}
-
-/// Turning the lock off (``VaultLockSwitch``).
-@Suite struct VaultLockSwitchTests {
-    @Test func theLockComesOffOnlyAfterAProofOrWhereNoneCanBeAsked() async {
-        let auth = VaultFakeAuthenticator()
-        #expect(await VaultLockSwitch.mayTurnOff(using: auth))
-        #expect(auth.reasons == ["turn off the Vault’s lock"])
-        auth.answer = .cancelled
-        #expect(await VaultLockSwitch.mayTurnOff(using: auth) == false)
-        auth.answer = .failed("no")
-        #expect(await VaultLockSwitch.mayTurnOff(using: auth) == false)
-        auth.answer = .unavailable("no password")
-        #expect(await VaultLockSwitch.mayTurnOff(using: auth))
+        #expect(VaultLockSettings(defaults: defaults) == VaultLockSettings(ask: .everyNumber, relock: .whenClosed))
     }
 }
 
@@ -481,62 +451,21 @@ import Testing
         #expect(model.lock.settings.ask == .everyNumber)
     }
 
-    @Test func aLockTurnedOffFromTerminalStaysOn() async throws {
+    /// The lock is always on (owner, 2026-11-24): an "off" left from a build that had the switch,
+    /// sealed or not, asks as any Vault does.
+    @Test func aLockOffLeftFromAnEarlierBuildStillAsks() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         try rig.seed([Self.mortgage])
-        // `defaults write … vaultRequiresAuthentication -bool NO`, with no proof and no seal.
-        rig.defaults.set(false, forKey: VaultLockSettings.requiresAuthenticationKey)
+        rig.defaults.set(false, forKey: "vaultRequiresAuthentication")
+        rig.defaults.set(String(repeating: "0", count: 64), forKey: "vaultLockOffSeal")
         let model = rig.model()
 
         await model.opened()
 
-        #expect(model.lock.settings.requiresAuthentication)
         #expect(rig.auth.reasons == ["unlock your Vault"])
-        // A seal copied from another Mac, or made with another key, is no seal either.
-        rig.defaults.set(String(repeating: "0", count: 64), forKey: VaultLockSwitch.sealKey)
-        #expect(VaultLockSettings(defaults: rig.defaults, store: rig.store).requiresAuthentication)
-    }
-
-    @Test func withTheLockOffNothingAsksAndNumbersStayAcrossClosing() async throws {
-        let rig = try Rig(); defer { rig.cleanUp() }
-        try rig.seed([Self.mortgage])
-        // As Settings turns it off, after a proof: the setting, sealed with the Vault's key.
-        #expect(VaultLockSwitch.sealOff(in: rig.defaults, store: rig.store))
-        rig.defaults.set(false, forKey: VaultLockSettings.requiresAuthenticationKey)
-        let model = rig.model()
-
-        await model.opened()
-        #expect(model.isOpen && rig.auth.reasons.isEmpty)
-        #expect(await model.copy(Self.mortgage.id))
+        #expect(model.isOpen)
         model.closed()
-        #expect(model.entries == [Self.mortgage])
-    }
-
-    /// VT60, pinned as it is today: with the lock off, closing lets nothing go, whatever Ask and
-    /// Relock say ("even if closed" or not), and reopening asks nothing. Whether a lock-off Vault
-    /// should let go at close is the owner's call; changing it turns this red on purpose.
-    @Test func aLockOffVaultKeepsItsNumbersWhenItCloses() async throws {
-        for ask in VaultLockSettings.Ask.allCases {
-            for relock in VaultLockSettings.Relock.allCases {
-                let rig = try Rig(); defer { rig.cleanUp() }
-                try rig.seed([Self.mortgage])
-                rig.defaults.set(false, forKey: VaultLockSettings.requiresAuthenticationKey)
-                #expect(VaultLockSwitch.sealOff(in: rig.defaults, store: rig.store))
-                rig.defaults.set(ask.rawValue, forKey: VaultLockSettings.askKey)
-                rig.defaults.set(relock.rawValue, forKey: VaultLockSettings.relockKey)
-                let model = rig.model()
-                var lines: [String] = []
-                model.sessionLine = { lines.append($0) }
-                await model.opened()
-
-                model.closed()
-
-                #expect(model.contents == .loaded && model.entries == [Self.mortgage], "\(ask) · \(relock)")
-                #expect(!lines.contains { $0.hasPrefix("Vault: let go") }, "\(ask) · \(relock): \(lines)")
-                await model.opened()
-                #expect(model.entries == [Self.mortgage] && rig.auth.reasons.isEmpty, "\(ask) · \(relock)")
-            }
-        }
+        #expect(model.entries.isEmpty, "closing lets the numbers go, as with any lock")
     }
 
     @Test func aMacThatCannotAskSaysWhy() async throws {

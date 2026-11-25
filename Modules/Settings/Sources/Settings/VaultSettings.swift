@@ -3,14 +3,10 @@ import Design
 import SwiftUI
 import Sync
 
-/// Settings ▸ Vault: whether the Vault asks who is at the Mac, when it asks, and when it locks
-/// again. The numbers themselves are never here; the panel behind ⌘U owns them.
-///
-/// The first switch is the one setting in the app that proves who is asking before it changes:
-/// unticking it raises macOS's own Touch ID prompt, and stays ticked unless that is
-/// answered. Otherwise the lock would guard everything but its own off switch.
+/// Settings ▸ Vault: when the Vault asks who is at the Mac, and when it locks again. The lock is
+/// always on, and without Touch ID set up the Vault is not used (owner, 2026-11-24). The numbers
+/// themselves are never here; the panel behind ⌘U owns them.
 struct VaultSettingsTab: View {
-    @AppStorage(VaultLockSettings.requiresAuthenticationKey) private var requiresAuthentication: Bool = true
     @AppStorage(VaultLockSettings.askKey) private var ask: VaultLockSettings.Ask = .whenOpened
     @AppStorage(VaultLockSettings.relockKey) private var relock: VaultLockSettings.Relock = .afterOneMinute
     @AppStorage(VaultSharingSettings.clipboardSecondsKey) private var clipboardSeconds: Int = VaultSharingSettings.defaultClipboardSeconds
@@ -36,8 +32,15 @@ struct VaultSettingsTab: View {
     @State private var askingPassphraseFor: BackupFile?
     /// A backup opened and waiting for the choice of how to put it back.
     @State private var restoreOffer: RestoreOffer?
-    /// macOS's prompt is up. The switch waits for its answer rather than queue a second prompt.
+    /// macOS's prompt is up. Show… waits for its answer rather than queue a second prompt.
     @State private var isAsking = false
+    /// Why the Vault is not used on this Mac: Touch ID is not set up. Asked as the page appears
+    /// and whenever the app comes back to the front.
+    @State private var touchIDMissing: String?
+
+    private func checkTouchID() {
+        if case .notSetUp(let why) = VaultDeviceOwnerProof().touchID { touchIDMissing = why } else { touchIDMissing = nil }
+    }
     /// Settings ▸ Vault ▸ Folders to read, read again when the page appears.
     @State private var readFolders: [String] = []
     /// How many numbers Read Documents keeps out, counted when the page appears.
@@ -47,11 +50,14 @@ struct VaultSettingsTab: View {
         SettingsPage {
             SettingsSection(
                 "Lock",
-                caption: "Turning the lock off takes Touch ID. The IDs stay sealed on this Mac either way, and are never sent to Claude."
+                caption: "The Vault asks for Touch ID before it shows or copies an ID in full. The IDs stay sealed on this Mac, and are never sent to Claude."
             ) {
-                Toggle("Require Touch ID", isOn: requirement)
-                    .help("Asks who is at the Mac before the Vault shows or copies an ID in full. Off, anyone at this Mac while it is unlocked can read them.")
-                    .disabled(isAsking)
+                if let touchIDMissing {
+                    // Not used at all without Touch ID: what opens the Vault here waits for it.
+                    Label(touchIDMissing, systemImage: "touchid")
+                        .foregroundStyle(SemanticColor.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 SettingsRow("When to ask") {
                     Picker("When to ask", selection: $ask.loggingSettingsChange("vault.ask")) {
                         ForEach(VaultLockSettings.Ask.allCases, id: \.self) { choice in
@@ -62,7 +68,6 @@ struct VaultSettingsTab: View {
                     .fixedSize()
                     .help("Once as the Vault opens, or again for each ID you show or copy.")
                 }
-                .disabled(!requiresAuthentication)
                 SettingsRow("Lock again") {
                     Picker("Lock again", selection: $relock.loggingSettingsChange("vault.relock")) {
                         ForEach(VaultLockSettings.Relock.allCases, id: \.self) { choice in
@@ -74,7 +79,7 @@ struct VaultSettingsTab: View {
                     .help("When an unlocked Vault locks itself. It always locks when the Mac sleeps or its screen locks.")
                 }
                 // Asking for every number leaves nothing unlocked to time out.
-                .disabled(!requiresAuthentication || ask == .everyNumber)
+                .disabled(ask == .everyNumber)
             }
             SettingsSection(
                 "Copying and Sharing",
@@ -124,14 +129,15 @@ struct VaultSettingsTab: View {
                             .foregroundStyle(.secondary)
                         Button("Back Up Now") { backUpNow() }
                             .controlSize(.small)
-                            .disabled(!hasPassphrase || isBackingUp)
+                            .disabled(!hasPassphrase || isBackingUp || touchIDMissing != nil)
                     }
-                    .help("Asks for Touch ID, then writes a backup of every saved ID.")
+                    .help(touchIDMissing == nil ? "Asks for Touch ID, then writes a backup of every saved ID."
+                          : "Set up Touch ID to back up the Vault.")
                 }
                 SettingsRow("Restore from a backup") {
                     Button("Choose…") { chooseBackupToRestore() }
                         .controlSize(.small)
-                        .disabled(isBackingUp)
+                        .disabled(isBackingUp || touchIDMissing != nil)
                         .help("Opens a backup file. You choose whether to add what this Vault is missing or to replace it.")
                 }
                 if let backupMessage {
@@ -150,7 +156,7 @@ struct VaultSettingsTab: View {
                 SettingsRow("Vault activity") {
                     Button("Show…") { showActivity() }
                         .controlSize(.small)
-                        .disabled(isAsking)
+                        .disabled(isAsking || touchIDMissing != nil)
                         .help("Shows the list after Touch ID.")
                 }
             }
@@ -224,7 +230,11 @@ struct VaultSettingsTab: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            checkTouchID()
+        }
         .onAppear {
+            checkTouchID()
             readFolders = VaultReadFolders.folders(in: .standard)
             setAsideCount = VaultSetAside.fingerprints().count
             refreshBackupState()
@@ -425,34 +435,6 @@ struct VaultSettingsTab: View {
         case .notWritten: return "The file couldn’t be written, so nothing was changed."
         case .notProved: return "macOS couldn’t confirm it was you."
         }
-    }
-
-    /// The switch. Turning it on is immediate; turning it off waits for the owner to prove it.
-    private var requirement: Binding<Bool> {
-        Binding(get: { requiresAuthentication }, set: { wanted in
-            guard wanted != requiresAuthentication, !isAsking else { return }
-            guard !wanted else { return set(true) }
-            isAsking = true
-            Task { @MainActor in
-                let allowed = await VaultLockSwitch.mayTurnOff(using: VaultDeviceOwnerProof())
-                isAsking = false
-                if allowed { set(false) }
-            }
-        })
-    }
-
-    private func set(_ on: Bool) {
-        let old = requiresAuthentication
-        // Sealed first, so the Vault never reads an unsealed "off" and turns the lock back on.
-        if on {
-            VaultLockSwitch.unseal(in: .standard, store: VaultStore.defaultURL().map { VaultStore(fileURL: $0) })
-        } else {
-            // A refused seal leaves the switch off while the Vault still asks, as before VT60. What
-            // Settings says then is the owner's call (docs/vault-tech-debt.md, VT60).
-            _ = VaultLockSwitch.sealOff(in: .standard, store: VaultStore.defaultURL().map { VaultStore(fileURL: $0) })
-        }
-        requiresAuthentication = on
-        SettingsWindowLog.log("vault.requiresAuthentication", from: .bool(old), to: .bool(on))
     }
 }
 

@@ -81,16 +81,6 @@ import Testing
         #expect(!down, "nothing was drawn for it to let go")
     }
 
-    /// With the lock off the Vault is always open (``VaultLock/isOpen(at:)``), so this holds through
-    /// that alone: ``VaultSession/releasesNow(reading:at:)`` asks the setting first all the same.
-    @Test func withTheLockOffNothingIsLetGo() {
-        var session = VaultSession(lock: VaultLock(settings: VaultLockSettings(requiresAuthentication: false)))
-        session.lockAll()
-        let r209 = session.releasesNow(reading: false, at: Self.t0)
-        #expect(!r209)
-        #expect(session.lock.isOpen(at: Self.t0))
-    }
-
     @Test func aStoppedReadLeavesNothingWaiting() {
         var session = Self.open()
         session.lockAll()

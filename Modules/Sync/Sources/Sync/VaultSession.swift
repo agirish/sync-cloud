@@ -49,7 +49,7 @@ struct VaultSession {
     /// Whether the numbers go now, once the lock has locked: not while a read is going on, which
     /// needs what it has read so far to seal it, and lets them go as it ends.
     mutating func releasesNow(reading: Bool, at now: Date) -> Bool {
-        guard lock.settings.requiresAuthentication, !lock.isOpen(at: now) else { return false }
+        guard !lock.isOpen(at: now) else { return false }
         guard !reading else {
             releaseAfterReading = true
             return false

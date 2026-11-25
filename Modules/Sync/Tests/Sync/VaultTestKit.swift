@@ -9,8 +9,14 @@ import EventsTestSupport
 // through `project.yml`, into the app's (``VaultShelf``, the rig, the fakes). Public API only, so
 // both can compile it. Every number a test hands it is made up.
 
+/// A test's proof has its Touch ID unless it says otherwise (``VaultFakeAuthenticator/touchID``):
+/// tests only. The app's proof asks macOS (``VaultDeviceOwnerProof/touchID``).
+extension VaultAuthenticating {
+    var touchID: VaultTouchID { .ready }
+}
+
 /// An in-memory ``KeychainStore`` with the Vault key's item slot, and a slot for each other item
-/// the Vault keeps (the lock-off seal's secret). Tests never touch the real login keychain.
+/// the Vault keeps. Tests never touch the real login keychain.
 final class VaultFakeKeychain: KeychainStore, @unchecked Sendable {
     var itemData: Data?
     var forcedCopyStatus: OSStatus?
@@ -110,6 +116,8 @@ struct VaultScratch {
 /// A stand-in for Touch ID that answers what the test tells it to and counts the asks.
 final class VaultFakeAuthenticator: VaultAuthenticating, @unchecked Sendable {
     var answer: VaultProof = .allowed
+    /// Whether this Mac has Touch ID set up, as the test says.
+    var touchID: VaultTouchID = .ready
     private(set) var reasons: [String] = []
     func prove(reason: String) async -> VaultProof {
         reasons.append(reason)
