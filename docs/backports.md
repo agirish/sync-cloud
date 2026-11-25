@@ -16288,6 +16288,8 @@ documents print it (VT109).
 Batch 34: an edit saved over another copy's edit of the same ID is refused once, saying so and
 keeping what was typed; saving again replaces it on purpose. An edit keeps the ID's current pin and
 place (VT112).
+Batch 35: each choice about an ID, a name correction, a person's IDs copied in full and a birth date
+copied each have an Activity line (VT23).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

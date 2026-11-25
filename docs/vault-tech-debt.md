@@ -55,9 +55,6 @@ Read by [`RELEASE.md`](../RELEASE.md) §4.
 Each changes what the user sees, gets or is asked.
 - **VT70, "whose is it" worked out in two places**: the editor by the name as read, the row by the
   corrected name and three inferences. Letting the editor take the row's changes what Confirm offers.
-- **VT23, record lines**: pin, assign, place, kind, name correction, Read from This Copy and
-  `copyPerson(numbers: true)` record nothing; `copyBirth` is titled by the first ID. Each addition is a
-  new Activity line.
 - **VT35's question**: whether copied names and dates are concealed and cleared too. (One copy path
   done, batch 19.)
 - **VT50's two**: `VaultCopies` taking the read folders (a read folder inside an Archive folder makes
@@ -145,6 +142,7 @@ Each changes what the user sees, gets or is asked.
 | VT76 | View state that duplicated the model's: the layout and Large Type (batch 11); the household from the window's `VaultHost`, drawn from `model.people` alone, and the read folders reloaded in one place (batch 23). `namingKindFor`/`newKindName` and `copied`/`copiedDetail` stay pairs: one optional would blank the name as its sheet slides away, and an ID's and a detail's "Copied" show together | batches 11, 23 |
 | VT7 | `readDocuments`' pieces as steps of their own; last, the walk and the plan (`plannedSteps`), with every place a read can stop kept | batches 9, 10, 24 |
 | VT113 | Not done, by the owner's call (2026-11-24): what the Vault guards is the ID it read or was given, its number field; a number typed into a title or a note is the user's own text, drawn as typed. (Activity and the Touch ID prompt already mask one, from VT34.) | 2026-11-24 |
+| VT23 | Every choice about an ID has its Activity line, naming the ID, never its number: Move to Current or Archive (or the Vault's choice), Belongs To, Used In, Kind (As Read or As Typed named as such), Read from This Copy; one already in force adds none. A misread name corrected or its correction undone, as whose, never the spelling; a person's IDs copied in full; a birth date copied, listed as the person's, not after their first ID. Someone not in People is listed as such, never by the spelling read. A new line kind (`changed`), listed by its words by a build before it | batch 35 |
 | VT34 | A Social Security or Aadhaar number's ending, never drawn while hidden: in descriptions (batch 19); and now in Activity titles, the Touch ID prompt's reason (every kind's number there cut to its ending), "Its document reads differently now", the editor's other IDs on the card, and a document's or folder's name wherever it is drawn hidden (list, tips, More Fields, the preview). Kept to nothing, the last four written alone ("xxx-xx-6789") count as a number. The correction note names its document masked, for every kind. Activity lines listed before keep what they said | batches 19, 30 |
 | VT1, VT10 | Parts done; the rest is open above | batches 4–19 |
 

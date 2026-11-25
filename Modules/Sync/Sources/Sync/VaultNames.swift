@@ -103,10 +103,12 @@ extension VaultModel {
             guard let section = peopleSections.first(where: { $0.id == .person(person) }),
                   let legal = section.names.first(where: { $0.role == .legal })?.name,
                   VaultReading.spellingKey(legal) != key else { return 0 }
+            let already = correction(of: key) == legal
             changed = rows.filter { $0.ownHolderName == nil && $0.holderAsRead.map(VaultReading.spellingKey) == key }.count
             roles.kept.removeAll { $0 == key }
             if roles.goesBy == key { roles.goesBy = nil }
             correctEverywhere(key, to: legal)
+            if !already { recordNameChange("Corrected a misread name", for: person) }
         }
         nameRoles[person] = roles.isEmpty ? nil : roles
         readingChanged = true
@@ -115,9 +117,11 @@ extension VaultModel {
     }
 
     /// Takes back a Misread: IDs read with `name` show it as read again.
-    public func undoMisread(_ name: String) {
+    public func undoMisread(_ name: String, for person: String? = nil) {
+        guard correction(of: VaultReading.spellingKey(name)) != nil else { return }
         correctEverywhere(VaultReading.spellingKey(name), to: nil)
         readingChanged = true
         saveReading()
+        recordNameChange("Undid a misread name’s correction", for: person)
     }
 }

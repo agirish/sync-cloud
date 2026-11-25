@@ -9,6 +9,9 @@ public struct VaultActivityEvent: Codable, Equatable, Sendable, Identifiable {
     public enum Kind: String, Codable, Sendable {
         case unlocked, proofRefused, shown, copied, added, confirmed, edited, removed, setAside, corrected, merged, takenOff
         case refreshed, discovered, backedUp, restored
+        /// A choice made about an ID or a name (VT23), its words whole: "Moved Passport to Archive".
+        /// A build before it lists it by those words too (``other``).
+        case changed
         /// A kind a later build wrote: kept and listed by its words alone.
         case other
 
@@ -67,6 +70,7 @@ public struct VaultActivityEvent: Codable, Equatable, Sendable, Identifiable {
         case .unlocked: return "Unlocked"
         case .proofRefused: return what.isEmpty ? "Proof refused" : "Proof refused: \(what)"
         case .refreshed, .discovered, .backedUp, .restored, .other: return what
+        case .changed: return [what, whose].compactMap { $0 }.joined(separator: " · ")
         case .shown: verb = "Showed"
         case .copied: verb = "Copied"
         case .added: verb = "Added"

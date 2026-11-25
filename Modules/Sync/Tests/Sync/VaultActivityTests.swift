@@ -105,6 +105,71 @@ import Testing
         #expect(ending.hasSuffix("6789") && !ending.contains("123"))
     }
 
+    /// VT23: each choice made about an ID is listed, by its name, as the ID now stands; a choice
+    /// already in force adds nothing.
+    @Test func eachChoiceAboutAnIDIsListed() async throws {
+        let (rig, activity, model) = try Self.rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.mortgage, Self.passport])
+        model.people = [Person(id: "abhishek", displayName: "Anna"), Person(id: "erik", displayName: "Erik")]
+        await model.opened()
+        model.pin(Self.mortgage.id, .older)
+        model.assign(Self.mortgage.id, to: .person("erik"))
+        model.assign(Self.mortgage.id, to: .person("erik"))
+        model.setGeo(Self.mortgage.id, to: .india)
+        model.setGeo(Self.mortgage.id, to: nil)
+        model.setKind(Self.mortgage.id, to: .builtIn(.other))
+        model.setKind(Self.mortgage.id, to: nil)
+        model.pin(Self.mortgage.id, nil)
+
+        let lines = activity.load().map(\.line).reversed().filter { $0 != "Unlocked" }
+        #expect(Array(lines) == [
+            "Moved Mortgage loan number to Archive · Household",
+            "Gave Mortgage loan number to Erik",
+            "Marked Mortgage loan number used in India · Erik",
+            "Marked Mortgage loan number used in every country · Erik",
+            "Set Mortgage loan number’s kind to Other · Erik",
+            "Set Mortgage loan number’s kind back to As Typed · Erik",
+            "Let the Vault choose Current or Archive for Mortgage loan number · Erik",
+        ], "\(lines)")
+    }
+
+    /// VT23: a misread name corrected, and taken back, each listed as whose, never the spelling.
+    @Test func aNameCorrectionIsListedAsWhoseNeverTheSpelling() async throws {
+        let (rig, activity, model) = try Self.rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add(VaultPeopleViewTests.root, in: rig.defaults)
+        model.people = VaultPeopleViewTests.people
+        await model.opened()
+        await model.readDocuments(with: VaultAccountModelTests.PlannedDocuments(pages: [
+            VaultPeopleViewTests.passport: VaultToConfirmTests.passportPage,
+            VaultPeopleViewTests.notice: ["I-797A Approval Notice", "Receipt Number WAC2412345678",
+                                          "Beneficiary ERICSSON, ANNA MARIA", "Received Date 01/05/2026"],
+        ]))
+        for row in model.rows where row.personID != "anna" && row.facts?.holder != nil { model.assign(row.id, to: .person("anna")) }
+        #expect(model.setRole(.misread, of: "Anna Maria Ericsson", for: "anna") == 1)
+        model.setRole(.misread, of: "Anna Maria Ericsson", for: "anna")
+        model.undoMisread("Anna Maria Ericsson", for: "anna")
+        let lines = activity.load().map(\.line)
+        #expect(lines.filter { $0 == "Corrected a misread name · Anna" }.count == 1, "\(lines)")
+        #expect(lines.contains("Undid a misread name’s correction · Anna"))
+        #expect(!lines.contains { $0.contains("Ericsson") || $0.contains("Eriksson") }, "never a spelling")
+    }
+
+    /// VT23: a person's IDs copied in full, and their birth date, each listed as theirs.
+    @Test func copyingAPersonsIDsOrBirthDateIsListedAsTheirs() async throws {
+        let (rig, activity, model) = try Self.rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.passport])
+        model.people = [Person(id: "abhishek", displayName: "Anna")]
+        await model.opened()
+        let section = try #require(model.peopleSections.first { $0.id == .person("abhishek") })
+        #expect(await model.copyPerson(section.id, numbers: false))
+        #expect(await model.copyPerson(section.id, numbers: true))
+        #expect(await model.copyBirth(Date(timeIntervalSince1970: 0), in: section))
+        let lines = activity.load().map(\.line)
+        #expect(lines.filter { $0.hasPrefix("Copied every ID in full") } == ["Copied every ID in full · Anna"], "only with numbers")
+        #expect(lines.contains("Copied date of birth · Anna"), "\(lines)")
+        #expect(!lines.contains { $0.hasPrefix("Copied A detail") })
+    }
+
     @Test func aRefusedProofIsListedThoughNothingOpened() async throws {
         let (rig, activity, model) = try Self.rig(); defer { rig.cleanUp() }
         try rig.seed([Self.mortgage])

@@ -899,6 +899,8 @@ public final class VaultModel: ObservableObject {
         guard contents == .loaded, let section = peopleSections.first(where: { $0.id == owner }) else { return false }
         copyToPasteboard(VaultPersonText.text(section, numbers: numbers))
         used()
+        // Every ID in full is a copy worth a line (VT23); without numbers it holds only endings.
+        if numbers { record(.copied, "every ID in full", whose: Self.listedAs(section)) }
         return true
     }
 
@@ -906,8 +908,23 @@ public final class VaultModel: ObservableObject {
     /// private as a number, and cleared from the clipboard the same way.
     @discardableResult
     public func copyBirth(_ date: Date, in section: VaultPersonSection) async -> Bool {
-        guard let id = section.rows.first?.id else { return false }
-        return await copy(VaultReading.formDate(date), for: id)
+        guard let id = section.rows.first?.id, row(id) != nil else { return false }
+        if lock.needsProof(for: id, at: clock()) {
+            guard await prove("copy \(Self.listedAs(section))’s date of birth", for: id) else { return false }
+        }
+        guard lock.canShow(id, at: clock()) else { return false }
+        copyToPasteboard(VaultReading.formDate(date))
+        used()
+        // Named as what it is, the person's, not after the ID whose proof it rides on (VT23).
+        record(.copied, "date of birth", whose: Self.listedAs(section))
+        return true
+    }
+
+    /// A section as Activity and the Touch ID prompt name it: someone in People by their name, the
+    /// household as itself, and a name nobody in People answers to never by its spelling.
+    nonisolated static func listedAs(_ section: VaultPersonSection) -> String {
+        if case .unnamed = section.id { return "someone not in People" }
+        return section.title
     }
 
     private func loadFolded() {
@@ -1050,6 +1067,9 @@ public final class VaultModel: ObservableObject {
 
     /// Corrects the name read as `key` to `name` on every ID read with it, or with nil, lets it
     /// be as read again. The People view's Misread; Edit's Everywhere does the same.
+    /// The name a spelling is corrected to everywhere, if it is.
+    func correction(of key: String) -> String? { names[key] }
+
     func correctEverywhere(_ key: String, to name: String?) {
         guard !key.isEmpty else { return }
         names[key] = name
@@ -1194,9 +1214,16 @@ public final class VaultModel: ObservableObject {
         if let index = entries.firstIndex(where: { $0.id == id }) {
             var changed = entries
             changed[index].apply(change)
-            return write(changed)
+            // The choice already in force: nothing written, nothing listed.
+            guard changed[index] != entries[index] else { return true }
+            guard write(changed) else { return false }
+            recordChoice(change, for: id)
+            return true
         }
         guard let index = finds.firstIndex(where: { $0.id == id }) else { return false }
+        var find = finds[index]
+        find.apply(change)
+        guard find != finds[index] else { return true }
         finds[index].apply(change)
         if case .assignment = change {
             finds[index] = rebuilt(finds[index], VaultReading.normalized(finds[index].value))
@@ -1205,7 +1232,57 @@ public final class VaultModel: ObservableObject {
             readingChanged = true
             saveReading()
         }
+        recordChoice(change, for: id)
         return true
+    }
+
+    /// A name's Activity line (VT23): whose name, never the spelling.
+    func recordNameChange(_ what: String, for person: String?) {
+        record(.changed, what, whose: person.flatMap { id in people.first { $0.id == id }?.displayName })
+    }
+
+    /// A choice's Activity line (VT23), naming the ID as its row does and whose it is now.
+    private func recordChoice(_ change: VaultChoiceChange, for id: UUID) {
+        guard activity != nil, VaultActivitySettings.keeps(in: defaults), let row = rows.first(where: { $0.id == id }) else { return }
+        let name = row.kindTitle
+        var whose: String? = row.whose
+        let what: String
+        func place(_ geo: VaultGeo) -> String {
+            switch geo {
+            case .us: return "the United States"
+            case .india: return "India"
+            case .anywhere: return "every country"
+            }
+        }
+        switch change {
+        case .pin(let pin):
+            what = pin == .older ? "Moved \(name) to Archive" : pin == .current ? "Moved \(name) to Current"
+                : "Let the Vault choose Current or Archive for \(name)"
+        case .assignment(let assignment):
+            switch assignment {
+            case .person(let person)?:
+                what = "Gave \(name) to \(people.first { $0.id == person }?.displayName ?? "someone in People")"
+                whose = nil
+            case .household?:
+                what = "Gave \(name) to the Household"
+                whose = nil
+            case nil: what = "Set whose \(name) is back to what its document says"
+            }
+        case .geo(let geo):
+            if let geo { what = "Marked \(name) used in \(place(geo))" }
+            else if row.isTypedIn { what = "Marked \(name) used in every country" }
+            else { what = "Set where \(name) is used back to what its document says" }
+        case .card(let card):
+            // As Read is the kind it was read as, chosen again.
+            if card == nil || card == .builtIn(row.readAs) {
+                what = "Set \(name)’s kind back to \(row.isTypedIn ? "As Typed" : "As Read")"
+            } else {
+                what = "Set \(name)’s kind to \(card.map { kinds.title(of: $0) } ?? "")"
+            }
+        case .source(let path):
+            what = path == nil ? "Let the Vault choose which copy \(name) is read from" : "Read \(name) from another copy"
+        }
+        record(.changed, what, whose: whose, hidesEnding: row.category.hidesEnding)
     }
 
     /// Documents that name a number without being its source, by the number.

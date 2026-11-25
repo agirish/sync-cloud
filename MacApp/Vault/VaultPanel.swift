@@ -2084,7 +2084,7 @@ struct VaultCard: View {
                         Text("“\(note.name)” was a misreading: \(note.count == 1 ? "1 ID" : "\(note.count) IDs") now read \(note.legal).")
                             .fixedSize(horizontal: false, vertical: true)
                         Button("Undo") {
-                            model.undoMisread(note.name)
+                            model.undoMisread(note.name, for: section.personID)
                             misreadNote = nil
                         }
                         .buttonStyle(.link)
