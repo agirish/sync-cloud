@@ -95,6 +95,10 @@ extension VaultReading {
     /// ``aamvaElements``, which also mark where a run-together number ends.
     private static let addressElements = ["DAG", "DAH", "DAI", "DAK"]
 
+    /// An AAMVA header: "ANSI ", the issuer's number, the versions and the count of subfiles, then
+    /// the subfiles' list, each a type and eight digits.
+    private static let headerPattern = try! NSRegularExpression(pattern: #"ANSI ?[0-9]{6}[0-9]{2,6}((?:[A-Z]{2}[0-9]{8})*)"#)
+
     /// The license's PDF417 barcode, which the app appends to a page's lines as decoded
     /// (``VaultDocumentReading``): its header ("ANSI 636014…DLDAQ…") and one element per line.
     static func licenseBarcodes(on printed: PrintedPage, from path: String) -> [VaultFind] {
@@ -102,20 +106,37 @@ extension VaultReading {
         guard let header = page.firstIndex(where: { $0.range(of: #"ANSI ?[0-9]{6}"#, options: .regularExpression) != nil }) else {
             return []
         }
+        let trim = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{1e}\u{1d}"))
+        let headerText = page[header].trimmingCharacters(in: trim)
+        let ns = headerText as NSString
+        // The header lists its subfiles, each a type, an offset and a length ("DL00410278"): the
+        // first that is a license's ("DL") or a state ID card's ("ID") says which this card is.
+        // The subfile's first element follows the list, on this line or the next.
+        let listed = headerPattern.firstMatch(in: headerText, range: NSRange(location: 0, length: ns.length))
+        let designators = listed.map { ns.substring(with: $0.range(at: 1)) } ?? ""
+        var isIDCard: Bool? = stride(from: 0, to: designators.count, by: 10).lazy
+            .map { String(designators.dropFirst($0).prefix(2)) }.first { $0 == "DL" || $0 == "ID" }.map { $0 == "ID" }
+        let afterHeader = listed.map { ns.substring(from: $0.range.upperBound) } ?? ""
+        // A payload that kept its separators has its other elements on lines of their own; one
+        // that lost them runs on along the header line, where only the number can be told apart.
+        let separated = page[(header + 1)...].contains {
+            let id = String($0.trimmingCharacters(in: trim).prefix(3))
+            return aamvaElements.contains(id) || addressElements.contains(id)
+        }
         var fields: [String: String] = [:]
-        var isIDCard = false
-        for line in page[header...] {
-            let text = line.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{1e}\u{1d}")))
-            if fields["DAQ"] == nil, let range = text.range(of: "DAQ"),
-               text[..<range.lowerBound].hasSuffix("DL") || text[..<range.lowerBound].hasSuffix("ID")
-                || text[..<range.lowerBound].last?.isNumber == true {
-                // The first element rides on the header line (or the line the header wraps to),
-                // right after the subfile's type: "DL" for a license, "ID" for a state ID card, or
-                // straight after the header's own digits. Only there: "DAQ" inside another element
-                // ("DACDAQUAN", a first name) is not it.
-                isIDCard = text[..<range.lowerBound].hasSuffix("ID")
-                fields["DAQ"] = Self.licenseNumber(String(text[range.upperBound...]))
-                continue
+        var first = true
+        for line in [afterHeader] + page[(header + 1)...] {
+            var text = line.trimmingCharacters(in: trim)
+            if first {
+                guard !text.isEmpty else { continue }
+                first = false
+                // The subfile repeats its type before its first element: "DLDAQ…", "IDDCS…". No
+                // element's id starts with either.
+                if text.hasPrefix("DL") || text.hasPrefix("ID") {
+                    if isIDCard == nil { isIDCard = text.hasPrefix("ID") }
+                    text.removeFirst(2)
+                }
+                guard separated || text.hasPrefix("DAQ") else { continue }
             }
             let id = String(text.prefix(3))
             guard aamvaElements.contains(id) || addressElements.contains(id), fields[id] == nil else { continue }
@@ -151,7 +172,7 @@ extension VaultReading {
                                    sources: [VaultSource(path: path, role: "Driver’s license barcode", rank: IDRank.card,
                                                          address: canadian ? nil : licenseAddress(fields, state: state)
                                                             .map { VaultPrintedAddress($0, dated: issued ?? fileDate(path)) })])
-        return [VaultFind(title: (isIDCard ? "State ID" : "Driver’s license") + (state.map { " · " + $0 } ?? ""),
+        return [VaultFind(title: (isIDCard == true ? "State ID" : "Driver’s license") + (state.map { " · " + $0 } ?? ""),
                           value: value, note: sentence(notes), facts: facts)]
     }
 
@@ -167,17 +188,23 @@ extension VaultReading {
         return VaultAddress(street: street, unit: field("DAH"), city: city, state: state, zip: String(zip.prefix(5)))
     }
 
-    /// A license number as the barcode gives it, ending where the number does: at a space, or at
-    /// the next element when a payload arrived with its separators lost
-    /// ("D1234567DCSSMITHDAC…" is D1234567). AAMVA allows 25 characters at most.
+    /// A license number as the barcode gives it, to its element's end: a space or a dash some
+    /// states print inside it is kept, for ``normalized(_:)`` to drop ("A123 456 789" is
+    /// A123456789). It ends early only at the next element, when a payload arrived with its
+    /// separators lost ("D1234567DCSSMITHDAC…" is D1234567) or read as spaces ("D1234567 DCS…").
+    /// AAMVA allows 25 characters at most.
     static func licenseNumber(_ raw: String) -> String {
-        var number = String(raw.prefix { $0.isASCII && ($0.isLetter || $0.isNumber) }.prefix(25))
+        var number = String(raw.prefix { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == " " || $0 == "-") })
+        // Every element's id is a D, then A to D, then a letter.
+        if let range = number.range(of: #" +D[A-D][A-Z]"#, options: .regularExpression) {
+            number = String(number[..<range.lowerBound])
+        }
         for element in aamvaElements where element != "DAQ" {
             if let range = number.range(of: element), number.distance(from: number.startIndex, to: range.lowerBound) >= 4 {
                 number = String(number[..<range.lowerBound])
             }
         }
-        return number
+        return String(number.prefix(25)).trimmingCharacters(in: CharacterSet(charactersIn: " -"))
     }
 
     // MARK: US driver's licenses: the front

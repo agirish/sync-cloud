@@ -106,7 +106,10 @@ extension VaultReading {
         let digits = value.filter(\.isNumber).count
         guard digits >= 4, (5...25).contains(normalized(value).count) else { return nil }
         let upper = value.uppercased()
-        guard !upper.contains("XXX"), !upper.contains("***") else { return nil }
+        guard !upper.contains("XXX"), !upper.contains("*"), !upper.contains("•") else { return nil }
+        // A shorter mask before the digits shown: "XX1234", "X-1234". A prefix of letters is not
+        // one ("XZB-45-1234"), and a number shows six digits at most past its mask.
+        guard upper.range(of: #"^X+[ .-]?[0-9]{1,6}$"#, options: .regularExpression) == nil else { return nil }
         // A date read beside the label ("Account opened 01-02-2020"), either way round.
         if [DateOrder.monthFirst, .dayFirst].contains(where: { PrintedPage.leadingDate(value, order: $0) != nil }) {
             return nil

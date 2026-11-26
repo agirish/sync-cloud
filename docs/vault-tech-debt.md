@@ -58,7 +58,7 @@ Each changes what the user sees, gets or is asked.
 
   | ID | Misread |
   |---|---|
-  | VT93 | A state ID titled a license; one form and holder for every receipt on a page; a barcode `DAQ` cut at a space; a mask of under three X's read whole; a garbled PAN holder line; lower-case letters forming an I-94. |
+  | VT93 (left) | A garbled holder line on an unlabelled PAN card can make the father the holder; the fix tried in batch 53 lost a real card's holder, so it waits for a better tell. |
 
 ## Open: blocked or roadmap
 
@@ -93,6 +93,7 @@ Each changes what the user sees, gets or is asked.
 | VT90 | By the owner's call, only a page with the e-PAN's own layout (its heading, or a holder label on its own line) ranks as the PAN card; a page that only names an e-PAN quotes the PAN | batch 50 |
 | VT91 | By the owner's call, under School an "Enrolment No" is the student's ID, and a page is an Aadhaar letter by its enrolment number only with its slashes or UIDAI's name | batch 51 |
 | VT92 | By the owner's call, "Social Security card" beside a list item (a box, a bullet, "Copy of …", another paper to bring) is not the card's heading, and form numbers match their spaced and hyphenated forms ("W 4", "W - 2", "Forms W-2 and W-4") | batch 52 |
+| VT93 | By the owner's call, five of six: a state ID's barcode reads as an ID and keeps the element on its header line; each receipt number takes its own form and person; a barcode license number keeps its spaces and dashes; a mask of one or two X's is masked; an I-94 number's letters are upper case. The sixth, a misread holder line on an unlabelled PAN card, is left as it was: the fix took a real card's first line for its holder and lost the holder on the owner's papers | batch 53 |
 | VT88 (slashed zero) | By the owner's call, a "Ø" beside a digit is a zero except the diameter sign (a lone Ø, at a line's start or after a space or bracket, before one to three digits and a unit: "Ø12 mm" read as 012); a size with no unit is a zero, as a date's last part needs, and a typed text layer's slashed zeros are put back too, as Vision's always were. Version 26. On the owner's papers: no find changed | batch 45 |
 | VT53 | By the owner's call, an account number read as Other (a cover sheet's "Account Number") and as one account kind elsewhere (its next page's "Loan Number") is that kind, in one file or across files; the reading that speaks keeps who issued it, so the title is its issuer and the kind's name, and two kinds that disagree, or an identity kind, change nothing. Version 25. On the owner's papers: the mortgage's cover sheet now reads as Loans, nothing else changed | batch 44 |
 | VT47 | By the owner's call, a zone's accented letter ("Ž" for Z) is read as its letter, and a character of the number that stays unreadable leaves no reading, since a digit and every letter worth ten, twenty or thirty more pass its check alike (5, F, P, Z): it was filled with the digit. A visa's foil may still print the number. Version 24. On the owner's papers (1,356 files): no zone changed | batch 43 |

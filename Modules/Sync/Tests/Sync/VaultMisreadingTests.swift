@@ -383,4 +383,74 @@ import Testing
     @Test func aGroupedLicenseNumberIsNotReadCutShort() {
         #expect(VaultFixtures.read(["DRIVER LICENSE", "DL 12345 678"]).isEmpty)
     }
+
+    // MARK: VT93
+
+    /// A state ID's barcode says what it is in its header, wherever the number is printed, and
+    /// the element that rides the header line is kept, whichever it is.
+    @Test func aStateIDsBarcodeIsAnIDAndKeepsItsHeaderLineElement() throws {
+        let id = ["@", "ANSI 636014090002ID00410278ZC03190024IDDCSERIKSSON", "DAQD1234567", "DACANNA",
+                  "DBD05162025", "DBB08121974", "DBA05162030", "DAJCA", "DCGUSA"]
+        let card = try #require(VaultFixtures.read(id).first)
+        #expect(card.title == "State ID · CA")
+        #expect(card.value == "D1234567")
+        #expect(card.holder == "Anna Eriksson")
+        // A payload that does not repeat the subfile's type: only the header's list says so.
+        let bare = id.map { $0.hasPrefix("ANSI") ? "ANSI 636014090002ID00410278ZC03190024DCSERIKSSON" : $0 }
+        #expect(VaultFixtures.read(bare).first?.title == "State ID · CA")
+        let license = ["@", "ANSI 636014090002DL00410278ZC03190024DLDCAC", "DAQD1234567", "DCSERIKSSON", "DACANNA",
+                       "DBD05162025", "DBB08121974", "DBA05162030", "DAJCA", "DCGUSA"]
+        let find = try #require(VaultFixtures.read(license).first)
+        #expect(find.title == "Driver’s license · CA")
+        #expect(VaultFixtures.detail(find, "Class") == .text("C"))
+    }
+
+    /// A barcode's license number runs to its element's end, its spaces and dashes inside it.
+    @Test func aBarcodeLicenseNumberIsNotCutAtASpaceOrADash() {
+        func number(_ daq: String) -> String? {
+            VaultFixtures.read(VaultIDReadingTests.barcode.map {
+                $0.hasPrefix("ANSI") ? "ANSI 636014090002DL00410278ZC03190024DL" + daq : $0
+            }).first?.value
+        }
+        #expect(number("DAQA123 456 789") == "A123456789")
+        #expect(number("DAQA12-345-678-901") == "A12345678901")
+        // Separators read as spaces still end it at the next element.
+        #expect(VaultReading.licenseNumber("D1234567 DCSERIKSSON") == "D1234567")
+    }
+
+    /// Each receipt number on a page takes the form and the person printed with it.
+    @Test func eachReceiptOnAPageTakesItsOwnFormAndPerson() {
+        let page = ["Case Status", "Receipt Number WAC2412345678", "Form I-129", "Beneficiary ERIKSSON, ANNA",
+                    "Receipt Number WAC2412349999", "Form I-539", "Applicant ERIKSSON, BJORN"]
+        let finds = VaultFixtures.read(page)
+        let anna = finds.first { $0.value == "WAC2412345678" }
+        let bjorn = finds.first { $0.value == "WAC2412349999" }
+        #expect(anna?.facts.form == "I-129")
+        #expect(anna?.holder == "Anna Eriksson")
+        #expect(bjorn?.facts.form == "I-539")
+        #expect(bjorn?.holder == "Bjorn Eriksson")
+    }
+
+    /// One or two X's before the digits are a mask as much as four are.
+    @Test func aShortMaskIsNotAnAccountNumber() {
+        for masked in ["XX1234", "X-1234", "X12345", "xx-12345"] {
+            #expect(VaultReading.accountNumber(masked) == nil, "\(masked)")
+            #expect(VaultAccountReadingTests.read(["Account Number: " + masked], at: "Home/Utilities/PG&E/2025/bill.pdf")
+                .isEmpty, "\(masked)")
+        }
+        // A prefix of letters is not a mask.
+        #expect(VaultReading.accountNumber("XZB-45-1234") == "XZB-45-1234")
+    }
+
+    /// An I-94 number's letters are upper case, as printed: a word's last lower-case letter
+    /// before ten digits is not its first digit.
+    @Test func aLowerCaseLetterIsNoI94Digit() {
+        for word in ["records", "filed", "pool", "big", "blob", "also"] {
+            let page = ["Most Recent I-94", "I-94 \(word) 1234567890"]
+            #expect(!VaultFixtures.read(page).contains { $0.category == .i94 }, "\(word)")
+        }
+        // Upper-case look-alikes are still read as digits.
+        #expect(VaultFixtures.read(["Most Recent I-94", "Admission I-94 Record Number: 24OOO123456"]).map(\.value)
+                == ["24000123456"])
+    }
 }
