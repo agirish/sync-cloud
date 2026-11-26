@@ -97,7 +97,8 @@ public enum VaultPageSource {
     public static func reading(textLayer: String, from path: String, under roots: [String] = [],
                                picture: Picture) -> Reading? {
         let letters = textLayer.filter { !$0.isWhitespace }.count
-        var layer = textLayer.components(separatedBy: .newlines)
+        // A typed layer's slashed zeros too: a font can map a slashed 0 to "Ø" (VT88).
+        var layer = textLayer.components(separatedBy: .newlines).map(zeroed)
         /// What a reading gives: its finds, their numbers, and every number it gives or names.
         func read(_ lines: [String], already: (finds: [VaultFind], mentions: [VaultMention])? = nil)
             -> (finds: [VaultFind], numbers: Set<String>, any: Set<String>) {
@@ -214,26 +215,46 @@ public enum VaultPageSource {
         return (lines, sharper, read, notes)
     }
 
-    /// A line Vision read, with each "Ø" beside a digit put back to the zero it is. A visa foil
-    /// prints its zeros slashed; one read as the letter stopped a fourteen-digit Control Number
-    /// at its eleventh, and the visa was kept under those eleven. A name's Ø has no digit beside
-    /// it and stays.
+    /// A line, with each "Ø" beside a digit put back to the zero it is. A visa foil prints its
+    /// zeros slashed; one read as the letter stopped a fourteen-digit Control Number at its
+    /// eleventh, and the visa was kept under those eleven; one in "Ø2SEP2Ø14" kept its date from
+    /// being read. Not the diameter sign: a lone "Ø" before one to three digits and then a unit
+    /// ("Ø12 mm", "Ø10.5mm"), which once read as 012 (VT88). A name's Ø has no
+    /// digit beside it and stays.
+    ///
+    /// Only with a unit: a size alone, "Ø12" at a line's end, is as likely a box's zero or the
+    /// end of a date ("2Ø24-Ø3-Ø9", "EXP Ø9/Ø7"), and is a zero (the 2026-11-25 review).
     static func zeroed(_ line: String) -> String {
         let slashed: Set<Character> = ["Ø", "ø", "∅", "⌀"]
         guard line.contains(where: slashed.contains) else { return line }
-        var letters = Array(line)
+        let read = Array(line)
+        var letters = read
         func isDigit(_ index: Int) -> Bool { letters.indices.contains(index) && letters[index].isASCII && letters[index].isNumber }
+        // The diameter shape, judged on the line as read, so a run of slashed zeros ("ØØ71") is
+        // never taken for one.
+        func isDiameter(_ index: Int) -> Bool {
+            // At the line's start, or after a space or a bracket: "2Ø24-Ø3-Ø9" ends in a date's part.
+            if index > 0, !read[index - 1].isWhitespace, read[index - 1] != "(" { return false }
+            let rest = String(read[(index + 1)...])
+            return diameterSign.firstMatch(in: rest, range: NSRange(location: 0, length: (rest as NSString).length)) != nil
+        }
         // Again until nothing changes, so a run of them ("ØØ7") is put back from its digit outward.
         var changed = true
         while changed {
             changed = false
-            for index in letters.indices where slashed.contains(letters[index]) && (isDigit(index - 1) || isDigit(index + 1)) {
+            for index in letters.indices where slashed.contains(letters[index])
+                && (isDigit(index - 1) || isDigit(index + 1)) && !isDiameter(index) {
                 letters[index] = "0"
                 changed = true
             }
         }
         return String(letters)
     }
+
+    /// What follows a diameter sign: a size of one to three digits, perhaps with a decimal part,
+    /// then a unit.
+    private static let diameterSign = try! NSRegularExpression(
+        pattern: #"^[0-9]{1,3}(?:[.,][0-9]+)?\s*(?:mm|cm|m(?![A-Za-z])|in(?![A-Za-z])|"|″)"#)
 
     /// Whether a second reading of a page (its ink alone, or its picture against its text layer)
     /// keeps all the first one read: every number it found, each

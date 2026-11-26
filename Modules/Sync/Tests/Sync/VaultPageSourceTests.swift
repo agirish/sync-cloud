@@ -119,6 +119,28 @@ import Testing
         #expect(Self.numbers(VaultPageSource.seen(Self.picture(Asked(), reads: seen), from: Self.path)) == ["20241234560001"])
         // Only beside a digit: a name keeps its letter.
         #expect(VaultPageSource.zeroed("SØREN 4Ø4 ØØ7 Ø K2Ø") == "SØREN 404 007 Ø K20")
+        // VT88: the diameter sign stays, before a size and a unit or the line's end; every other
+        // Ø beside a digit is a zero, a foil's dates and a grouped number too (the 2026-11-25 review).
+        #expect(VaultPageSource.zeroed("Ø12 mm") == "Ø12 mm")
+        #expect(VaultPageSource.zeroed("Ø10.5mm bolt") == "Ø10.5mm bolt")
+        // Without a unit it is a zero: a box's, or a date's last part (the second review).
+        #expect(VaultPageSource.zeroed("Ø12") == "012")
+        #expect(VaultPageSource.zeroed("2Ø24-Ø3-Ø9") == "2024-03-09")
+        #expect(VaultPageSource.zeroed("2Ø24/Ø1/Ø5") == "2024/01/05")
+        #expect(VaultPageSource.zeroed("VALID THRU 1Ø/Ø5") == "VALID THRU 10/05")
+        #expect(VaultPageSource.zeroed("Ø5.Ø3.Ø9") == "05.03.09")
+        #expect(VaultPageSource.zeroed("Ø2 SEP Ø9") == "02 SEP 09")
+        #expect(VaultPageSource.zeroed("Ø3") == "03")
+        // A diameter in brackets, or after words, is still one.
+        #expect(VaultPageSource.zeroed("Bolt (Ø8 mm)") == "Bolt (Ø8 mm)")
+        #expect(VaultPageSource.zeroed("Ø2SEP2Ø14") == "02SEP2014")
+        #expect(VaultPageSource.zeroed("Ø1/Ø5/2Ø24") == "01/05/2024")
+        #expect(VaultPageSource.zeroed("Ø12-34-5678") == "012-34-5678")
+        #expect(VaultPageSource.zeroed("Ø12 34 5678") == "012 34 5678")
+        #expect(VaultPageSource.zeroed("ØØ71") == "0071")
+        #expect(VaultPageSource.zeroed("Ø2025123456 7") == "02025123456 7")
+        // Slashed zeros with no digit among them are no number.
+        #expect(VaultPageSource.zeroed("ØØØØ") == "ØØØØ")
         #expect(VaultPageSource.zeroed("no such letter") == "no such letter")
         // Each sign a slashed zero is read as; and only beside a digit of this script.
         #expect(VaultPageSource.zeroed("1Ø 2ø 3∅ 4⌀") == "10 20 30 40")

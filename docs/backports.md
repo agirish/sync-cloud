@@ -16306,6 +16306,7 @@ Batch 42: an Indian passport's leading G, L or U read as 6, 1 or 0 is read as th
 Batch 43: an accented zone letter is read as the letter; an unreadable character of a zone's number
 is no longer filled with a digit (VT47).
 Batch 44: an account number read as Other and as one account kind elsewhere is that kind (VT53).
+Batch 45: a slashed zero beside a digit is a zero, but not a diameter sign, typed layers too (VT88).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

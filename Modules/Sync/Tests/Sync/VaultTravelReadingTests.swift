@@ -176,6 +176,12 @@ import Testing
         let stacked = PrintedPage(["7 OCT 2014", "Issue Date", "Expiration Date", "02SEP2014", "25AUG2019"])
         #expect(stacked.date(["issue date"], order: nil) == Self.day(2014, 9, 2))
         #expect(stacked.date(["expiration date"], order: nil) == Self.day(2019, 8, 25))
+        // The same foil with its zeros read slashed, as Vision reads them: put back, the dates
+        // still read (VT88, the 2026-11-25 review).
+        let slashed = PrintedPage(["7 OCT 2Ø14", "Issue Date", "Expiration Date", "Ø2SEP2Ø14", "25AUG2Ø19"]
+            .map(VaultPageSource.zeroed))
+        #expect(slashed.date(["issue date"], order: nil) == Self.day(2014, 9, 2))
+        #expect(slashed.date(["expiration date"], order: nil) == Self.day(2019, 8, 25))
     }
 
     @Test func aUSVisaAnEVisaAndAnOCICardAreEachWeighedOnlyAgainstTheirKind() {

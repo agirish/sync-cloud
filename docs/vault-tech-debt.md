@@ -58,7 +58,7 @@ Each changes what the user sees, gets or is asked.
 
   | ID | Misread |
   |---|---|
-  | VT88 | A typed page trusted over a fuller scan; the picture's words over a typed name; a both-ways page's sources; inline-image scans unseen; ink-only at 2400 px; `zeroed` takes `Ø` beside any digit. |
+  | VT88 | A typed page trusted over a fuller scan; the picture's words over a typed name; a both-ways page's sources; inline-image scans unseen; ink-only at 2400 px. (The slashed zero: batch 45.) |
   | VT90 | Any page mentioning an e-PAN is ranked as the PAN card. |
   | VT91 | An Indian school's 14- or 16-digit "Enrolment No". |
   | VT92 | A checklist's "Social Security card" above a number; a scan-broken form number (`Form W 4`). |
@@ -90,6 +90,7 @@ Each changes what the user sees, gets or is asked.
 | VT32, VT33, VT36 | Decrypt after proof, a way out of an unreadable Vault, screen capture | VF4, VF6, VF9 |
 | VT35 | One copy path (`VaultPasteboard.copyPlain`); copied names and dates stay ordinary copies, by the owner's call (only an ID's number and a birth date are concealed and cleared) | batch 19, 2026-11-25 |
 | VT40–43, VT45 | Reader bugs | `f7e441a7a`, `fd0377535` |
+| VT88 (slashed zero) | By the owner's call, a "Ø" beside a digit is a zero except the diameter sign (a lone Ø, at a line's start or after a space or bracket, before one to three digits and a unit: "Ø12 mm" read as 012); a size with no unit is a zero, as a date's last part needs, and a typed text layer's slashed zeros are put back too, as Vision's always were. Version 26. On the owner's papers: no find changed | batch 45 |
 | VT53 | By the owner's call, an account number read as Other (a cover sheet's "Account Number") and as one account kind elsewhere (its next page's "Loan Number") is that kind, in one file or across files; the reading that speaks keeps who issued it, so the title is its issuer and the kind's name, and two kinds that disagree, or an identity kind, change nothing. Version 25. On the owner's papers: the mortgage's cover sheet now reads as Loans, nothing else changed | batch 44 |
 | VT47 | By the owner's call, a zone's accented letter ("Ž" for Z) is read as its letter, and a character of the number that stays unreadable leaves no reading, since a digit and every letter worth ten, twenty or thirty more pass its check alike (5, F, P, Z): it was filled with the digit. A visa's foil may still print the number. Version 24. On the owner's papers (1,356 files): no zone changed | batch 43 |
 | VT46 | By the owner's call, an Indian passport's number (on its own zone or a US visa's) that reads as eight digits and a filler, its first 6, 1 or 0, is read as G, L or U, the one look-alike worth ten, twenty or thirty more, which keeps every check; on a line read as is, filled, swapped or by its printed number. Its first character unreadable leaves no reading (V, L and B all pass as 1) unless a US visa's foil prints the number; the swap after a failed check is held to the same documents. Version 23. On the owner's papers (1,356 files): no find changed | batch 42 |
