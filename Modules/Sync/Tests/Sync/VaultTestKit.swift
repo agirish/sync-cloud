@@ -118,6 +118,9 @@ final class VaultFakeAuthenticator: VaultAuthenticating, @unchecked Sendable {
     var answer: VaultProof = .allowed
     /// Whether this Mac has Touch ID set up, as the test says.
     var touchID: VaultTouchID = .ready
+    /// The enrolled fingerprints' digest, as the test says; nil cannot be told.
+    var enrolled: String?
+    func enrolledFingerprints() -> String? { enrolled }
     private(set) var reasons: [String] = []
     func prove(reason: String) async -> VaultProof {
         reasons.append(reason)

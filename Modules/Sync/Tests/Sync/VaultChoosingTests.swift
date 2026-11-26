@@ -92,4 +92,42 @@ import Testing
         #expect(disk.seals - before == 1)
         #expect(try rig.store.loadDocument()?.document.readingState(cache: nil).lessons != lessons, "the lesson is on disk")
     }
+
+    /// Kind on a saved ID another copy changed meanwhile is refused, and its folder's lesson,
+    /// held before the write, never reaches the disk through the refusal's merge (the second review).
+    @MainActor @Test func aKindRefusedOverAnotherCopysSaveLeavesNoLessonOnDisk() async throws {
+        let rig = try VaultRig(); defer { rig.cleanUp() }
+        VaultReadFolders.add(VaultKindsTests.root, in: rig.defaults)
+        let first = rig.model()
+        await first.opened()
+        await first.readDocuments(with: VaultKindsTests.documents)
+        let find = try #require(first.finds.first { $0.value == "5555 6666 7777" })
+        let saved = try #require(first.confirm(find.id, as: VaultModel.Draft(find)))
+        let second = rig.model()
+        await second.opened()
+        var draft = VaultModel.Draft(try #require(second.entries.first { $0.id == saved }))
+        draft.note = "changed in the other copy"
+        #expect(await second.update(saved, to: draft))
+        let lessons = try #require(try rig.store.loadDocument()).document.lessons
+        first.setKind(saved, to: .builtIn(.loans))
+        #expect(first.notice == VaultModel.message(for: .changedElsewhere), "refused")
+        #expect(try rig.store.loadDocument()?.document.lessons == lessons, "the refused Kind's lesson reached the disk")
+        #expect(first.sealedReading.lessons == lessons)
+    }
+
+    /// Undo of a correction another copy's save refuses puts nothing back on disk: the waiting ID
+    /// it held stays out of the document the refusal's merge seals (the second review).
+    @MainActor @Test func anUndoRefusedOverAnotherCopysSavePutsNothingOnDisk() async throws {
+        let rig = try VaultRig(); defer { rig.cleanUp() }
+        let (first, find) = try await VaultCorrectionTests.waiting(rig)
+        let id = try VaultCorrectionTests.corrected(first, find, to: "D1234568")
+        let second = rig.model()
+        await second.opened()
+        var draft = VaultModel.Draft(try #require(second.entries.first { $0.id == id }))
+        draft.note = "changed in the other copy"
+        #expect(await second.update(id, to: draft))
+        #expect(!first.undoCorrection(), "refused: the other copy changed the ID")
+        #expect(try rig.store.loadDocument()?.document.finds().isEmpty == true, "the held waiting ID reached the disk")
+        #expect(!first.finds.contains { $0.id == find.id })
+    }
 }

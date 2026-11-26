@@ -36,6 +36,59 @@ import Testing
                                                 "Copied Passport · Anna", "Unlocked"])
     }
 
+    /// Copy a person's IDs under "For every ID" proves for those IDs: it lists the copy, not an
+    /// "Unlocked" for a Vault it never opened, and the Vault stays locked (the second review).
+    @Test func copyingAPersonsIDsUnderForEveryNumberUnlocksNothing() async throws {
+        let (rig, activity, model) = try Self.rig(); defer { rig.cleanUp() }
+        rig.defaults.set(VaultLockSettings.Ask.everyNumber.rawValue, forKey: VaultLockSettings.askKey)
+        var passport = Self.passport
+        passport.personID = "anna"
+        try rig.seed([passport])
+        model.people = [Person(id: "anna", displayName: "Anna")]
+        await model.opened()
+        let section = try #require(model.peopleSections.first { $0.id == .person("anna") })
+        #expect(await model.copyPerson(section.id, numbers: true))
+        #expect(!model.isOpen, "a proof for a person's IDs opened the whole Vault")
+        let lines = activity.load().map(\.line)
+        #expect(!lines.contains("Unlocked"), "\(lines)")
+        #expect(lines.contains { $0.hasPrefix("Copied every ID in full") })
+    }
+
+    /// A Contact card's row chosen in place of an ID stays chosen through a change of filter:
+    /// replaced by the first ID, the pane would draw it in full (the second review).
+    @Test func aChosenContactIsNotReplacedByTheFirstID() async throws {
+        let (rig, _, model) = try Self.rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.mortgage, Self.passport])
+        await model.opened()
+        model.selection = nil
+        model.showsAContact = true
+        model.query = "loan"
+        model.query = ""
+        #expect(model.selection == nil, "the contact gave way to an ID")
+        model.showsAContact = false
+        model.query = "loan"
+        #expect(model.selection != nil, "with no contact chosen, the first ID is chosen as before")
+    }
+
+    /// A fingerprint added or removed since the last proof is said, and listed; the Vault still
+    /// opens (the owner, 2026-11-26: warn only).
+    @Test func aChangeInTheEnrolledFingerprintsIsSaidAndListed() async throws {
+        let (rig, activity, model) = try Self.rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.passport])
+        rig.auth.enrolled = "first"
+        await model.opened()
+        #expect(model.isOpen && model.notice == nil, "the first proof only remembers them")
+        model.closed()
+        rig.auth.enrolled = "another finger added"
+        await model.opened()
+        #expect(model.isOpen, "it still opens")
+        #expect(model.notice == VaultModel.fingerprintsChanged)
+        #expect(activity.load().contains { $0.line.hasPrefix("Touch ID’s fingerprints changed") })
+        model.closed()
+        await model.opened()
+        #expect(model.notice == nil, "said once")
+    }
+
     /// Events older than ninety days are not shown, though only the next addition takes them off
     /// the disk: a Vault left alone keeps none of them on view (the final review).
     @Test func eventsPastNinetyDaysAreNotShownBeforeTheNextOneIsAdded() throws {

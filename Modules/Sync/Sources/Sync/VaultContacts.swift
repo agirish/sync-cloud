@@ -109,7 +109,7 @@ extension VaultModel {
     /// Changes what was typed for `person`, then seals it. Nothing while the Vault is not open.
     @discardableResult
     func changeContacts(of person: String, _ change: (inout VaultContacts) -> Void) -> Bool {
-        guard contents == .loaded, !person.isEmpty else { return false }
+        guard contents == .loaded, !person.isEmpty, !refusedReadOnly() else { return false }
         var theirs = contacts[person] ?? VaultContacts()
         change(&theirs)
         contacts[person] = theirs.isEmpty ? nil : theirs

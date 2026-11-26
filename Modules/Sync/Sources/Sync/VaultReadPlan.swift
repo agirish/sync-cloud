@@ -171,7 +171,7 @@ public struct VaultReadPlan: Equatable, Sendable {
         pattern: #"(?<![a-z])(?:id|card|enrol(?:l)?ment|registration|report card|admission)(?![a-z])"#,
         options: [.caseInsensitive])
 
-    private static let yearFolder = try! NSRegularExpression(pattern: #"^(?:19|20)[0-9]{2}$"#)
+    private static let yearFolder = try! NSRegularExpression(pattern: #"^((?:19|20)[0-9]{2})(?![0-9])"#)
     private static let yearInName = try! NSRegularExpression(pattern: #"(?<![0-9])(20[0-9]{2})(?![0-9])"#)
 
     /// What a paper's name says beyond its date and its kind: "PG&E 2024-03 Statement" and
@@ -206,9 +206,19 @@ public struct VaultReadPlan: Equatable, Sendable {
            schoolPapers.firstMatch(in: name, range: NSRange(location: 0, length: (name as NSString).length)) == nil {
             return nil
         }
-        func isYear(_ s: String) -> Bool { yearFolder.firstMatch(in: s, range: NSRange(location: 0, length: (s as NSString).length)) != nil }
-        let account = "/" + folders.filter { !isYear($0) }.joined(separator: "/") + "#" + paperName(name)
-        let year = folders.last(where: isYear)
+        // A year's folder, as ``VaultAccountReading/accountIssuer(_:under:people:)`` takes one:
+        // "2024", or "2023 - Lindqvist", a year's papers of one person, whose rest stays in the
+        // account so each year is one account's (the second review: "2023 - X" and "2024 - X" were
+        // two accounts of one year each).
+        func yearOf(_ s: String) -> (year: String, rest: String)? {
+            guard let match = yearFolder.firstMatch(in: s, range: NSRange(location: 0, length: (s as NSString).length)) else { return nil }
+            let rest = (s as NSString).substring(from: match.range(at: 1).length)
+                .trimmingCharacters(in: CharacterSet.whitespaces.union(.punctuationCharacters))
+            return ((s as NSString).substring(with: match.range(at: 1)), rest)
+        }
+        let account = "/" + folders.compactMap { folder in yearOf(folder).map { $0.rest.isEmpty ? nil : $0.rest } ?? folder }
+            .joined(separator: "/") + "#" + paperName(name)
+        let year = folders.last(where: { yearOf($0) != nil }).flatMap { yearOf($0)?.year }
             ?? yearInName.firstMatch(in: name, range: NSRange(location: 0, length: (name as NSString).length))
                 .map { (name as NSString).substring(with: $0.range(at: 1)) }
             ?? modified(file).map { String(Calendar(identifier: .gregorian).component(.year, from: $0)) }

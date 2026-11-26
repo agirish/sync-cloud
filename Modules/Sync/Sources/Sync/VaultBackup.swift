@@ -361,7 +361,11 @@ public struct VaultBackup {
         guard isWeekly else { return false }
         // The date first, the Keychain only when it says a week has passed: the panel asks at
         // every open, and each passphrase read is a Keychain round trip (VT10).
-        if let last = lastBackup, clock().timeIntervalSince(last) < 7 * 86_400 { return false }
+        // A last backup dated ahead of now (a clock set ahead and put right) is no reason to wait:
+        // it would hold the weekly backup off until that date and a week more (the second review).
+        if let last = lastBackup, case let since = clock().timeIntervalSince(last), since >= 0, since < 7 * 86_400 {
+            return false
+        }
         return hasPassphrase
     }
 
@@ -640,7 +644,12 @@ public struct VaultBackup {
                 return .failure(.notProved)
             }
         }
-        if store.keepsDocument { return restoreDocument(contents, mode: mode) }
+        // A Vault file that does not open at all (damaged, cut short, empty) is replaced as the
+        // document this build keeps, when no v1 reading file is beside it: taken the v1 way, a
+        // version 2 backup would lose its set-aside numbers, names, lessons and waiting IDs (the
+        // second review).
+        let damaged = mode == .replace && store.migrating && store.fileFormat == .unknown && !store.hasReadingFile
+        if store.keepsDocument || damaged { return restoreDocument(contents, mode: mode) }
         let entries: [VaultEntry]
         switch mode {
         case .addMissing:

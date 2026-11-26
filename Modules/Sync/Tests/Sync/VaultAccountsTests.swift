@@ -153,6 +153,17 @@ import Testing
         #expect(Self.read(bill, at: "Finance/US/2025/Statement.pdf").isEmpty)
     }
 
+    /// A label in a header row reads the value in its own column of the line under it, never the
+    /// first one on that line (the second review: the pharmacy's BIN was read as the Member ID).
+    @Test func aHeaderRowsLabelReadsItsOwnColumn() throws {
+        let card = ["Delta Dental", "RxBIN    Member ID", "610014    XZB123456789"]
+        let finds = Self.read(card, at: "Health/Dental/ID Cards/card.pdf")
+        #expect(finds.map(\.value) == ["XZB123456789"])
+        // A label at the line's start still reads the first value under it.
+        let first = ["Delta Dental", "Member ID    RxBIN", "XZB123456789    610014"]
+        #expect(Self.read(first, at: "Health/Dental/ID Cards/card.pdf").map(\.value) == ["XZB123456789"])
+    }
+
     @Test func aHealthCardsMemberIDHasItsGroupAndHolder() throws {
         let card = ["Delta Dental", "Member Name: ANNA ERIKSSON", "Member ID: XZB123456789", "Group Number: 0012345"]
         let finds = Self.read(card, at: "Health/Dental/ID Cards/card.pdf")

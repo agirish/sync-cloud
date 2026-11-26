@@ -174,7 +174,10 @@ import Testing
         // Held by another: the save waits for it.
         let url = setup.scratch.fileURL, keychain = setup.keychain
         let saving = Task.detached { () -> Bool in
-            let other = VaultStore(fileURL: url, keychain: keychain, migrating: true, anotherCopyRunning: { false })
+            // A minute: a loaded Mac can stretch the test's own wait past the five seconds a save
+            // waits, which made this red under a full gate (the second review).
+            var other = VaultStore(fileURL: url, keychain: keychain, migrating: true, anotherCopyRunning: { false })
+            other.lockWait = 60
             return (try? other.saveDocument(Self.document([Self.entry(1), Self.entry(2)]), expecting: nil)) != nil
         }
         try await Task.sleep(for: .milliseconds(300))
@@ -182,6 +185,31 @@ import Testing
         flock(descriptor, LOCK_UN)
         #expect(await saving.value)
         #expect(try store.loadDocument()?.document.savedIDs.count == 2)
+    }
+
+    /// Restore ▸ Replace sets the Vault aside under the lock (the final review's St2): while another
+    /// copy holds it, nothing is moved, and the Replace lands once it is let go (the second review).
+    @Test func aReplaceWaitsForTheLockBeforeSettingTheVaultAside() async throws {
+        let setup = try Setup(); defer { setup.scratch.remove() }
+        let store = setup.store()
+        _ = try store.saveDocument(Self.document([Self.entry(1)]), expecting: .absent)
+        let descriptor = open(store.lockURL.path, O_RDWR)
+        #expect(descriptor >= 0)
+        defer { close(descriptor) }
+        #expect(flock(descriptor, LOCK_EX | LOCK_NB) == 0)
+        let url = setup.scratch.fileURL, keychain = setup.keychain, now = setup.clock.now
+        let replacing = Task.detached { () -> Bool in
+            var other = VaultStore(fileURL: url, keychain: keychain, migrating: true, anotherCopyRunning: { false })
+            other.lockWait = 60
+            return (try? other.saveDocument(Self.document([Self.entry(3)]), expecting: .absent, replacingAt: now)) != nil
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!setup.names().contains { $0.hasPrefix("vault.sealed.set-aside-") }, "set aside while the lock was held")
+        #expect(try store.loadDocument()?.document.savedIDs == [Self.entry(1).id])
+        flock(descriptor, LOCK_UN)
+        #expect(await replacing.value)
+        #expect(try store.loadDocument()?.document.savedIDs == [Self.entry(3).id])
+        #expect(setup.names().contains { $0.hasPrefix("vault.sealed.set-aside-") })
     }
 
     // MARK: The cache

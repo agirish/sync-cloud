@@ -248,16 +248,33 @@ extension VaultReading {
 
     /// The home a paper is mailed to and the phones it prints for people in People, read once
     /// per file. With nobody in People, nothing is read: whose they are is the whole point.
-    static func contacts(in pages: [[String]], people: [Person]) -> VaultPrintedContacts {
+    /// `origins`, as ``VaultReading/read(pages:from:under:people:origins:)`` takes them: a page read
+    /// both ways is its text layer first, as for its numbers (VT88). Its picture gives a home only
+    /// if no page before did, and phones only if its layer gave none: a misread digit is never a
+    /// second phone beside the layer's (the second review).
+    static func contacts(in pages: [[String]], people: [Person], origins: [VaultPageOrigin]? = nil) -> VaultPrintedContacts {
         guard !people.isEmpty else { return .init() }
         let names = NameIndex(people)
         var out = VaultPrintedContacts()
         var seen = Set<String>()
-        for page in pages {
-            let lines = page.map { ContactLine($0, names: names) }
+        let origins = origins.flatMap { $0.count == pages.count ? $0 : nil }
+        // Each page's layer before its picture, the pages in the file's order.
+        let order = pages.indices.sorted { a, b in
+            guard let origins else { return a < b }
+            let (pa, pb) = (origins[a].page, origins[b].page)
+            if pa != pb { return pa < pb }
+            let (ia, ib) = (origins[a].half == .picture, origins[b].half == .picture)
+            return ia != ib ? !ia : a < b
+        }
+        var layerPhones: Set<Int> = []
+        for index in order {
+            let lines = pages[index].map { ContactLine($0, names: names) }
             if out.address == nil { out.address = homeAddress(on: lines, names: names) }
+            let origin = origins?[index]
+            if let origin, origin.half == .picture, layerPhones.contains(origin.page) { continue }
             for phone in phones(on: lines, names: names) where seen.insert(phone.person + phone.number).inserted {
                 out.phones.append(phone)
+                if let origin, origin.half == .textLayer { layerPhones.insert(origin.page) }
             }
         }
         return out
@@ -353,7 +370,20 @@ extension VaultReading {
             if !before.people.isEmpty { return !markedNotHome(street, in: lines, names: names, named: before) }
         }
         guard let anchor = nameAbove(street, in: lines, names: names, between: betweenNameAndAddress, throughPast: true) else { return false }
+        // A label between them that names the address another place's ("Work Address:", on a line
+        // of its own): not their home, as the same label beside the street is not (the second
+        // review). A work phone between them still is: only an address's label says so.
+        if lines[(anchor + 1)..<street].contains(where: { isOtherPlacesAddressLabel($0.text) }) { return false }
         return !markedNotHome(anchor, in: lines, names: names)
+    }
+
+    /// The words that make an address's label another place's: "Work Address", "Office Address".
+    static let otherPlaceWords: Set<String> = ["work", "office", "business", "employer", "company", "school"]
+
+    /// Whether `text` is an address's label naming another place than home: "Work Address:".
+    static func isOtherPlacesAddressLabel(_ text: String) -> Bool {
+        let words = Set(PersonRegistry.words(text))
+        return !words.isDisjoint(with: ["address", "addresses"]) && !words.isDisjoint(with: otherPlaceWords)
     }
 
     /// The line naming someone in People at most four lines above `index`, with only lines of

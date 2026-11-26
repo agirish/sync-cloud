@@ -75,6 +75,13 @@ struct VaultSettingsTab: View {
             setAsideCount = countSetAside()
             refreshBackupState()
         }
+        // What a proof opened here closes when the Mac sleeps or locks, as the Vault does: a sheet
+        // left up would hand the activity list, or the passphrase, to whoever unlocks it next (the
+        // second review).
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in closeWhatAProofOpened() }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.screensDidSleepNotification)) { _ in closeWhatAProofOpened() }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.sessionDidResignActiveNotification)) { _ in closeWhatAProofOpened() }
+        .onReceive(DistributedNotificationCenter.default().publisher(for: .init("com.apple.screenIsLocked"))) { _ in closeWhatAProofOpened() }
         .sheet(isPresented: Binding(get: { activityShown != nil }, set: { if !$0 { activityShown = nil } })) {
             VaultActivitySheet(events: activityShown ?? []) {
                 activityStore?.clear()
@@ -248,7 +255,8 @@ struct VaultSettingsTab: View {
             caption: "Copied IDs skip clipboard-history apps, stay on this Mac, and clear on their own."
         ) {
             SettingsRow("Clear the clipboard after") {
-                Picker("Clear the clipboard after", selection: $clipboardSeconds.loggingSettingsChange("vault.clipboardSeconds")) {
+                Picker("Clear the clipboard after", selection: guarded($clipboardSeconds.loggingSettingsChange("vault.clipboardSeconds"),
+                                                                       "keep copied IDs on the clipboard longer", loosens: { $1 > $0 })) {
                     ForEach(VaultSharingSettings.clipboardChoices, id: \.self) { seconds in
                         Text(VaultSharingSettings.label(seconds: seconds)).tag(seconds)
                     }
@@ -257,7 +265,9 @@ struct VaultSettingsTab: View {
                 .fixedSize()
                 .help("How long an ID copied from the Vault stays on the clipboard.")
             }
-            Toggle("Hide from screen sharing while an ID is shown", isOn: $hidesFromCapture.loggingSettingsChange("vault.hidesFromScreenSharing"))
+            Toggle("Hide from screen sharing while an ID is shown",
+                   isOn: guarded($hidesFromCapture.loggingSettingsChange("vault.hidesFromScreenSharing"),
+                                 "show IDs to screen sharing", loosens: { $0 && !$1 }))
                 .help("Keeps SyncCloud’s window out of screen sharing, recordings and your own screenshots while the Vault shows an ID in full. Off, a shared screen shows it.")
         }
         SettingsSection(
@@ -267,7 +277,9 @@ struct VaultSettingsTab: View {
             // The switch and the list it keeps on one row: the section's title already says what
             // the row is about.
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Toggle("Keep an activity list", isOn: $keepsActivity.loggingSettingsChange("vault.keepsActivity"))
+                Toggle("Keep an activity list",
+                       isOn: guarded($keepsActivity.loggingSettingsChange("vault.keepsActivity"),
+                                     "stop keeping the Vault’s activity", loosens: { $0 && !$1 }))
                     .help("Lists what was unlocked, shown, copied and changed in the Vault, and each Touch ID check that was refused. Not the app’s log. Off, nothing more is listed; what was listed stays until you clear it.")
                 Spacer(minLength: 12)
                 Button("Show…") { showActivity() }
@@ -389,11 +401,8 @@ struct VaultSettingsTab: View {
 
     /// The list says which IDs were used and when: it is shown to the Mac's owner only.
     private func showActivity() {
-        isAsking = true
         Task { @MainActor in
-            let proof = await VaultDeviceOwnerProof().prove(reason: "show the Vault’s activity")
-            isAsking = false
-            guard case .allowed = proof else { return }
+            guard await proved("show the Vault’s activity") else { return }
             activityShown = activityStore?.load(now: Date()) ?? []
         }
     }
@@ -429,13 +438,42 @@ struct VaultSettingsTab: View {
         lastBackup = backup.lastBackup
     }
 
+    /// Closes every sheet and offer a proof opened: the activity list, the passphrase sheets, a
+    /// restore offered.
+    private func closeWhatAProofOpened() {
+        activityShown = nil
+        settingPassphrase = false
+        askingPassphraseFor = nil
+        restoreOffer = nil
+        restoreProvedAt = nil
+    }
+
     /// Touch ID before a change to the backup or a restore (VT114, owner, 2026-11-26): someone at
     /// the unlocked Mac must not send the next backup, every ID in it, somewhere of theirs.
+    /// A refusal is listed in the Vault's activity, as the panel lists its own (the second review).
     private func proved(_ reason: String) async -> Bool {
-        guard let backup, !isAsking else { return false }
+        guard !isAsking else { return false }
         isAsking = true
         defer { isAsking = false }
-        return await backup.prove(reason)
+        let proof = await VaultDeviceOwnerProof().prove(reason: reason)
+        if case .allowed = proof { return true }
+        if case .cancelled = proof, VaultActivitySettings.keeps(in: .standard) {
+            let now = Date()
+            activityStore?.append([VaultActivityEvent(at: now, kind: .proofRefused, what: reason)], now: now)
+        }
+        return false
+    }
+
+    /// `binding`, asking Touch ID first for a change that loosens the Vault (the owner, 2026-11-26):
+    /// turning screen-sharing hiding or the activity list off, a longer clipboard time. A change
+    /// back asks nothing.
+    private func guarded<Value: Equatable>(_ binding: Binding<Value>, _ reason: String,
+                                           loosens: @escaping (Value, Value) -> Bool) -> Binding<Value> {
+        Binding(get: { binding.wrappedValue }, set: { new in
+            let old = binding.wrappedValue
+            guard old != new, loosens(old, new) else { binding.wrappedValue = new; return }
+            Task { @MainActor in if await proved(reason) { binding.wrappedValue = new } }
+        })
     }
 
     private func chooseBackupFolder() {
@@ -536,7 +574,8 @@ struct VaultSettingsTab: View {
         case .noPassphrase: return "Set a backup passphrase first."
         case .passphraseTooShort: return "The passphrase needs at least \(VaultBackupFile.leastPassphraseLength) characters."
         case .notABackup: return "That file isn’t a Vault backup this version of SyncCloud can read."
-        case .wrongPassphrase: return "That passphrase doesn’t open this backup."
+        // The sealed part's check cannot tell a wrong passphrase from a file cut short.
+        case .wrongPassphrase: return "That passphrase doesn’t open this backup, or the file is damaged or incomplete."
         case .vaultUnreadable: return "The Vault on this Mac couldn’t be read."
         case .notWritten: return "The file couldn’t be written, so nothing was changed."
         case .notProved: return "macOS couldn’t confirm it was you."

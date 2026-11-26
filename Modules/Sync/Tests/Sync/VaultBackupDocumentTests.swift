@@ -210,6 +210,27 @@ import Testing
                 "the Vault that was here, byte for byte")
     }
 
+    /// A Vault file that does not open at all, replaced from a version 2 backup, becomes the
+    /// backup's document whole: taken the v1 way, it kept only the saved IDs (the second review).
+    @Test func replacingADamagedVaultWithAVersionTwoBackupKeepsEverythingItHolds() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        rig.keychain.itemData = Self.key.withUnsafeBytes { Data($0) }
+        try FileManager.default.createDirectory(at: rig.scratch.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: rig.scratch.fileURL)   // cut short to nothing
+        let store = VaultDocumentModelTests.documentStore(rig)
+        try #require(store.fileFormat == .unknown && !store.keepsDocument)
+        let (backup, folder) = Self.backup(rig); defer { try? FileManager.default.removeItem(at: folder) }
+        let incoming = Self.sample(fingerprints: ["from-the-backup"], keyID: store.keyID ?? "")
+        let contents = try VaultBackupContents(madeAt: Self.t0, document: incoming)
+        #expect(await backup.restore(contents, mode: .replace) == .success(2))
+        #expect(store.fileFormat == .document)
+        let now = try Self.document(rig)
+        #expect(now.records == incoming.records, "the backup's saved and waiting IDs")
+        #expect(now.names == incoming.names && now.nameRoles == incoming.nameRoles && now.lessons == incoming.lessons
+                && now.contacts == incoming.contacts && now.kinds == incoming.kinds)
+        #expect(now.setAside.fingerprints == ["from-the-backup"], "made under this key, they come back")
+    }
+
     @Test func replaceWithAVersionOneBackupMakesADocumentOfItKeepingKindsAndSetAside() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let held = Self.sample(fingerprints: ["kept"])

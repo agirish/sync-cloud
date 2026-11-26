@@ -71,7 +71,8 @@ import Testing
     }
 
     /// Answers yes, but locks the Vault while it is asked and opens it again, so the numbers are
-    /// back in memory when the answer comes: only the route's own look at the epoch stops it.
+    /// back in memory when the answer comes: only the proof's own look at the epoch
+    /// (`session.stands`, inside `prove`) stops it.
     final class LocksAndReopensWhileAsked: VaultAuthenticating, @unchecked Sendable {
         weak var model: VaultModel?
         func prove(reason: String) async -> VaultProof {

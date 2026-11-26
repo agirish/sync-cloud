@@ -34,6 +34,36 @@ import Testing
         for lines in [provider, labelled, firm] { #expect(Self.address(lines) == nil, "\(lines[2])") }
     }
 
+    /// "Work Address:" on a line of its own between the name and the street: the employer's, not
+    /// their home, as the same label beside the street already was (the second review). A work
+    /// phone between them leaves the home theirs.
+    @Test func aWorkAddressLabelOnItsOwnLineIsNotTheHome() {
+        let work = [Self.account, "Anna Eriksson", "Work Address:", "1 Example Loop", "Cupertino, CA 95014"]
+        #expect(Self.address(work) == nil)
+        let phone = [Self.account, "ANNA ERIKSSON", "Work Phone: (408) 555-0142", "2841 LARKSPUR LN", "SAN JOSE CA 95132"]
+        #expect(Self.address(phone) == Self.home)
+    }
+
+    /// A page read both ways: its layer's phone and home speak, and its picture's misread digit is
+    /// no second phone (the second review). A picture whose layer has none still gives its own.
+    @Test func aPageReadBothWaysGivesItsLayersPhoneAlone() throws {
+        let layer = [Self.account, "ANNA ERIKSSON", "2841 LARKSPUR LN", "SAN JOSE CA 95132", "Cell: (408) 555-0142"]
+        let picture = [Self.account, "ANNA ERIKSSON", "2847 LARKSPUR LN", "SAN JOSE CA 95132", "Cell: (408) 555-0148"]
+        func source(_ pages: [[String]], _ origins: [VaultPageOrigin]) -> VaultSource? {
+            VaultReading.read(pages: pages, from: Self.bill, people: Self.people, origins: origins)
+                .finds.first?.facts.sources.first { $0.path == Self.bill }
+        }
+        // The picture as the page, the layer as its second reading: the layer still speaks.
+        let read = try #require(source([picture, layer], [VaultPageOrigin(page: 1, half: .picture),
+                                                          VaultPageOrigin(page: 1, half: .textLayer)]))
+        #expect(read.phones?.map(\.number) == ["4085550142"])
+        #expect(read.address?.address == Self.home)
+        let bare = [Self.account, "Statement"]
+        let pictureOnly = try #require(source([bare, picture], [VaultPageOrigin(page: 1, half: .textLayer),
+                                                                VaultPageOrigin(page: 1, half: .picture)]))
+        #expect(pictureOnly.phones?.map(\.number) == ["4085550148"], "a layer with no phone leaves the picture's")
+    }
+
     @Test func aNameLineMayHoldAWordPeopleDoesNotKnow() {
         let maiden = [Self.account, "ANNA ERIKSSON", "OR BOB ERIKSSON-LARSSON", "2841 LARKSPUR LN", "SAN JOSE CA 95132"]
         let trust = [Self.account, "ERIKSSON FAMILY TRUST", "ATTENTION ANNA ERIKSSON", "2841 LARKSPUR LN", "SAN JOSE CA 95132"]

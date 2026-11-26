@@ -486,6 +486,9 @@ public struct VaultStore {
     /// ``VaultMigration/enabled``, unless a test says otherwise. Off, nothing new is ever written:
     /// the v1 files open and save as before, and a Vault begun here is a v1 Vault.
     public let migrating: Bool
+    /// How long a write waits for another copy's hold on the Vault's lock before it is refused.
+    /// Longer only in a test, whose waits a loaded Mac can stretch past five seconds.
+    var lockWait: TimeInterval = 5
     /// Whether another copy of the app is running, which a migration waits for
     /// (``VaultMigration/anotherCopyRunning()``).
     let anotherCopyRunning: @Sendable () -> Bool
@@ -1296,6 +1299,11 @@ extension VaultStore {
         .of(try? Data(contentsOf: fileURL))
     }
 
+    /// The reading cache as it is on disk now: another copy's cache-only seal changes it alone.
+    func cacheState() -> VaultFileState {
+        .of(try? Data(contentsOf: cacheURL))
+    }
+
     /// Seals what reading can find again. Never makes a key, and expects nothing: the cache is
     /// rebuilt by reading, so a copy's write over another's costs a read, never the user's data.
     public func saveCache(_ cache: VaultCache) throws {
@@ -1319,7 +1327,7 @@ extension VaultStore {
             throw VaultError.notWritten
         }
         defer { close(descriptor) }
-        let deadline = Date().addingTimeInterval(5)
+        let deadline = Date().addingTimeInterval(lockWait)
         while flock(descriptor, LOCK_EX | LOCK_NB) != 0 {
             guard errno == EWOULDBLOCK || errno == EINTR, Date() < deadline else {
                 Logger.shared.warning("Vault: another SyncCloud held the Vault's lock too long — nothing was written")

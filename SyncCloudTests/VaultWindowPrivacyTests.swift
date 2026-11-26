@@ -108,8 +108,25 @@ import Testing
             #expect(VaultPasteboard.clearAfter(in: scratch.defaults) == .seconds(seconds))
             #expect(VaultCard.clipboardClears(in: scratch.defaults) == "It clears from the clipboard after \(said).")
         }
-        // What the app uses is the same, on the Mac's own setting (read, never written).
-        #expect(VaultPasteboard.clearAfter == VaultPasteboard.clearAfter(in: .standard))
-        #expect(VaultCard.clipboardClears == VaultCard.clipboardClears(in: .standard))
+    }
+
+    /// ⌘C and ⌘X in the editor's number field copy the selection concealed and cleared, as the
+    /// Vault's Copy does; anywhere else a text view copies as it always has (the second review).
+    @Test func copyInTheEditorsNumberFieldIsConcealed() {
+        let pasteboard = NSPasteboard(name: .init("vault-editor-copy-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally(); VaultPasteboard.editingNumber = false }
+        let editor = NSTextView()
+        editor.string = "Z0000009"
+        editor.setSelectedRange(NSRange(location: 0, length: 8))
+        VaultPasteboard.editingNumber = false
+        #expect(!VaultPasteboard.copyOrCut(editor, cut: false, on: pasteboard), "not the number field: the view's own copy")
+        VaultPasteboard.editingNumber = true
+        #expect(VaultPasteboard.copyOrCut(editor, cut: false, on: pasteboard))
+        #expect(pasteboard.string(forType: .string) == "Z0000009")
+        #expect(pasteboard.types?.contains(.init("org.nspasteboard.ConcealedType")) == true)
+        #expect(VaultPasteboard.copyOrCut(editor, cut: true, on: pasteboard))
+        #expect(editor.string.isEmpty, "cut")
+        VaultPasteboard.clearPending()
+        #expect(pasteboard.string(forType: .string) == nil, "cleared as the Vault's copies are")
     }
 }

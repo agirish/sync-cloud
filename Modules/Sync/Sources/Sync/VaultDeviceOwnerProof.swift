@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import LocalAuthentication
 
@@ -40,6 +41,17 @@ public struct VaultDeviceOwnerProof: VaultAuthenticating {
             return sensor ? .outOfReach
                 : .notSetUp("This Mac has no Touch ID. Use a Mac or keyboard with Touch ID, and add a fingerprint in System Settings ▸ Touch ID & Password, to use the Vault.")
         }
+    }
+
+    /// macOS's state of the enrolled fingerprints, which changes when one is added or removed,
+    /// as a digest: never the fingerprints, which the app never sees.
+    public func enrolledFingerprints() -> String? {
+        let context = LAContext()
+        var cannot: NSError?
+        guard context.canEvaluatePolicy(Self.policy, error: &cannot), let state = context.domainState.biometry.stateHash else {
+            return nil
+        }
+        return SHA256.hash(data: state).prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
     /// A context per proof. One kept around would let a second request ride on the first's

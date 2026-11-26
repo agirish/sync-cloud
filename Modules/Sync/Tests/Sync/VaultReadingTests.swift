@@ -377,6 +377,23 @@ import Testing
         }
     }
 
+    /// A year's folder named for its person, "2023 - Pat", is that year of one account, as the
+    /// account's issuer already took it: two years of it are one account, and another person's
+    /// years are another's (the second review).
+    @Test func aYearsFolderNamedForItsPersonIsAYearOfOneAccount() throws {
+        let roots = ["/Users/a/Documents"]
+        func year(_ path: String) -> (account: String, year: String)? {
+            VaultReadPlan.accountYear(of: URL(fileURLWithPath: path), under: roots, modified: { _ in nil })
+        }
+        let older = try #require(year("/Users/a/Documents/Home/Utilities/Water/2023 - Pat/Mar.pdf"))
+        let newer = try #require(year("/Users/a/Documents/Home/Utilities/Water/2024 - Pat/Mar.pdf"))
+        let other = try #require(year("/Users/a/Documents/Home/Utilities/Water/2024 - Sam/Mar.pdf"))
+        #expect(older.account == newer.account && older.year == "2023" && newer.year == "2024")
+        #expect(other.account != newer.account, "another person's years are another account")
+        let plain = try #require(year("/Users/a/Documents/Home/Utilities/Water/2024/Mar.pdf"))
+        #expect(plain.year == "2024" && !plain.account.contains("2024"))
+    }
+
     @Test func aCenterCodeFollowedByAWordIsNotAReceiptNumber() {
         #expect(VaultReading.receiptNumbers(in: "LIN DOGBOSSILLIGO", from: "/a").isEmpty)
         #expect(VaultReading.receiptNumbers(in: "Send to EAC 12345", from: "/a").isEmpty)

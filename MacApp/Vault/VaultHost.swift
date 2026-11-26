@@ -140,6 +140,25 @@ enum VaultPasteboard {
     static var clearAfter: Duration { clearAfter(in: .standard) }
     static func clearAfter(in defaults: UserDefaults) -> Duration { .seconds(VaultSharingSettings.clipboardSeconds(in: defaults)) }
 
+    /// Whether the editor's number field has the focus (``VaultPanel``): Edit ▸ Copy and Cut then
+    /// copy the selection concealed and cleared, as Copy does, never as a plain copy that stays on
+    /// the clipboard and goes to every nearby device (the second review).
+    @MainActor static var editingNumber = false
+
+    /// Copy or Cut in a text view: the selection, concealed and cleared, when it is the editor's
+    /// number field; false, for the text view's own copy, otherwise.
+    @MainActor static func copyOrCut(_ editor: NSTextView, cut: Bool, on pasteboard: NSPasteboard = .general) -> Bool {
+        guard editingNumber else { return false }
+        let range = editor.selectedRange()
+        guard range.length > 0 else { return true }
+        copyConcealed((editor.string as NSString).substring(with: range), on: pasteboard)
+        if cut, editor.shouldChangeText(in: range, replacementString: "") {
+            editor.replaceCharacters(in: range, with: "")
+            editor.didChangeText()
+        }
+        return true
+    }
+
     /// Copies `value`, marked concealed, and clears it a minute later unless something else was
     /// copied meanwhile. The same recipe as the API key's Copy in Settings (`CloudKeyRow`), for
     /// its reasons: clipboard-history apps snapshot the pasteboard the instant it changes and the

@@ -113,4 +113,22 @@ import Testing
         #expect(model.finds.map(\.id) == [waiting])
         #expect(model.rows.first { $0.id == waiting }?.documents.map(\.path) == [Self.eob])
     }
+
+    /// Undo of a Merge that kept the saved number, made while its note is still being written:
+    /// the note lands on nothing, and the waiting ID stays back in To Confirm (the second review).
+    @Test func undoingAMergeKeepingTheSavedNumberBeforeItsNoteIsWrittenLeavesNoNote() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let (model, saved, waiting) = try await Self.rig(rig)
+        let before = try #require(model.entries.first { $0.id == saved })
+        let slow = model.fileContents
+        model.fileContents = { url in
+            try? await Task.sleep(for: .milliseconds(300))   // an iCloud file not yet downloaded
+            return await slow(url)
+        }
+        #expect(model.merge(waiting, into: saved, keepingReading: false))
+        #expect(model.undoCorrection(), "undone while the note is still being written")
+        await model.notesWritten()
+        #expect(model.entries.first { $0.id == saved } == before, "a note landed on the ID Undo put back")
+        #expect(model.finds.map(\.id) == [waiting])
+    }
 }

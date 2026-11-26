@@ -387,6 +387,21 @@ import Testing
         #expect(after.rereads[saved] == waiting.id, "the question was lost with the Stop")
     }
 
+    /// A refresh stopped after it opened a changed document: the next one, which opens it again,
+    /// still marks the ID Updated and says what changed (the second review: the new reading,
+    /// sealed as it went, left nothing to compare).
+    @Test func aStoppedRefreshStillMarksWhatChangedNextTime() async throws {
+        let (rig, model, shelf) = try await Self.rig(); defer { rig.cleanUp() }
+        let card = try #require(Self.row(model, "XZB123456789")).id
+        shelf.write(Self.dental, Self.card(group: "0099999"))
+        shelf.write(Self.passport, VaultToConfirmTests.passportPage)   // changed too, and opened after
+        await Task { await model.readDocuments(with: StopsAt(shelf, stopAt: Self.passport), scope: .refresh()) }.value
+        #expect(shelf.opened.contains(Self.dental), "the card's document was opened before Stop")
+        shelf.write(Self.passport, VaultToConfirmTests.passportPage)
+        await model.readDocuments(with: shelf, scope: .refresh())
+        #expect(model.changes[card]?.isEmpty == false, "the change the stopped refresh read is not shown")
+    }
+
     /// A refresh that finishes marks the saved IDs' own documents read, so the next one, with
     /// nothing changed, opens none of them again.
     @Test func aFinishedRefreshMarksASavedIDsDocumentRead() async throws {

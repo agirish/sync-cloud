@@ -255,6 +255,7 @@ import Testing
             #expect(model.notice == VaultModel.message(for: .newerFormat), "the panel says why")
             #expect(model.entries.map(\.id) == [VaultModelTests.passport.id] && model.finds.count == 1)
             model.notice = nil
+            #expect(model.notice == VaultModel.message(for: .newerFormat), "cleared, it comes back while read-only")
             #expect(model.add(VaultModel.Draft(title: "Library card", value: "LIB0000001")) == nil)
             #expect(model.notice == VaultModel.message(for: .newerFormat), "a refused save says why")
             model.setAside(try #require(model.finds.first).id)
@@ -286,6 +287,15 @@ import Testing
         model.setAside(try #require(model.finds.first).id)
         #expect(model.finds.count == waiting, "Not an ID is refused, not held until the next open")
         #expect(!model.forgetSetAside(), "Settings' Forget writes nothing either")
+        // People's typing and name roles too, which would show and be lost (the second review).
+        #expect(!model.setEmail("anna@example.com", label: nil, for: "anna"))
+        #expect(model.contacts.isEmpty)
+        let roles = model.nameRoles
+        model.setRole(.goesBy, of: "Anna E", for: "anna")
+        #expect(model.nameRoles == roles, "a role held that is never saved")
+        model.closed()
+        await model.opened()
+        #expect(model.notice == VaultModel.message(for: .anotherCopyRunning), "still says why after a close")
         model.closed()
         #expect(try Data(contentsOf: rig.scratch.fileURL) == before)
         #expect(rig.store.readingOnDisk()?.version == 17, "the reading file as it was, under its older rules")
@@ -434,6 +444,30 @@ import Testing
         await third.readDocuments(with: again)
         #expect(again.opened.all.isEmpty, "a copy's read marks were written over by the other's cache")
         #expect(Set(third.finds.map(\.value)) == found)
+    }
+
+    /// Two copies whose seals each change only the cache: the second's merges the first's read
+    /// marks rather than writing over them (the second review).
+    @Test func aCacheOnlySealAfterAnotherCopysCacheOnlySealKeepsItsReadMarks() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        try rig.seed([VaultModelTests.passport])
+        let warm = Self.model(rig)
+        await warm.opened()
+        await warm.readDocuments(with: VaultFakeDocuments(pages: ["/docs/letter.pdf": ["Nothing to see here"]]))
+        warm.closed()
+        let first = Self.model(rig), second = Self.model(rig)
+        await first.opened()
+        await second.opened()
+        let one = ["/docs/one.pdf": ["Nothing on this one"]], two = ["/docs/two.pdf": ["Nor on this one"]]
+        await first.readDocuments(with: VaultFakeDocuments(pages: one, stamps: ["/docs/one.pdf": "1"]))
+        await second.readDocuments(with: VaultFakeDocuments(pages: two, stamps: ["/docs/two.pdf": "1"]))
+        first.closed()
+        second.closed()
+        let third = Self.model(rig)
+        await third.opened()
+        let again = VaultFakeDocuments(pages: one.merging(two) { a, _ in a }, stamps: ["/docs/one.pdf": "1", "/docs/two.pdf": "1"])
+        await third.readDocuments(with: again)
+        #expect(again.opened.all.isEmpty, "a copy's read marks were written over by the other's cache")
     }
 
     /// A Forget made in one copy stands when the other, still holding what it read before, seals.

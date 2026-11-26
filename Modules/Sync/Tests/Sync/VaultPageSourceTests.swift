@@ -369,6 +369,22 @@ import Testing
         #expect(more.holder == "Anna Eriksson" && more.facts.form == "I-539")
     }
 
+    /// The layer speaks for its own page however the file goes: a number first read on an
+    /// earlier page, then on a page read both ways, is spoken for there by that page's layer, not
+    /// by its picture (the second review: only the page that first read it was so held).
+    @Test func aPagesLayerSpeaksThoughAnEarlierPageReadTheNumberFirst() throws {
+        let typed = "Receipt Number LIN2412345678\nApplicant ERIKSSON, ANNA"
+        let notice = ["I-797C Receipt Notice", "Receipt Number LIN2412345678", "Applicant ERIKSSON, ANMA", "Form I-539"]
+        let first = VaultPageSource.Reading(lines: ["Page 1 of 2", "Receipt Number LIN2412345678"])
+        let second = try #require(Self.reading(typed, Self.picture(Asked(), reads: notice)))
+        let file = VaultPageSource.filePages([(1, first), (2, second)])
+        try #require(file.origins.contains { $0.page == 2 && $0.half == .picture }, "the second page read both ways")
+        let finds = VaultReading.read(pages: file.pages, from: Self.path, origins: file.origins).finds
+        let find = try #require(finds.first { $0.value == "LIN2412345678" })
+        #expect(find.holder == "Anna Eriksson", "the picture's misread name spoke")
+        #expect(find.facts.form == "I-539", "what the layer is silent on comes from the picture")
+    }
+
     /// A page read both ways is one page of its file, whichever reading a zone is found in: a
     /// one-page file's zone names no page, and a second reading's zone is on the page it was read
     /// from, never one past the last (VT88). The typed zone under a picture that reads another

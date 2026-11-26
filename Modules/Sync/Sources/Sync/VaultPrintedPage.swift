@@ -324,11 +324,20 @@ struct PrintedPage {
         var out: [Hit] = []
         for (index, line) in lines.enumerated() {
             guard let hit = Self.labelHit(labels, in: lettered[index]) else { continue }
+            // A label in a header row ("RxBIN    Member ID") heads its own column of the line under
+            // it, when both lines have as many cells (the second review); else the line's start.
+            let column = Self.cells(line[..<hit.lowerBound]).count
+            let header = Self.cells(line).count
+            func under(_ at: Int) -> Substring {
+                guard column > 0, header > 1 else { return lines[at][...] }
+                let row = Self.cells(lines[at])
+                return row.count == header ? row[column][...] : lines[at][...]
+            }
             if let found = leading(line[hit.upperBound...].drop(while: skipping.contains)).flatMap(keeping) {
                 out.append(Hit(value: found, label: index, line: index))
             } else if let next = ((index + 1)..<min(lines.count, index + 1 + below)).first(where: {
-                leading(lines[$0].drop(while: skipping.contains)).flatMap(keeping) != nil
-            }), let found = leading(lines[next].drop(while: skipping.contains)).flatMap(keeping) {
+                leading(under($0).drop(while: skipping.contains)).flatMap(keeping) != nil
+            }), let found = leading(under(next).drop(while: skipping.contains)).flatMap(keeping) {
                 out.append(Hit(value: found, label: index, line: next))
             } else {
                 continue
@@ -336,6 +345,13 @@ struct PrintedPage {
             if first { break }
         }
         return out
+    }
+
+    /// A line's cells: runs of text two spaces or more apart, as a typed table's row prints them.
+    static func cells<S: StringProtocol>(_ text: S) -> [String] {
+        String(text).components(separatedBy: "  ")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
 
     /// Whether `word` is printed as a word of its own: "OCI", never the oci inside "Social".

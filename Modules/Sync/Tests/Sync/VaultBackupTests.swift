@@ -203,6 +203,20 @@ import Testing
         #expect(try await backup.read(made).get().entries == [Self.mortgage])
     }
 
+    /// A last backup dated ahead of now (a clock set ahead, then put right) does not hold the
+    /// weekly backup off for that long (the second review).
+    @Test func aLastBackupDatedAheadOfNowIsDue() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.mortgage])
+        let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
+        let backup = Self.backup(rig, folder: folder)
+        try backup.setPassphrase(Self.phrase)
+        rig.defaults.set(rig.clock.now.addingTimeInterval(365 * 86_400), forKey: VaultBackup.lastKey)
+        #expect(backup.isDue)
+        rig.defaults.set(rig.clock.now.addingTimeInterval(-86_400), forKey: VaultBackup.lastKey)
+        #expect(!backup.isDue, "a day ago is not due")
+    }
+
     /// VT114 (owner, 2026-11-26): "For every ID" loads the Vault with no proof; the weekly
     /// backup, every ID in it, waits for the first Touch ID, and is made then.
     @Test func underForEveryNumberTheWeeklyBackupWaitsForTouchID() async throws {
@@ -221,7 +235,9 @@ import Testing
         #expect(backup.lastBackup == nil)
 
         #expect(await model.copy(Self.mortgage.id))
-        await model.backUpIfDue()?.value
+        // Started by the proof itself (the second review: calling it here proved nothing).
+        let started = try #require(model.backingUp, "the first proof started no backup")
+        await started.value
         #expect(backup.lastBackup != nil, "made after the first proof")
     }
 

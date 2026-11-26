@@ -85,7 +85,7 @@ extension VaultModel {
     @discardableResult
     public func setRole(_ role: VaultNameRole, of name: String, for person: String) -> Int {
         let key = VaultReading.spellingKey(name)
-        guard !key.isEmpty, contents == .loaded else { return 0 }
+        guard !key.isEmpty, contents == .loaded, !refusedReadOnly() else { return 0 }
         var roles = nameRoles[person] ?? VaultNameRoles()
         var changed = 0
         switch role {
@@ -118,7 +118,7 @@ extension VaultModel {
 
     /// Takes back a Misread: IDs read with `name` show it as read again.
     public func undoMisread(_ name: String, for person: String? = nil) {
-        guard correction(of: VaultReading.spellingKey(name)) != nil else { return }
+        guard correction(of: VaultReading.spellingKey(name)) != nil, !refusedReadOnly() else { return }
         correctEverywhere(VaultReading.spellingKey(name), to: nil)
         readingChanged = true
         saveReading()

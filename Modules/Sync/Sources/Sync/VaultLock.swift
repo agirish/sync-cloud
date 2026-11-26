@@ -236,5 +236,13 @@ public protocol VaultAuthenticating: Sendable {
     /// Whether this Mac has Touch ID, asked without a prompt. Required: a proof that leaves it out
     /// must not pass for one with Touch ID set up.
     var touchID: VaultTouchID { get }
+    /// A digest of the fingerprints enrolled now, asked without a prompt; nil where it cannot be
+    /// told. A change since the last open is said, not refused (the owner, 2026-11-26): whoever
+    /// knows the Mac's password can add a fingerprint, which then opens the Vault.
+    func enrolledFingerprints() -> String?
+}
+
+extension VaultAuthenticating {
+    public func enrolledFingerprints() -> String? { nil }
 }
 

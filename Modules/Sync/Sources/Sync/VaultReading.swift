@@ -117,7 +117,7 @@ public enum VaultReading {
 
     /// Raised whenever a rule changes what is read, so the next Read Documents reads every file
     /// again rather than trusting what an older build made of it.
-    public static let version = 28
+    public static let version = 29
 
     /// Every number on a document, once each, and the numbers it only names.
     /// `roots` are the read folders and `people` the household's, for account numbers: which area
@@ -130,27 +130,31 @@ public enum VaultReading {
         let origins = origins.flatMap { $0.count == pages.count ? $0 : nil } ?? pages.indices.map { VaultPageOrigin(page: $0 + 1) }
         var out: [VaultFind] = []
         var seen = Set<String>()
-        // The page each number kept was first read on, by its index in `pages`.
-        var readOn: [String: Int] = [:]
+        // Each number kept, by the page of the file: the reading of `pages` that page first gave
+        // it from. Per page, so a page read both ways holds its layer over its picture wherever
+        // in the file the number was first read (the second review: only that first page did).
+        var readOn: [String: [Int: Int]] = [:]
         func keep(_ find: VaultFind, on page: Int) {
             let key = normalized(find.value)
+            let filePage = origins[page].page
             if seen.insert(key).inserted {
                 out.append(find)
-                readOn[key] = page
+                readOn[key] = [filePage: page]
             } else if let index = out.firstIndex(where: { normalized($0.value) == key }),
-                      let held = readOn[key], origins[held].page == origins[page].page,
+                      let held = readOn[key]?[filePage],
                       Set([origins[held].half, origins[page].half]) == [.textLayer, .picture] {
                 // One page's text layer and its picture: the layer speaks, as typed (VT88).
                 let heldIsLayer = origins[held].half == .textLayer
                 let both = heldIsLayer ? VaultCopies.filled(out[index], from: find) : VaultCopies.filled(find, from: out[index])
                 out[index] = VaultFind(id: out[index].id, title: both.title, value: both.value, note: both.note, facts: both.facts)
-                readOn[key] = heldIsLayer ? held : page
+                readOn[key]?[filePage] = heldIsLayer ? held : page
             } else if let index = out.firstIndex(where: { normalized($0.value) == key }),
                       let both = VaultCopies.merged([out[index], find]) {
                 // The same number on two pages of one file (a receipt notice, then its approval):
                 // the better page speaks, and what it is silent on comes from the other.
                 out[index] = VaultFind(id: out[index].id, title: both.title, value: out[index].value,
                                        note: both.note, facts: both.facts)
+                if readOn[key]?[filePage] == nil { readOn[key]?[filePage] = page }
             }
         }
         let file = PrintedPage(pages.flatMap { $0 })
@@ -199,7 +203,7 @@ public enum VaultReading {
         // The home the paper is mailed to and the phones it prints under a name in People, as of
         // the paper's date: read once for the file, and given to each number it holds. A
         // license's barcode keeps the address it states.
-        let printedContacts = contacts(in: pages, people: people)
+        let printedContacts = contacts(in: pages, people: people, origins: origins)
         if printedContacts != VaultPrintedContacts() {
             for index in out.indices {
                 let dated = out[index].facts.dated

@@ -159,7 +159,8 @@ struct VaultCard: View {
     /// the editor, Large Type, a document's preview), one ID shown under "For every ID", or a
     /// date of birth in People, which is drawn in full once one of that person's IDs may be
     /// (VT73).
-    private var exposesAnID: Bool { model.drawsAnIDInFull(layout: layout, editing: editing != nil) }
+    /// Large Type too: it draws its own row's number, whatever is chosen since (the second review).
+    private var exposesAnID: Bool { model.drawsAnIDInFull(layout: layout, editing: editing != nil) || largeType != nil }
 
 
     private enum Editing: Equatable {
@@ -412,6 +413,7 @@ struct VaultCard: View {
         .onChange(of: largeType) { _, now in if now == nil { focusSearch() } }
         // Choosing an ID puts it in the details pane in place of a contact.
         .onChange(of: model.selection) { _, id in if id != nil { contactChosen = nil } }
+        .onChange(of: contactChosen, initial: true) { _, id in model.showsAContact = id != nil }
         // A read in progress goes on: the model runs it, and lets the numbers go when it ends.
         .onDisappear {
             activity.stop()
@@ -1216,19 +1218,22 @@ struct VaultCard: View {
 
     /// A group's heading: its name, in its color, and how many rows it holds. A click folds its
     /// cards (⌥-click: every card); its menu folds, moves it, hides the headings, colors it.
-    private func cardGroupHeading(_ group: VaultCardGroup) -> some View {
-        let folded = model.isFolded(group: group.id)
+    private func cardGroupHeading(_ group: VaultCardGroup, folds: Bool = true) -> some View {
+        let folded = folds && model.isFolded(group: group.id)
         let tint = model.tab == .other ? nil : model.colors.tint(ofGroup: group.id)
         return Button {
+            guard folds else { return }
             withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) {
                 model.toggleFold(group: group.id, all: NSEvent.modifierFlags.contains(.option))
             }
         } label: {
             HStack(spacing: 7) {
-                Image(systemName: folded ? "chevron.right" : "chevron.down")
-                    .scaledFont(.caption2.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 10)
+                if folds {
+                    Image(systemName: folded ? "chevron.right" : "chevron.down")
+                        .scaledFont(.caption2.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 10)
+                }
                 Circle()
                     .fill(tint?.color ?? Color.secondary.opacity(0.5))
                     .frame(width: 8, height: 8)
@@ -1246,11 +1251,12 @@ struct VaultCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(folded ? "Expand this group. ⌥-click to expand every card. Right-click to move it."
-                     : "Collapse this group. ⌥-click to collapse every card. Right-click to move it.")
+        .help(!folds ? "Right-click to move it."
+              : folded ? "Expand this group. ⌥-click to expand every card. Right-click to move it."
+              : "Collapse this group. ⌥-click to collapse every card. Right-click to move it.")
         .accessibilityLabel("\(group.name), \(group.count)")
-        .accessibilityValue(folded ? "Collapsed" : "Expanded")
-        .contextMenu { cardGroupMenu(group, folded: folded) }
+        .accessibilityValue(!folds ? "" : folded ? "Collapsed" : "Expanded")
+        .contextMenu { cardGroupMenu(group, folded: folded, folds: folds) }
         .popover(isPresented: Self.isShown($groupColoring, at: group.id), arrowEdge: .bottom) {
             groupColorPopover(group)
                 .presentedNativeControlAccent()
@@ -1258,9 +1264,11 @@ struct VaultCard: View {
     }
 
     @ViewBuilder
-    private func cardGroupMenu(_ group: VaultCardGroup, folded: Bool) -> some View {
-        Button(folded ? "Expand Group" : "Collapse Group") {
-            withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { model.toggleFold(group: group.id) }
+    private func cardGroupMenu(_ group: VaultCardGroup, folded: Bool, folds: Bool = true) -> some View {
+        if folds {
+            Button(folded ? "Expand Group" : "Collapse Group") {
+                withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { model.toggleFold(group: group.id) }
+            }
         }
         if model.groups.order.contains(group.id) {
             Button("Move Up") { moveGroup(group.id, by: -1) }
@@ -1661,7 +1669,8 @@ struct VaultCard: View {
                     ForEach(drawn) { group in
                         // Each group's name over its kinds' while Show Group Headings is on.
                         if showsGroupHeadings {
-                            cardGroupHeading(group)
+                            // The list folds nothing: its headings name groups, with no fold (the second review).
+                            cardGroupHeading(group, folds: false)
                                 .padding(.horizontal, 4)
                                 .padding(.top, 10)
                         }
@@ -4040,6 +4049,9 @@ struct VaultCard: View {
                         .fontDesign(.monospaced)
                         .autocorrectionDisabled()
                         .focused($valueFocused)
+                        // Copy and Cut here go through the Vault's concealed, cleared copy.
+                        .onChange(of: valueFocused, initial: true) { _, focused in VaultPasteboard.editingNumber = focused }
+                        .onDisappear { VaultPasteboard.editingNumber = false }
                         // No number in it: a tooltip is a window of its own, which screen sharing sees.
                         .help(readValue.map { VaultReading.normalized($0) != VaultReading.normalized(draft.value) } == true
                               ? "The document reads this a little differently. Scans often mix up Z and 2, O and 0, I and 1, B and 8." : "")

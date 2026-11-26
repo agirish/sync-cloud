@@ -52,14 +52,34 @@ extension VaultReading {
         }
         for page in pages {
             var waiting: [String]?
+            var waitingLine: String?
             for line in page {
                 let tokens = line.split(whereSeparator: \.isWhitespace).map(String.init)
                 guard !tokens.isEmpty else { continue }
                 // A label alone on its line names the value that starts the next one.
                 if tokens.allSatisfy(isWord), tokens.count <= cardLabelWords, isLabelLine(tokens) {
                     waiting = tokens
+                    waitingLine = line
                     continue
                 }
+                // A header row of labels over a row of values, as many cells each ("Group No    Member ID"
+                // over "0012345    W123456789"): each label names the value in its own column, never
+                // all of them the first (the second review).
+                if let header = waitingLine.map(PrintedPage.cells), header.count > 1 {
+                    let row = PrintedPage.cells(line)
+                    if row.count == header.count {
+                        for (label, cell) in zip(header, row) {
+                            let parts = cell.split(whereSeparator: \.isWhitespace).map(String.init)
+                            if parts.count == 1, let value = valueToken(parts[0]), !isDateOrPhone(parts[0]) {
+                                keep(label.split(whereSeparator: \.isWhitespace).map(String.init), value)
+                            }
+                        }
+                        waiting = nil
+                        waitingLine = nil
+                        continue
+                    }
+                }
+                waitingLine = nil
                 var label: [String] = tokens.first.flatMap(valueToken) != nil ? (waiting ?? []) : []
                 waiting = nil
                 // After "Name:", the words that follow are its value, and the next label starts

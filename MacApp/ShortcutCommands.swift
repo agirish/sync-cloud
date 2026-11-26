@@ -2388,7 +2388,7 @@ struct CutCommand: View {
 
     var body: some View {
         Button("Cut") {
-            TextEditingChord.route(editorAction: { $0.cut(nil) },
+            TextEditingChord.route(editorAction: { if !VaultPasteboard.copyOrCut($0, cut: true) { $0.cut(nil) } },
                                    fileAction: { clipboard?.cut?() })
         }
         .keyboardShortcut(AppChord.cut.key, modifiers: AppChord.cut.modifiers)
@@ -2401,7 +2401,7 @@ struct CopyCommand: View {
     var body: some View {
         Button("Copy") {
             // A PDF's selected text, not the PDF: the reader's copy is the one ⌘C means there.
-            TextEditingChord.route(editorAction: { $0.copy(nil) },
+            TextEditingChord.route(editorAction: { if !VaultPasteboard.copyOrCut($0, cut: false) { $0.copy(nil) } },
                                    readerAction: { $0.copy(nil) },
                                    columnAction: { TextEditingChord.copyColumnSelection($0) },
                                    // Preview's selected words, then the file.
