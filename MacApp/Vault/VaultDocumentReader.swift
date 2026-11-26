@@ -231,10 +231,12 @@ struct VaultFolderReader: VaultDocumentReading {
     /// Counted together, because some scanners store a page as strips or tiles.
     static let scanPixels = 150_000
 
-    /// Whether the page draws pictures that could be a scan of it: its image objects, and those
-    /// inside the forms it draws, come to ``scanPixels`` or more. Where a picture sits on the
-    /// page, or whether it is drawn at all, is not looked at. A wrong yes, on a typed page, costs
-    /// a recognition (three at most: sharper, and in its ink alone); its picture is the page only
+    /// Whether the page draws pictures that could be a scan of it: the image objects its
+    /// resources name, those inside the forms it draws, those its content and its forms' draw
+    /// inline (`BI … EI`), and those its annotations draw as their appearance (a scanned stamp, a
+    /// pasted picture; VT88), come to ``scanPixels`` or more. Where a picture sits on the page, or
+    /// whether it is drawn at all, is not looked at. A wrong yes, on a typed page, costs a
+    /// recognition (three at most: sharper, and in its ink alone); its picture is the page only
     /// if the text gives no number and the picture one, and beside a full page that gives one
     /// only if it says more (VT88).
     static func drawsScan(_ page: PDFPage) -> Bool { scanSearch(page).found }
@@ -243,24 +245,28 @@ struct VaultFolderReader: VaultDocumentReading {
     /// once, however many forms share it, or a file whose forms all point back at the page's own
     /// resources would be walked again from every one of them.
     static func scanSearch(_ page: PDFPage) -> (found: Bool, opened: Int) {
-        guard var node = page.pageRef?.dictionary else { return (false, 0) }
+        guard let pageRef = page.pageRef, let dictionary = pageRef.dictionary else { return (false, 0) }
+        // The scanner reads the page's content with the resources it finds itself. A content
+        // stream, an operator table and a scanner are released by hand: none is a CF type.
+        let content = CGPDFContentStreamCreateWithPage(pageRef)
+        defer { CGPDFContentStreamRelease(content) }
+        let search = ScanSearch(page: content)
         // A page's resources are its own, or its parent's.
+        var node = dictionary, resources: CGPDFDictionaryRef?
         for _ in 0..<16 {
-            var resources: CGPDFDictionaryRef?
-            if CGPDFDictionaryGetDictionary(node, "Resources", &resources), let resources {
-                let search = ScanSearch()
-                search.look(in: resources, depth: 0)
-                return (search.pixels >= scanPixels, search.walked)
-            }
+            if CGPDFDictionaryGetDictionary(node, "Resources", &resources), resources != nil { break }
             var parent: CGPDFDictionaryRef?
-            guard CGPDFDictionaryGetDictionary(node, "Parent", &parent), let parent else { return (false, 0) }
+            guard CGPDFDictionaryGetDictionary(node, "Parent", &parent), let parent else { break }
             node = parent
         }
-        return (false, 0)
+        if let resources { search.look(in: resources, depth: 0) }
+        search.inline(in: content)
+        search.annotations(of: dictionary, resources: resources)
+        return (search.pixels >= scanPixels, search.walked)
     }
 
-    /// The pixels of every picture a page's resources hold, each picture and each dictionary
-    /// counted once. It stops as soon as there are enough.
+    /// The pixels of every picture a page draws, each picture and each dictionary counted once.
+    /// It stops as soon as there are enough.
     private final class ScanSearch {
         var pixels = 0
         /// How many dictionaries were walked, each time one was: more than there are means one
@@ -268,6 +274,15 @@ struct VaultFolderReader: VaultDocumentReading {
         var walked = 0
         private var opened = Set<CGPDFDictionaryRef>()
         private var counted = Set<CGPDFStreamRef>()
+        /// The page's content, which a form's is read inside.
+        private let page: CGPDFContentStreamRef
+
+        init(page: CGPDFContentStreamRef) { self.page = page }
+
+        /// Bounded, so a file claiming absurd sizes cannot overflow the sum.
+        func add(width: CGPDFInteger, height: CGPDFInteger) {
+            pixels += min(max(width, 0), 100_000) * min(max(height, 0), 100_000)
+        }
 
         func look(in resources: CGPDFDictionaryRef, depth: Int) {
             guard depth < 8, pixels < scanPixels, opened.insert(resources).inserted else { return }
@@ -285,18 +300,67 @@ struct VaultFolderReader: VaultDocumentReading {
                     var width: CGPDFInteger = 0, height: CGPDFInteger = 0
                     CGPDFDictionaryGetInteger(dictionary, "Width", &width)
                     CGPDFDictionaryGetInteger(dictionary, "Height", &height)
-                    // Bounded, so a file claiming absurd sizes cannot overflow the sum.
-                    self.pixels += min(max(width, 0), 100_000) * min(max(height, 0), 100_000)
+                    self.add(width: width, height: height)
                 case "Form":
-                    var inner: CGPDFDictionaryRef?
-                    if CGPDFDictionaryGetDictionary(dictionary, "Resources", &inner), let inner {
-                        self.look(in: inner, depth: depth + 1)
-                    }
+                    self.form(stream, outer: resources, depth: depth + 1)
                 default:
                     break
                 }
                 return self.pixels < scanPixels
             }, nil)
+        }
+
+        /// A form: the pictures its resources name, and those its content draws inline. A form
+        /// with no resources of its own draws with `outer`, as older files have it.
+        func form(_ stream: CGPDFStreamRef, outer: CGPDFDictionaryRef?, depth: Int) {
+            guard depth < 8, pixels < scanPixels, let dictionary = CGPDFStreamGetDictionary(stream) else { return }
+            var own: CGPDFDictionaryRef?
+            CGPDFDictionaryGetDictionary(dictionary, "Resources", &own)
+            if let own { look(in: own, depth: depth) }
+            // Its content is read once, however many names it goes by.
+            guard let resources = own ?? outer, counted.insert(stream).inserted else { return }
+            let content = CGPDFContentStreamCreateWithStream(stream, resources, page)
+            defer { CGPDFContentStreamRelease(content) }
+            inline(in: content)
+        }
+
+        /// The pictures `content` draws inline. The scanner hands each one over at its `EI`, its
+        /// size under the short names a content stream gives it or the long ones.
+        func inline(in content: CGPDFContentStreamRef) {
+            guard pixels < scanPixels, let table = CGPDFOperatorTableCreate() else { return }
+            defer { CGPDFOperatorTableRelease(table) }
+            CGPDFOperatorTableSetCallback(table, "EI") { scanner, info in
+                var image: CGPDFStreamRef?
+                guard let info, CGPDFScannerPopStream(scanner, &image), let image,
+                      let dictionary = CGPDFStreamGetDictionary(image) else { return }
+                var width: CGPDFInteger = 0, height: CGPDFInteger = 0
+                if !CGPDFDictionaryGetInteger(dictionary, "W", &width) { CGPDFDictionaryGetInteger(dictionary, "Width", &width) }
+                if !CGPDFDictionaryGetInteger(dictionary, "H", &height) { CGPDFDictionaryGetInteger(dictionary, "Height", &height) }
+                Unmanaged<ScanSearch>.fromOpaque(info).takeUnretainedValue().add(width: width, height: height)
+            }
+            let scanner = CGPDFScannerCreate(content, table, Unmanaged.passUnretained(self).toOpaque())
+            defer { CGPDFScannerRelease(scanner) }
+            CGPDFScannerScan(scanner)
+        }
+
+        /// What the page's annotations draw: each one's normal appearance, or, kept by state,
+        /// the state it shows.
+        func annotations(of page: CGPDFDictionaryRef, resources: CGPDFDictionaryRef?) {
+            var annotations: CGPDFArrayRef?
+            guard CGPDFDictionaryGetArray(page, "Annots", &annotations), let annotations else { return }
+            for index in 0..<CGPDFArrayGetCount(annotations) where pixels < scanPixels {
+                var annotation: CGPDFDictionaryRef?, appearances: CGPDFDictionaryRef?
+                guard CGPDFArrayGetDictionary(annotations, index, &annotation), let annotation,
+                      CGPDFDictionaryGetDictionary(annotation, "AP", &appearances), let appearances else { continue }
+                var normal: CGPDFStreamRef?, states: CGPDFDictionaryRef?, shown: UnsafePointer<CChar>?
+                if CGPDFDictionaryGetStream(appearances, "N", &normal), let normal {
+                    form(normal, outer: resources, depth: 0)
+                } else if CGPDFDictionaryGetDictionary(appearances, "N", &states), let states,
+                          CGPDFDictionaryGetName(annotation, "AS", &shown), let shown,
+                          CGPDFDictionaryGetStream(states, shown, &normal), let normal {
+                    form(normal, outer: resources, depth: 0)
+                }
+            }
         }
     }
 

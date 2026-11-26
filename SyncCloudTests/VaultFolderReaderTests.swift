@@ -189,6 +189,114 @@ import Vision
         #expect(search.opened == 1, "one dictionary, walked once however many forms name it")
     }
 
+    /// A content stream that draws an inline picture of `width` by `height` across the page's
+    /// upper half: `BI … ID … EI`, its pixels in the stream itself, which no resource names.
+    /// `pixels` false writes one byte for them, which is all a search needs.
+    static func inline(_ width: Int, _ height: Int, pixels: Bool = false) -> String {
+        let data = pixels ? String(repeating: "0", count: width * height) : "x"
+        return "q 612 0 0 392 0 300 cm BI /W \(width) /H \(height) /CS /G /BPC 8 ID \(data) EI Q"
+    }
+
+    /// A stream of `content`, for a page's contents.
+    static func contents(_ content: String) -> String {
+        "<< /Length \(content.utf8.count) >>\nstream\n\(content)\nendstream"
+    }
+
+    /// A form an annotation draws as its appearance: `content` with `resources`, across the
+    /// page's upper half.
+    static func appearance(_ content: String, resources: String = "<< >>") -> String {
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 612 392] /Resources \(resources) /Length \(content.utf8.count) >>"
+            + "\nstream\n\(content)\nendstream"
+    }
+
+    /// A dark gray picture of `width` by `height`, its pixels written out.
+    static func picture(_ width: Int, _ height: Int) -> String {
+        "<< /Type /XObject /Subtype /Image /Width \(width) /Height \(height) /ColorSpace /DeviceGray "
+            + "/BitsPerComponent 8 /Length \(width * height) >>\nstream\n\(String(repeating: "0", count: width * height))\nendstream"
+    }
+
+    /// VT88: a scan the page's content draws inline, or an annotation draws as its appearance (a
+    /// scanned stamp or a pasted picture), is the page's picture as much as one its resources name.
+    @Test func aScanDrawnInlineOrByAnAnnotationIsFound() throws {
+        let dir = FixtureDir()
+        func found(_ name: String, _ objects: [String]) throws -> Bool {
+            try Self.writeRawPDF(objects: objects, to: dir.path(name))
+            return VaultFolderReader.drawsScan(try Self.page(at: dir.path(name)))
+        }
+        // Inline in the page's own content, at the size that counts and a little under it.
+        func inlinePage(_ width: Int, _ height: Int) -> [String] {
+            ["<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << >> >>", Self.contents(Self.inline(width, height))]
+        }
+        #expect(try found("inline.pdf", inlinePage(500, 320)))
+        #expect(try !found("inline-logo.pdf", inlinePage(499, 300)))
+        // Inline in a form the page draws.
+        #expect(try found("inline-form.pdf", [
+            "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /XObject << /Fm1 5 0 R >> >> >>",
+            Self.contents("/Fm1 Do"),
+            Self.appearance("BI /W 1700 /H 1100 /CS /G /BPC 8 ID x EI")]))
+        // An annotation's appearance that names a picture, or draws one inline.
+        func annotated(_ appearance: [String]) -> [String] {
+            ["<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << >> /Annots [5 0 R] >>", Self.emptyPage,
+             "<< /Type /Annot /Subtype /Stamp /Rect [0 300 612 692] /AP << /N 6 0 R >> >>"] + appearance
+        }
+        #expect(try found("annotation.pdf", annotated([
+            Self.appearance("612 0 0 392 0 0 cm /Im1 Do", resources: "<< /XObject << /Im1 7 0 R >> >>"),
+            Self.image(1700, 1100)])))
+        #expect(try found("annotation-inline.pdf", annotated([Self.appearance("BI /W 1700 /H 1100 /CS /G /BPC 8 ID x EI")])))
+        #expect(try !found("annotation-logo.pdf", annotated([
+            Self.appearance("/Im1 Do", resources: "<< /XObject << /Im1 7 0 R >> >>"), Self.image(240, 80)])))
+        // An appearance kept by state is the state shown: a scan in a state not shown is not drawn.
+        func states(_ shown: String) -> [String] {
+            ["<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << >> /Annots [5 0 R] >>", Self.emptyPage,
+             "<< /Type /Annot /Subtype /Stamp /Rect [0 300 612 692] /AS /\(shown) /AP << /N << /On 6 0 R /Off 7 0 R >> >> >>",
+             Self.appearance("BI /W 1700 /H 1100 /CS /G /BPC 8 ID x EI"), Self.appearance("")]
+        }
+        #expect(try found("state-on.pdf", states("On")))
+        #expect(try !found("state-off.pdf", states("Off")))
+    }
+
+    /// The share of `image`'s pixels that are dark.
+    static func darkShare(of image: CGImage) throws -> Double {
+        let context = try #require(CGContext(
+            data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let bytes = try #require(context.data).bindMemory(to: UInt8.self, capacity: image.width * image.height * 4)
+        let dark = (0..<(image.width * image.height)).count(where: { bytes[$0 * 4] < 128 })
+        return Double(dark) / Double(image.width * image.height)
+    }
+
+    /// Through the reader: a stamped page whose scan is drawn inline, or by an annotation, is read
+    /// from its picture, and the render Vision reads draws it. Vision is stood in for by a reading
+    /// given only when the render shows the scan, so this runs anywhere.
+    @Test func aStampedScanDrawnInlineOrByAnAnnotationIsReadFromItsPicture() async throws {
+        let dir = FixtureDir()
+        let font = "/Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >>"
+        let text = "BT /F1 9 Tf 36 770 Td (\(Self.stamp)) Tj ET"
+        let files: [(String, [String])] = [
+            ("inline.pdf", ["<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << \(font) >> >>",
+                            Self.contents(text + " " + Self.inline(500, 320, pixels: true))]),
+            ("annotation.pdf", ["<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << \(font) >> /Annots [5 0 R] >>",
+                                Self.contents(text), "<< /Type /Annot /Subtype /Stamp /Rect [0 300 612 692] /AP << /N 6 0 R >> >>",
+                                Self.appearance("612 0 0 392 0 0 cm /Im1 Do", resources: "<< /XObject << /Im1 7 0 R >> >>"),
+                                Self.picture(500, 320)]),
+        ]
+        for (name, objects) in files {
+            let path = dir.path(name)
+            try Self.writeRawPDF(objects: objects, to: path)
+            // The fixture must be what it claims: the stamp is the whole layer, and more than a
+            // few letters.
+            let layer = try Self.page(at: path).string ?? ""
+            #expect(layer.contains("DocuSign") && layer.filter { !$0.isWhitespace }.count > VaultPageSource.leastText,
+                    "\(name): the layer is the stamp")
+            var reader = VaultFolderReader(folders: [dir.url.path])
+            reader.vision = { image, _ in (try? Self.darkShare(of: image)).map { $0 > 0.3 } == true ? Self.passport : [] }
+            let pages = await reader.pages(in: URL(fileURLWithPath: path))
+            let finds = VaultReading.read(pages: pages, from: path, under: [dir.url.path]).finds
+            #expect(finds.map(\.value) == ["L898902C3"], "\(name): \(pages.count) page(s)")
+        }
+    }
+
     // MARK: When Vision refuses
 
     /// Vision's Neural Engine refuses every text request for minutes at a time (twice in half an

@@ -58,7 +58,6 @@ Each changes what the user sees, gets or is asked.
 
   | ID | Misread |
   |---|---|
-  | VT88 | A typed page trusted over a fuller scan; the picture's words over a typed name; a both-ways page's sources; inline-image scans unseen; ink-only at 2400 px. (The slashed zero: batch 45.) |
   | VT90 | Any page mentioning an e-PAN is ranked as the PAN card. |
   | VT91 | An Indian school's 14- or 16-digit "Enrolment No". |
   | VT92 | A checklist's "Social Security card" above a number; a scan-broken form number (`Form W 4`). |
@@ -93,6 +92,7 @@ Each changes what the user sees, gets or is asked.
 | VT88 (ink alone) | By the owner's call, the ink-only reading of a scan on colored paper takes the render the first reading needed (4000 pixels where 2400 lost its small type). Version 27, with batches 47–53, checked together on the owner's papers | batch 46 |
 | VT88 (typed over a scan) | By the owner's call, a full typed page that draws a scan is read from its picture too: the typed text stays the page, the picture kept beside it where it says more. On the owner's papers: nine account numbers read from the scans under typed bills, one of them the same in six | batch 47 |
 | VT88 (both ways) | By the owner's call, where a page's typed layer and picture read one number alike the typed reading speaks and the picture lends what it lacks; each reading carries the page it came from, so a page kept both ways is one page | batch 48 |
+| VT88 (inline and annotations) | By the owner's call, a scan drawn inline (BI … EI) or as an annotation's shown appearance counts as the page's scan, so its picture is read | batch 49 |
 | VT88 (slashed zero) | By the owner's call, a "Ø" beside a digit is a zero except the diameter sign (a lone Ø, at a line's start or after a space or bracket, before one to three digits and a unit: "Ø12 mm" read as 012); a size with no unit is a zero, as a date's last part needs, and a typed text layer's slashed zeros are put back too, as Vision's always were. Version 26. On the owner's papers: no find changed | batch 45 |
 | VT53 | By the owner's call, an account number read as Other (a cover sheet's "Account Number") and as one account kind elsewhere (its next page's "Loan Number") is that kind, in one file or across files; the reading that speaks keeps who issued it, so the title is its issuer and the kind's name, and two kinds that disagree, or an identity kind, change nothing. Version 25. On the owner's papers: the mortgage's cover sheet now reads as Loans, nothing else changed | batch 44 |
 | VT47 | By the owner's call, a zone's accented letter ("Ž" for Z) is read as its letter, and a character of the number that stays unreadable leaves no reading, since a digit and every letter worth ten, twenty or thirty more pass its check alike (5, F, P, Z): it was filled with the digit. A visa's foil may still print the number. Version 24. On the owner's papers (1,356 files): no zone changed | batch 43 |
