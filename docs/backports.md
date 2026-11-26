@@ -16307,6 +16307,7 @@ Batch 43: an accented zone letter is read as the letter; an unreadable character
 is no longer filled with a digit (VT47).
 Batch 44: an account number read as Other and as one account kind elsewhere is that kind (VT53).
 Batch 45: a slashed zero beside a digit is a zero, but not a diameter sign, typed layers too (VT88).
+Batch 46: the ink-only reading takes the render size the first reading needed (VT88).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

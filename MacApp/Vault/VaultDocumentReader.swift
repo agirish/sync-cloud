@@ -144,7 +144,7 @@ struct VaultFolderReader: VaultDocumentReading {
                 guard let image = CGImageSourceCreateImageAtIndex(source, index, nil) else { unread += 1; continue }
                 let picture = VaultPageSource.Picture(isScan: { true }, read: { sharper in sharper ? nil : recognise(image) },
                                                       barcodes: { decodeBarcodes(image) },
-                                                      inkOnly: { inkOnly(image).flatMap(recognise) })
+                                                      inkOnly: { _ in inkOnly(image).flatMap(recognise) })
                 guard let page = VaultPageSource.noted(picture, from: file.path, under: folders) else { unread += 1; continue }
                 pages.append(page.lines)
                 notes = notes + page.notes
@@ -199,7 +199,9 @@ struct VaultFolderReader: VaultDocumentReading {
                     isScan: { lane { drawsScan(page) } },
                     read: { sharper in renders.read(longSide: sharper ? largestRender : readRender, recognise) },
                     barcodes: { renders.image(longSide: largestRender).map(decodeBarcodes) ?? [] },
-                    inkOnly: { renders.image(longSide: readRender).flatMap(inkOnly).flatMap(recognise) })
+                    inkOnly: { sharper in
+                        renders.image(longSide: sharper ? largestRender : readRender).flatMap(inkOnly).flatMap(recognise)
+                    })
                 let textLayer = lane { page.string ?? "" }
                 guard let reading = VaultPageSource.reading(textLayer: textLayer, from: file.path, under: folders,
                                                             picture: picture) else {

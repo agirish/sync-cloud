@@ -14,7 +14,7 @@ import Testing
 
     static func picture(reads: [String]?, inkOnly: [String]?) -> VaultPageSource.Picture {
         VaultPageSource.Picture(isScan: { true }, read: { sharper in sharper ? nil : reads }, barcodes: { [] },
-                                inkOnly: { inkOnly })
+                                inkOnly: { _ in inkOnly })
     }
 
     @Test func theInkAloneIsTakenWhenItKeepsTheNumberAndReadsTheNameTrue() throws {
@@ -29,10 +29,27 @@ import Testing
         #expect(lines == Self.patterned)
     }
 
+    /// VT88: a page that read only from the sharper render is read in its ink alone from that
+    /// render too; from the usual one, its small type ran together again.
+    @Test func theInkAloneIsReadAtTheSizeTheFirstReadingNeeded() throws {
+        let back = ["Issued as a license to drive", "Endorsements NONE", "Restrictions NONE"]
+        var asked: [Bool] = []
+        let sharp = VaultPageSource.Picture(isScan: { true }, read: { sharper in sharper ? back + ["ANSI 636000"] : back },
+                                            barcodes: { [] }, inkOnly: { sharper in asked.append(sharper); return nil })
+        _ = VaultPageSource.seen(sharp, from: Self.path)
+        #expect(asked == [true])
+        asked = []
+        _ = VaultPageSource.seen(Self.picture(reads: Self.patterned, inkOnly: nil), from: Self.path)
+        let plain = VaultPageSource.Picture(isScan: { true }, read: { _ in Self.patterned }, barcodes: { [] },
+                                            inkOnly: { sharper in asked.append(sharper); return nil })
+        _ = VaultPageSource.seen(plain, from: Self.path)
+        #expect(asked == [false])
+    }
+
     @Test func aPageNotOnColoredPaperIsReadOnce() throws {
         var inkAsked = false
         let picture = VaultPageSource.Picture(isScan: { true }, read: { _ in Self.patterned }, barcodes: { [] },
-                                              inkOnly: { inkAsked = true; return nil })
+                                              inkOnly: { _ in inkAsked = true; return nil })
         #expect(VaultPageSource.seen(picture, from: Self.path) == Self.patterned)
         #expect(inkAsked, "asked, and the app answers nil for a page that is not colored")
     }

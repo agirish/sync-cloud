@@ -28,11 +28,13 @@ public enum VaultPageSource {
         /// Vision's lines from the picture with everything but dark, grey ink turned white, for a
         /// scan on colored security paper; nil for any other, which is never read this way. A
         /// Social Security card's red pattern runs through its type, and Vision reads the
-        /// pattern's strokes as letters: DANI's I, crossed by red, comes out a T.
-        public var inkOnly: () -> [String]?
+        /// pattern's strokes as letters: DANI's I, crossed by red, comes out a T. From the sharper
+        /// render when `sharper`, as the first reading needed (VT88): read at 2400 pixels, a card
+        /// that only read at 4000 lost its number again.
+        public var inkOnly: (_ sharper: Bool) -> [String]?
 
         public init(isScan: @escaping () -> Bool, read: @escaping (_ sharper: Bool) -> [String]?,
-                    barcodes: @escaping () -> [String], inkOnly: @escaping () -> [String]? = { nil }) {
+                    barcodes: @escaping () -> [String], inkOnly: @escaping (_ sharper: Bool) -> [String]? = { _ in nil }) {
             self.isScan = isScan
             self.read = read
             self.barcodes = barcodes
@@ -198,7 +200,7 @@ public enum VaultPageSource {
         }
         var read: (finds: [VaultFind], mentions: [VaultMention])?
         var inkTaken = false
-        if let ink = picture.inkOnly().map({ $0.map(zeroed) }) {
+        if let ink = picture.inkOnly(sharper).map({ $0.map(zeroed) }) {
             let first = VaultReading.read(pages: [lines], from: path, under: roots)
             let inked = VaultReading.read(pages: [ink], from: path, under: roots)
             let taken = keepsEverything(first.finds, inked.finds)

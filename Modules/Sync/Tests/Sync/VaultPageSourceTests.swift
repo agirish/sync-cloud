@@ -154,7 +154,7 @@ import Testing
         // the first reading had, and is taken; left as read, it would be another number.
         let plain = ["Control Number", "20241234560001"] + foil
         let ink = ["Control Number", "2024123456ØØØ1", "read in its ink alone"] + foil
-        let inked = VaultPageSource.Picture(isScan: { true }, read: { _ in plain }, barcodes: { [] }, inkOnly: { ink })
+        let inked = VaultPageSource.Picture(isScan: { true }, read: { _ in plain }, barcodes: { [] }, inkOnly: { _ in ink })
         #expect(VaultPageSource.seen(inked, from: Self.path) == ["Control Number", "20241234560001", "read in its ink alone"] + foil)
     }
 
@@ -173,7 +173,7 @@ import Testing
         let foil = VaultReadingTests.zone("V", number: "H1234567", born: "740812", expires: "290930", country: "USA")
         let plain = ["Control Number", "20241234560001"] + foil
         let ink = ["Control Number", "20241234560001", "read in its ink alone"] + foil
-        let inked = VaultPageSource.Picture(isScan: { true }, read: { _ in plain }, barcodes: { [] }, inkOnly: { ink })
+        let inked = VaultPageSource.Picture(isScan: { true }, read: { _ in plain }, barcodes: { [] }, inkOnly: { _ in ink })
         notes = VaultPageSource.noted(inked, from: Self.path)?.notes
         #expect(notes?.inkOnly == 1 && notes?.fromPicture == 1)
         // A full typed page: nothing of the picture.
