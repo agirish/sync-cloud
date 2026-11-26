@@ -75,12 +75,20 @@ public struct SettingsWriter {
         let outcome = apply(id, value, target: target)
         switch outcome {
         case .done:
-            let label = SettingsCatalog.entry(id)?.label ?? id
-            Logger.shared.info("Settings: \(label) set to \(value) \(cause.words)")
+            Logger.shared.info(Self.doneLine(id, value, cause: cause))
         case .refused(let why):
             Logger.shared.info("Settings: \(SettingsCatalog.entry(id)?.label ?? id) not changed \(cause.words) — \(why)")
         }
         return outcome
+    }
+
+    /// The log line for a change, with its value only when the setting's privacy allows it, as
+    /// the Settings window's own line (`SettingsWindowLog.logLine`): a source's path, which may be
+    /// a folder hidden from Claude, is not written into a log that Copy Log for Sharing sends on.
+    static func doneLine(_ id: String, _ value: SettingValue, cause: Cause) -> String {
+        guard let entry = SettingsCatalog.entry(id) else { return "Settings: \(id) set \(cause.words)" }
+        guard entry.privacy == .plain else { return "Settings: \(entry.label) changed \(cause.words)" }
+        return "Settings: \(entry.label) set to \(SettingsLookup.label(value, entry)) \(cause.words)"
     }
 
     private func apply(_ id: String, _ value: SettingValue, target: String?) -> Outcome {

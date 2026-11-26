@@ -89,9 +89,9 @@ struct CloudKeyRow: View {
     /// What Remove asks.
     static let removePrompt = (
         messageText: "Remove the API key?",
-        informativeText: "This deletes your Anthropic API key from the Keychain. Refine can’t use "
-            + "Claude until you add a key again, and this can’t be undone. The Claude Console "
-            + "can issue a new key.",
+        informativeText: "This deletes your Anthropic API key from the Keychain. Ask Claude, Refine, "
+            + "Try Another and Refine Names stop working until you add a key again, and this can’t be "
+            + "undone. The Claude Console can issue a new key.",
         confirmTitle: "Remove Key")
 
     /// The standard alert: Cancel is the default, and the destructive button takes no Return key.
@@ -186,7 +186,7 @@ struct CloudKeyRow: View {
     @ViewBuilder private var storedKeyActions: some View {
         if state.offersCopy {
             Button("Copy", action: copyRevealedKey)
-                .help("Copy the key. The pasteboard is cleared again after a minute.")
+                .help("Copies the key. The clipboard is cleared again after a minute.")
         }
         testButton
         Button("Replace…") {
@@ -195,12 +195,12 @@ struct CloudKeyRow: View {
             apiKeyField = ""
             keyTestResult = nil
         }
-        .help("Enter a new key. The one stored now is replaced when you save.")
+        .help("Opens a field for a new key. The one stored now is replaced when you save.")
         if state.offersRemove {
-            Button("Remove") {
+            Button("Remove…", role: .destructive) {
                 Self.removeIfConfirmed(confirm: confirmRemoveKey, remove: removeKey)
             }
-            .help("Delete the key from your Keychain. Asks first.")
+            .help("Deletes the key from your Keychain. Asks first.")
         }
         if state.showsSecret { Spacer(minLength: 0) }
     }
@@ -263,7 +263,9 @@ struct CloudKeyRow: View {
     }
 
     private var canSave: Bool {
-        !apiKeyField.trimmingCharacters(in: .whitespaces).isEmpty
+        // What the Keychain store trims, newlines too: a field holding only a newline would save
+        // nothing, and the store deletes a key saved as nothing, past Remove's question.
+        !apiKeyField.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     @ViewBuilder private var keyStatusLine: some View {
@@ -272,7 +274,7 @@ struct CloudKeyRow: View {
         } else if let keyTestResult {
             switch keyTestResult {
             case .valid:
-                Label("Key works — you’re set.", systemImage: "checkmark.circle.fill").scaledFont(.subheadline).foregroundStyle(.green)
+                Label("Key works. You’re set.", systemImage: "checkmark.circle.fill").scaledFont(.subheadline).foregroundStyle(.green)
             case .invalid(let message):
                 Label(message, systemImage: "xmark.octagon.fill").scaledFont(.subheadline).foregroundStyle(.red)
             case .failed(let message):
@@ -287,7 +289,7 @@ struct CloudKeyRow: View {
         } else if hasStoredKey {
             Label("Key saved to Keychain.", systemImage: "checkmark.circle").scaledFont(.subheadline).foregroundStyle(.secondary)
         } else {
-            Text("No key yet — cloud suggestions fall back to the on-device model until you add one.")
+            Text("No key yet. Ask Claude, Refine, Try Another and Refine Names need one; until then Organize suggests on this Mac.")
                 .scaledFont(.subheadline).foregroundStyle(.secondary)
         }
     }

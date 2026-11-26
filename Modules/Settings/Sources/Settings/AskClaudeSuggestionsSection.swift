@@ -8,7 +8,7 @@ public struct AskClaudeSuggestionsSection: View {
     @AppStorage(AskClaudeSuggestions.enabledKey) private var enabled = true
     @AppStorage(AskClaudeSuggestions.memoryKey) private var memoryData = Data()
 
-    static let caption = "A chip above Ask Claude’s text box when there’s something it could help with, such as new files in Downloads. Worked out on this Mac; nothing is sent to Claude until you click one."
+    static let caption = "Chips for things Claude could help with, like new files in Downloads. Nothing is sent until you click one."
 
     public init() {}
 

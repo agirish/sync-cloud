@@ -62,7 +62,11 @@ public enum SettingsResetKeeps {
         "paneBarArrangementMigration",          // PaneBar.migrationKey
     ]
 
+    /// Every Vault key starts with this (`VaultLockSettings.askKey`, `VaultBackup.folderKey`, …).
+    public static let vaultKeyPrefix = "vault"
+
     public static func keeps(_ key: String) -> Bool {
         keys.contains(key) || key.hasPrefix(AskClaudeSpend.monthKeyPrefix) || key.hasPrefix(AskClaudeSpend.organizeKeyPrefix)
+            || key.hasPrefix(vaultKeyPrefix)
     }
 }

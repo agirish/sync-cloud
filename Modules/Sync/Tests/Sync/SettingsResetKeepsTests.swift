@@ -29,6 +29,25 @@ import Testing
         defaults.set(try JSONEncoder().encode(entry), forKey: FilingSpendStore.lastKey)
     }
 
+    /// The whole Vault survives Reset All: what is made by hand there (groups, colors, kinds, the
+    /// IDs set aside), where its papers and backups are, and its lock, which only Settings ▸ Vault
+    /// loosens, after Touch ID. Each key by its owner's constant, so a renamed key still counts.
+    @MainActor @Test func everyVaultKeyIsKept() {
+        let vaultKeys = [
+            VaultLockSettings.askKey, VaultLockSettings.relockKey,
+            VaultSharingSettings.clipboardSecondsKey, VaultSharingSettings.hidesFromCaptureKey,
+            VaultActivitySettings.keepsKey, VaultRefresh.automaticKey,
+            VaultBackup.folderKey, VaultBackup.lastKey, VaultBackup.weeklyKey,
+            VaultGroups.namesKey, VaultGroups.membersKey, VaultGroups.orderKey,
+            VaultColors.cardsKey, VaultColors.groupsKey, VaultReadFolders.key,
+        ] + VaultMigration.movedKeys
+        for key in vaultKeys {
+            #expect(SettingsResetKeeps.keeps(key), "Reset All would remove the Vault's \(key)")
+        }
+        // The prefix keeps nothing else: an ordinary setting still resets.
+        #expect(!SettingsResetKeeps.keeps("dateToleranceSeconds"))
+    }
+
     @Test func everyKeyTheSpendRecordsWriteIsKept() throws {
         let (defaults, name) = suite()
         AskClaudeSpend.record(0.40, in: defaults, now: Date(timeIntervalSince1970: 1_790_000_000))

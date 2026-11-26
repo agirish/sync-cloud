@@ -50,10 +50,21 @@ import EventsTestSupport
         let lines = await log.entries.map(\.message).filter { $0.hasPrefix("Settings: ") }
         #expect(lines.contains { $0.contains("by Revert in Activity") }, "\(lines)")
         // His own click on a card is his doing, not Claude's.
-        #expect(lines.contains { $0.contains("set to \(SettingValue.string(AppearanceMode.light.rawValue)) by a click on an Ask Claude card") },
-                "\(lines)")
+        let theme = SettingsCatalog.entry("appearance.theme")!
+        let light = SettingsLookup.label(.string(AppearanceMode.light.rawValue), theme)
+        #expect(lines.contains { $0.contains("set to \(light) by a click on an Ask Claude card") }, "\(lines)")
         #expect(lines.contains { $0.contains("not changed by Undo or Redo of an Ask Claude change") && $0.contains("purple-\(name)") },
                 "\(lines)")
+    }
+
+    /// A setting that isn't plain keeps its value out of the log, as the Settings window's own
+    /// line does: a source's Open at may be a folder hidden from Claude, and the log can be shared.
+    @Test func aPrivateValueStaysOutOfTheLogLine() throws {
+        let openAt = try #require(SettingsCatalog.entry("sources.openAt"))
+        #expect(openAt.privacy != .plain)
+        let line = SettingsWriter.doneLine("sources.openAt", .string("Medical/Records"), cause: .card)
+        #expect(!line.contains("Medical"), "\(line)")
+        #expect(line.contains("\(openAt.label) changed by a click on an Ask Claude card"), "\(line)")
     }
 
     private func scratch(_ test: String = #function) -> ScratchDefaults {

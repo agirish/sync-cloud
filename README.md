@@ -176,15 +176,15 @@ for: a passport number, a member ID, a loan number.
   out, grouped as its card prints it, with its details under it. A copy clears from the clipboard
   after a minute.
 - **Locks itself** when it closes, after a minute with nothing done in it, and when the Mac
-  sleeps. **Settings ▸ Vault** changes when it asks; the lock is always on, and a Mac without
+  sleeps. **Settings ▸ Vault ▸ Lock** changes when it asks; the lock is always on, and a Mac without
   Touch ID set up can't use the Vault.
 - **Cards by kind**: Passports, US Visas, I-94 Records, USCIS Cases, Driver's Licenses, Social
   Security & ITIN, PAN Cards, Aadhaar, Voter IDs, Health & Medical, Utilities & Phone, Loans &
   Mortgage, or one list. Each detail beside an ID (an expiry, a validity's start and end) has its
   own Copy; dates copy as MM/DD/YYYY.
-- **Activity** (Settings ▸ Vault): a sealed list of what was unlocked, shown, copied and changed,
+- **Activity** (Settings ▸ Vault ▸ Lock): a sealed list of what was unlocked, shown, copied and changed,
   and each proof refused, by ID name and never by number.
-- **Backup and restore** (Settings ▸ Vault): a passphrase-sealed backup of every saved ID, by hand
+- **Backup and restore** (Settings ▸ Vault ▸ Backup): a passphrase-sealed backup of every saved ID, by hand
   or weekly, that opens on another Mac. Restoring adds what is missing or replaces the Vault, which
   is set aside first and never deleted. A Vault this Mac can't open offers both ways on.
 - **People** (beside Cards and List) groups the same IDs by person: each section opens with the

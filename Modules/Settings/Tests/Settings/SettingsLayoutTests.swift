@@ -505,8 +505,8 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
         let measured = tabListHeight(at: 1)
         let rows = CGFloat(SettingsView.SettingsTab.allCases.count)
 
-        // A row is a `.callout` line (13pt) plus 7pt of inset above and below plus the 2pt gap,
-        // ~30pt at least. Much less means the rows aren't being laid out as rows.
+        // A row is a `.callout` line (12pt type, about 15pt tall) plus 7pt of inset above and
+        // below plus the 2pt gap, about 31pt. Much less means the rows aren't being laid out as rows.
         #expect(measured >= rows * 30,
                 "the tab list lays out at \(measured)pt for \(Int(rows)) tabs — its rows are not being measured.")
     }

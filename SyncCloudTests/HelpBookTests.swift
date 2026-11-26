@@ -545,11 +545,9 @@ import Testing
                     // "Settings ▸ Vault ▸ Read": the second arrow names a page of a Settings tab,
                     // not a menu. Held to that tab's pages instead. Prefix, as below: the extractor
                     // stops at "&", so "Key & Spending" arrives as "Key".
-                    if text.contains("Settings ▸ \(menuName) ▸ \(itemName)") {
-                        let tab = SettingsView.SettingsTab.allCases.first { $0.displayName == menuName }
-                        let pages = (tab?.subTabs ?? []).map(\.displayName)
+                    if let pages = Self.settingsPages(for: menuName, itemName, in: text) {
                         #expect(pages.contains { $0.hasPrefix(itemName) },
-                                "“\(topic.title)” sends the user to Settings ▸ \(menuName) ▸ \(itemName), which is not one of its pages: \(pages)")
+                                "“\(topic.title)” sends the user to Settings ▸ … \(menuName) ▸ \(itemName), which is not one of its pages: \(pages)")
                         continue
                     }
                     checked += 1
@@ -589,6 +587,15 @@ import Testing
         }
     }
 
+    /// For a pair the menu scan read from "Settings ▸ <Tab> ▸ <Page>", the tab's pages; nil when
+    /// the pair is not one. The scan keeps only the word before an arrow, so a tab named in two
+    /// words ("Ask Claude") is matched by its last.
+    static func settingsPages(for menu: String, _ item: String, in text: String) -> [String]? {
+        SettingsView.SettingsTab.allCases
+            .first { $0.displayName.hasSuffix(menu) && text.contains("Settings ▸ \($0.displayName) ▸ \(item)") }
+            .map { $0.subTabs.map(\.displayName) }
+    }
+
     /// The positive control: a real path is extracted and matched, and a plausible wrong one is
     /// caught. Organize's sections must not be back in View.
     @MainActor
@@ -601,6 +608,14 @@ import Testing
                     .map(\.menu) == ["Settings"])
         #expect(Self.menuDestinations(in: "“Settings ▸ Sources is where SyncCloud lists them.")
                     .map(\.menu) == ["Settings"])
+        // A Settings page path, a two-word tab's included, is held to that tab's pages.
+        let good = "Turn it off in Settings ▸ Ask Claude ▸ Privacy."
+        let pair = try #require(Self.menuDestinations(in: good).last)
+        #expect(Self.settingsPages(for: pair.menu, pair.item, in: good)?.contains("Privacy") == true)
+        let bad = "Turn it off in Settings ▸ Vault ▸ Lockbox."
+        let badPair = try #require(Self.menuDestinations(in: bad).last)
+        let pages = try #require(Self.settingsPages(for: badPair.menu, badPair.item, in: bad))
+        #expect(!pages.contains { $0.hasPrefix(badPair.item) }, "a page that isn't one passed: \(pages)")
         let mainMenu = try #require(NSApp.mainMenu)
         let view = try #require(mainMenu.items.first { $0.title == "View" }?.submenu)
         #expect(!view.items.contains { $0.title.hasPrefix("Restructure") },

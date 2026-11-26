@@ -411,14 +411,10 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         return nil
     }
 
-    /// The name Settings gives what `show_in_app` was asked to open: a tab by its raw value or
-    /// name ("intelligence" is Ask Claude), else the page holding a named setting, else the words.
+    /// The name Settings gives what `show_in_app` was asked to open, by the opener's own resolver
+    /// (`SettingsPlace.named`), else the words.
     static func settingsPlaceName(_ asked: String) -> String {
-        let wanted = asked.lowercased()
-        if let tab = SettingsView.SettingsTab.allCases.first(where: { $0.rawValue == wanted || $0.displayName.lowercased() == wanted }) {
-            return tab.displayName
-        }
-        return SettingsPlace.holding(asked)?.name ?? asked.capitalized
+        SettingsPlace.named(asked)?.name ?? asked.capitalized
     }
 
     /// Tools that act on the Browse pane itself.

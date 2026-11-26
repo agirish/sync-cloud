@@ -281,8 +281,8 @@ import Testing
                     == "Clear \(4_000.formatted()) saved suggestions?")
         #expect(RemovalPrompt.clearIgnoredItems(count: 3).confirmTitle == "Clear All")
 
-        #expect(RemovalPrompt.clearKeptNames(count: 2).messageText == "Stop keeping all 2 names?")
-        #expect(RemovalPrompt.clearKeptNames(count: 1).messageText == "Stop keeping 1 name?")
+        #expect(RemovalPrompt.clearKeptNames(count: 2).messageText == "Stop allowing all 2 names?")
+        #expect(RemovalPrompt.clearKeptNames(count: 1).messageText == "Stop allowing 1 name?")
         #expect(RemovalPrompt.clearKeptNames(count: 2).informativeText.contains("No file is renamed"))
         // Withdrawing a keep brings the badge back at once but Organize's row only with a scan.
         #expect(RemovalPrompt.clearKeptNames(count: 2).informativeText.contains("in Organize from the next scan"))

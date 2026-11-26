@@ -207,6 +207,16 @@ import Testing
         #expect(!PersonEditor.canSave(displayName: "   "))
     }
 
+    /// Two people can't share a first name: their folders would be one folder. The person being
+    /// edited may keep their own.
+    @Test func aFirstNameAlreadyHereIsRefused() {
+        let roster = [Person(id: "daughter", displayName: "Daughter"), Person(id: "son", displayName: "Son")]
+        #expect(PersonEditor.nameTaken("daughter ", besides: "", in: roster)?.id == "daughter")
+        #expect(PersonEditor.nameTaken("Daughter", besides: "daughter", in: roster) == nil)
+        #expect(PersonEditor.nameTaken("Niece", besides: "", in: roster) == nil)
+        #expect(PersonEditor.nameTaken("  ", besides: "", in: roster) == nil)
+    }
+
     /// A name typed but not yet added with ⏎ must not vanish on Save, the likeliest way to lose an
     /// edit in this sheet; the editor folds the pending field in. Tested through `folding`, because
     /// `@State` has no storage outside a rendered view and a test setting it would read back the

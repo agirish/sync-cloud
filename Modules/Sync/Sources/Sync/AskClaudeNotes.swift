@@ -152,12 +152,22 @@ public struct AskClaudeNotes {
         return store(tidy.isEmpty ? "" : tidy + "\n", records: records)
     }
 
-    /// Clear Notes…: the file and every line's record go. Final.
-    public func clear() {
-        try? FileManager.default.removeItem(at: fileURL)
+    /// Clear Notes…: the file and every line's record go. Final. False when the file is still
+    /// there (it couldn't be removed): the records stay with it, and nothing says cleared.
+    @discardableResult
+    public func clear() -> Bool {
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+        } catch CocoaError.fileNoSuchFile {
+            // Nothing written yet: already clear.
+        } catch {
+            Logger.shared.warning("Notes for Claude couldn't be cleared: \(error.localizedDescription)")
+            return false
+        }
         defaults.removeObject(forKey: Self.originsKey)
         NotificationCenter.default.post(name: Self.didChange, object: nil)
         Logger.shared.info("Notes for Claude cleared")
+        return true
     }
 
     // MARK: Claude's edits

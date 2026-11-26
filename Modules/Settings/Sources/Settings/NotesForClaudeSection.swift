@@ -15,10 +15,15 @@ public struct NotesForClaudeSection: View {
     @State private var draft: String?
     /// The file as it was at Edit…, so Save can tell whether it changed underneath the draft.
     @State private var base = ""
+    /// What went wrong with the last Save or Clear, said under the notes; nil when nothing did.
+    @State private var problem: String?
+    /// An unsaved edit, kept for the session while the page is gone: switching to Privacy, or
+    /// closing Settings, would otherwise drop a half-rewritten note without a word.
+    @MainActor private static var unsaved: (draft: String, base: String)?
     /// Built here for tests; the app's own.
     var store = AskClaudeNotes()
 
-    static let caption = "Claude keeps these about you across chats, and adds what it learns, with Undo in the chat. They’re your preferences: they never let Claude do more than it already may. Reset All Settings keeps them."
+    static let caption = "What Claude remembers about you across chats; Undo in the chat takes back an addition. Notes never widen what Claude may do."
 
     public init() {}
 
@@ -32,7 +37,11 @@ public struct NotesForClaudeSection: View {
                 shown
             }
         }
-        .onAppear(perform: reload)
+        .onAppear {
+            reload()
+            if draft == nil, let unsaved = Self.unsaved { base = unsaved.base; draft = unsaved.draft }
+        }
+        .onChange(of: draft) { _, now in Self.unsaved = now.map { ($0, base) } }
         .onReceive(NotificationCenter.default.publisher(for: AskClaudeNotes.didChange)) { _ in reload() }
         .onReceive(NotificationCenter.default.publisher(for: AskClaudePrivacy.didChange)) { _ in reload() }
         // Another editor may have changed the file while SyncCloud was in the background.
@@ -73,11 +82,23 @@ public struct NotesForClaudeSection: View {
                 .help("Shows Notes for Claude.md in your home folder. Any editor can change it.")
             Button("Clear Notes…", role: .destructive) {
                 let count = lines.filter { !$0.isHeading }.count
-                _ = RemovalPrompt.actIfConfirmed(confirm: RemovalPrompt.clearNotesForClaude(lines: count).ask) { store.clear() }
+                _ = RemovalPrompt.actIfConfirmed(confirm: RemovalPrompt.clearNotesForClaude(lines: count).ask) {
+                    problem = store.clear() ? nil : "The notes couldn’t be cleared. Try again, or remove the file in Finder."
+                }
             }
             .disabled(lines.isEmpty)
         }
         .controlSize(.small)
+        problemLine
+    }
+
+    @ViewBuilder private var problemLine: some View {
+        if let problem {
+            Text(problem)
+                .scaledFont(.caption)
+                .foregroundStyle(SemanticColor.warning)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func row(_ line: AskClaudeNotes.Line, hiddenNames: [String]?) -> some View {
@@ -124,15 +145,22 @@ public struct NotesForClaudeSection: View {
                     .scaledFont(.caption)
                     .foregroundStyle(.red)
             }
+            problemLine
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
-                Button("Cancel") { self.draft = nil }
+                Button("Cancel") {
+                    self.draft = nil
+                    problem = nil
+                }
                     .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     guard Self.maySave(draftOver: base, now: store.read(), confirm: RemovalPrompt.saveOverChangedNotes().ask) else { return }
                     if store.save(draft) {
                         self.draft = nil
+                        problem = nil
                         SettingsWindowLog.log("intelligence.notes", "edited by hand")
+                    } else {
+                        problem = "The notes couldn’t be saved. Your edit is still here; try again."
                     }
                 }
                 .disabled(over)

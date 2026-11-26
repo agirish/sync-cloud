@@ -54,8 +54,8 @@ public enum GeneralSettings {
     }
 }
 
-/// The app's settings window, hosted in the SwiftUI `Settings` scene. Follows the standard
-/// macOS preferences layout: toolbar tabs (Appearance / Providers / Sync) over grouped forms.
+/// The app's Settings sheet, an overlay on the main window (`ContentView.settingsOverlay`): search
+/// and the tabs down a left rail, the macOS Settings convention, beside the selected page.
 public struct SettingsView: View {
     /// The rail's rows, in rail order — and the format of the `settingsSelectedTab` default read
     /// at window creation, so the raw values are stable. `CaseIterable` backs both the rail and the
@@ -168,7 +168,7 @@ public struct SettingsView: View {
 
         /// The rail's rows in groups, separated by a hairline.
         ///
-        /// Flat rows read as a pile, but the rail is fixed-height and doesn't scroll, so each
+        /// Flat rows read as a pile, but the rail scrolls only when it can't fit, so each
         /// separator costs space; `theRailFitsItsOpening` measures the rail with them. Groups are by
         /// question asked: the app itself, where files come from, the workspaces in the workspace
         /// bar's order, then Claude and the engine room. Spelled out, not derived, so a new case
@@ -218,8 +218,8 @@ public struct SettingsView: View {
     /// sheet on the way and the reader lands on the article.
     private let onOpenHelp: ((String) -> Void)?
 
-    /// The header search text. While non-empty it takes over the content area with a list of
-    /// matching settings across every tab; selecting one jumps to its tab and clears this.
+    /// The rail's search text. While non-empty it covers the page with a list of matching pages
+    /// and settings across every tab; selecting one jumps to its page and clears this.
     @State private var searchQuery = ""
 
     /// Whether the search field currently has meaningful (non-whitespace) input. Drives the
@@ -229,8 +229,10 @@ public struct SettingsView: View {
     }
 
     /// Entries matching the current query, in index order. Empty while the field is empty.
+    /// The pages first, then the settings: typing a tab or page's name ("Compare", "Key & Spending")
+    /// finds it, which the settings' own titles don't always say.
     private var searchResults: [SettingsSearchEntry] {
-        filterSettings(SettingsSearchIndex.all, query: searchQuery)
+        filterSettings(SettingsSearchIndex.pages + SettingsSearchIndex.all, query: searchQuery)
     }
 
     /// The window's accent hue, for the rail's selected row. Read here rather than passed in so
@@ -244,7 +246,7 @@ public struct SettingsView: View {
     private var fontSize: FontSize { FontSize(percent: fontSizePercent) }
 
     /// The space the host has to place the sheet in, or `nil` when the host doesn't say. The
-    /// window's own minimum is 760×560, which after `hostMargin` is smaller than the sheet wants
+    /// window's own minimum is 804×560, which after `hostMargin` is smaller than the sheet wants
     /// in both axes at any text size, so without this the sheet would hang off a small window.
     private let availableSize: CGSize?
 
@@ -323,6 +325,11 @@ public struct SettingsView: View {
         SettingsSheetMetrics.resolvedSize(textScale: fontSize.scale, available: availableSize)
     }
 
+    /// esc: a typed search goes first, then the sheet.
+    private func escape() {
+        if searchQuery.isEmpty { onClose() } else { searchQuery = "" }
+    }
+
     public var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -330,11 +337,17 @@ public struct SettingsView: View {
                     .scaledFont(.headline)
                 Spacer()
                 CloseButton(action: onClose)
-                    // Escape closes the overlay even when focus is elsewhere in the card.
-                    .keyboardShortcut(.cancelAction)
                     .shortcutKeycap("esc")
                     .help(ShortcutHint.tooltip("Close settings", "esc"))
                     .accessibilityLabel("Close settings")
+                // esc, even when focus is elsewhere in the card: clears a typed search first, as a
+                // search field does everywhere else on the Mac, then closes. A button of its own so
+                // a click on ✕ always closes.
+                Button("Close") { escape() }
+                    .keyboardShortcut(.cancelAction)
+                    .opacity(0)
+                    .frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
             }
             .padding(.horizontal, 20)
             // Fixed, not padding-derived: the content opening is computed as
@@ -359,33 +372,46 @@ public struct SettingsView: View {
         // The sheet's switches, the Tint and text-size sliders and its checkboxes take the hue
         // being picked here, not the Mac's accent, and follow it as it changes.
         .nativeControlAccent(selectedHue)
+        // A Vault backup's result outlives a page switch, not the sheet.
+        .onDisappear { VaultBackupProgress.shared.forgetMessage() }
     }
 
     /// The right-hand column: the selected page, or the search results standing in for it.
-    @ViewBuilder
+    ///
+    /// The page stays alive under the results, hidden, rather than being swapped out: a half-typed
+    /// API key or note on it isn't lost to one letter typed into search.
     private var content: some View {
-        if isSearching {
-            SettingsSearchResults(results: searchResults) { place in
-                // The jump: land on the matching page and drop back to normal content.
-                go(to: place)
-            }
-        } else {
-            VStack(spacing: 0) {
-                if let selectedPage {
-                    SettingsSubTabStrip(tab: selectedTab,
-                                        selection: Binding(get: { selectedPage },
-                                                           set: { go(to: SettingsPlace($0)) }),
-                                        hue: selectedHue)
-                        // A strip per tab: a lens kept across tabs glided in from the last tab's
-                        // page, across labels that aren't this tab's.
-                        .id(selectedTab)
-                    Divider()
+        ZStack {
+            pageColumn
+                .opacity(isSearching ? 0 : 1)
+                .allowsHitTesting(!isSearching)
+                .accessibilityHidden(isSearching)
+            if isSearching {
+                SettingsSearchResults(results: searchResults) { place in
+                    // The jump: land on the matching page and drop back to normal content.
+                    go(to: place)
                 }
-                page(selectedTab, selectedPage)
-                    // A page of its own, so one page's scroll position, open rows and drafts don't
-                    // carry onto the next page drawn by the same view.
-                    .id(selectedPage.map(\.rawValue) ?? selectedTab.rawValue)
             }
+        }
+    }
+
+    /// The selected page, under its tab's strip when it has one.
+    private var pageColumn: some View {
+        VStack(spacing: 0) {
+            if let selectedPage {
+                SettingsSubTabStrip(tab: selectedTab,
+                                    selection: Binding(get: { selectedPage },
+                                                       set: { go(to: SettingsPlace($0)) }),
+                                    hue: selectedHue)
+                    // A strip per tab: a lens kept across tabs glided in from the last tab's
+                    // page, across labels that aren't this tab's.
+                    .id(selectedTab)
+                Divider()
+            }
+            page(selectedTab, selectedPage)
+                // A page of its own, so one page's scroll position, open rows and drafts don't
+                // carry onto the next page drawn by the same view.
+                .id(selectedPage.map(\.rawValue) ?? selectedTab.rawValue)
         }
     }
 
@@ -507,9 +533,32 @@ struct SettingsSubTabStrip: View {
 // MARK: - Settings search
 
 public extension SettingsPlace {
+    /// The place a name for one stands for, as Ask Claude's `show_in_app` gives it: a tab by name or
+    /// raw value ("intelligence" is Ask Claude), then a page by name or raw value, then
+    /// "Tab ▸ Page", then the page holding a setting so named (``holding(_:)``). One resolver for the
+    /// opener and the words the chat shows, so the step can't name one page and open another.
+    static func named(_ asked: String) -> SettingsPlace? {
+        let wanted = asked.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !wanted.isEmpty else { return nil }
+        if let tab = SettingsView.SettingsTab.allCases.first(where: { $0.displayName.lowercased() == wanted || $0.rawValue.lowercased() == wanted }) {
+            return SettingsPlace(tab)
+        }
+        if let page = SettingsSubTab.allCases.first(where: { $0.displayName.lowercased() == wanted || $0.rawValue.lowercased() == wanted }) {
+            return SettingsPlace(page)
+        }
+        let parts = wanted.components(separatedBy: "▸").map { $0.trimmingCharacters(in: .whitespaces) }
+        if parts.count == 2, let page = SettingsSubTab.allCases.first(where: {
+            $0.tab.displayName.lowercased() == parts[0] && $0.displayName.lowercased() == parts[1]
+        }) {
+            return SettingsPlace(page)
+        }
+        return holding(asked)
+    }
+
     /// The page that holds a setting or section named in words (“Ask Claude”, “monthly limit”,
-    /// “API key”), by the same index Settings' own search reads: an exact title first, then a title
-    /// containing it, then a keyword. Nil when nothing matches.
+    /// “API key”), by the same index Settings' own search reads: an exact title, then an exact
+    /// keyword, then a title holding the words whole, then any title or keyword containing them.
+    /// Nil when nothing matches.
     static func holding(_ words: String) -> SettingsPlace? {
         let needle = words.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !needle.isEmpty else { return nil }
@@ -559,7 +608,7 @@ struct SettingsSearchEntry: Identifiable, Sendable {
     }
 }
 
-/// The catalog of settings the header search can jump to: one entry per control that *changes*
+/// The catalog of settings the rail's search can jump to: one entry per control that *changes*
 /// something, across every page. An entry on a paged tab names its page, so the jump lands on it. One kind of on-screen label deliberately gets no entry of its own,
 /// because it is not a setting: the `SettingsSection` headers that only group other controls
 /// ("Conflicts", "Logging", "Inbox and rules"). Each is reached through a control it belongs to.
@@ -572,6 +621,13 @@ struct SettingsSearchEntry: Identifiable, Sendable {
 /// `SettingsSearchTests.everyControlLabelInTheTabSourcesIsIndexed` fails on a control label that
 /// reaches nothing here, but can't see a title built at runtime.
 enum SettingsSearchIndex {
+    /// One entry per page, titled with its name ("Vault ▸ Read", or a one-page tab's own), so a
+    /// search for a page's name lands on it. Kept apart from ``all``, the settings themselves,
+    /// which the index-coverage checks read.
+    static let pages: [SettingsSearchEntry] =
+        SettingsView.SettingsTab.allCases.filter(\.subTabs.isEmpty).map { SettingsSearchEntry(at: SettingsPlace($0), title: $0.displayName, keywords: []) }
+        + SettingsSubTab.allCases.map { SettingsSearchEntry(at: SettingsPlace($0), title: SettingsPlace($0).name, keywords: []) }
+
     static let all: [SettingsSearchEntry] = [
         // General
         .init(at: .general, title: "Launch SyncCloud at login",
@@ -911,7 +967,22 @@ enum SettingsSearchIndex {
 func filterSettings(_ entries: [SettingsSearchEntry], query: String) -> [SettingsSearchEntry] {
     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return [] }
-    return entries.filter { $0.matches(trimmed) }
+    // Best match first, the index's order within each rank: "log" lists Log level and Log file
+    // before "Launch SyncCloud at login", and a title before a keyword-only match.
+    let needle = trimmed.lowercased()
+    func rank(_ entry: SettingsSearchEntry) -> Int {
+        let title = entry.title.lowercased()
+        if title == needle { return 0 }
+        let words = title.split { !$0.isLetter && !$0.isNumber }
+        if words.contains(where: { $0 == needle }) || title.hasPrefix(needle) { return 1 }
+        if words.contains(where: { $0.hasPrefix(needle) }) { return 2 }
+        if title.contains(needle) { return 3 }
+        return 4
+    }
+    return entries.enumerated()
+        .filter { $0.element.matches(trimmed) }
+        .sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }
+        .map(\.element)
 }
 
 /// The search results that stand in for the tab content while the field has text: a scrollable
@@ -939,9 +1010,12 @@ private struct SettingsSearchResults: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(entry.title)
                                         .foregroundStyle(.primary)
-                                    Text(entry.place.name)
-                                        .scaledFont(.caption)
-                                        .foregroundStyle(.secondary)
+                                    // A page's own entry is titled with its place already.
+                                    if entry.title != entry.place.name {
+                                        Text(entry.place.name)
+                                            .scaledFont(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
                                 Spacer()
                                 HoverChevron()
@@ -992,14 +1066,14 @@ struct GeneralSettingsTab: View {
                     }
                     .labelsHidden()
                     .fixedSize()
-                    .help("What a copy, move, or sync does when a file of the same name is already there: ask, keep both, replace it (the old one goes to the Trash), or skip it. Folder conflicts always ask.")
+                    .help("What a copy, move or sync does when a file of the same name is already there: ask, keep both, replace it (the old one goes to the Trash), or skip it. Folder conflicts always ask.")
                 }
                 Toggle("Confirm before copying or moving", isOn: $confirmBeforeTransfer.loggingSettingsChange("sync.confirmTransfer"))
                     .help("Shows what will be copied or moved, and where, before it starts. Off, copies and moves start at once.")
                 Toggle("Confirm before deleting", isOn: $confirmBeforeDelete.loggingSettingsChange("sync.confirmDelete"))
                     .help("Asks before moving items to the Trash. They go to the Trash either way, and Undo brings them back.")
                 Toggle("Warn before quitting during file operations", isOn: $warnBeforeQuit.loggingSettingsChange("general.warnBeforeQuit"))
-                    .help("Asks before quitting while a copy, move, or delete is still running. Off, SyncCloud quits at once.")
+                    .help("Asks before quitting while a copy, move or delete is still running. Off, SyncCloud quits at once.")
             }
 
             SettingsSection("Notifications") {
@@ -1399,6 +1473,9 @@ struct ProvidersSettingsTab: View {
     /// account and folder, and four expanded rows already scroll past the sheet. State, not a
     /// persisted default: which row you last opened isn't a preference.
     @State private var expandedIds: Set<String> = []
+    /// Why Add Folder… added nothing: the folder chosen is already a cloud account's, listed on
+    /// Cloud Providers. Nil once the next choice adds one.
+    @State private var addFolderNote: String?
 
     private var cloudProviders: [CloudProvider] {
         settings.availableProviders.filter { !$0.isLocalFolder }
@@ -1460,6 +1537,12 @@ struct ProvidersSettingsTab: View {
                 .help("Adds a folder on this Mac as a source. It appears in every workspace, and Compare and Organize work over it as over a cloud account.")
             }
 
+            if let addFolderNote {
+                Text(addFolderNote)
+                    .scaledFont(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if folderProviders.isEmpty {
                 Text("No folders added.")
                     .scaledFont(.callout)
@@ -1513,7 +1596,13 @@ struct ProvidersSettingsTab: View {
     private func addFolder() {
         guard let url = NativeAlerts.chooseFolder(prompt: "Add Folder",
                                                   message: "Choose a folder to use as a source") else { return }
-        expandedIds.insert(settings.addFolderSource(path: url.path))
+        let id = settings.addFolderSource(path: url.path)
+        expandedIds.insert(id)
+        // A cloud account's own folder is already a source, drawn on the other page: say so, or the
+        // panel closes on nothing.
+        addFolderNote = FolderSource.isFolderSourceId(id) ? nil
+            : settings.availableProviders.first { $0.id == id }
+                .map { "That folder is already \($0.displayName), under Cloud Providers." }
     }
 }
 
@@ -1772,7 +1861,7 @@ struct ProviderSettingsSection: View {
                !settings.isLandingValid(for: provider.id) {
                 // Panes open at the root instead (`openAtIfReachable`), and a user who chose this
                 // folder needs to know why.
-                Text("That folder isn’t there any more, so panes open at the root instead.")
+                Text("That folder isn’t there anymore, so panes open at the root instead.")
                     .scaledFont(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1859,7 +1948,7 @@ struct ProviderSettingsSection: View {
             .disabled(!isEnabled)
 
             HStack(spacing: 8) {
-                Button("Browse…") { selectDirectory() }
+                Button("Choose…") { selectDirectory() }
                 // No Reset: a folder source has no discovered default to reset to. Remove takes
                 // its place, which a cloud account can't offer.
                 Button("Remove…", role: .destructive) {
@@ -1906,7 +1995,7 @@ struct ProviderSettingsSection: View {
     }
 
     private func selectDirectory() {
-        guard let url = NativeAlerts.chooseFolder(message: "Select root directory for \(provider.displayName)")
+        guard let url = NativeAlerts.chooseFolder(message: "Choose the folder for \(provider.displayName)")
         else { return }
         pathDraft.value = url.path
         commitPath()
@@ -1929,8 +2018,13 @@ struct ProviderSettingsSection: View {
         pathDraft.value = normalized
         guard ProviderFieldEdit.shouldCommit(draft: normalized, committed: provider.rootPath) else { return }
         switch settings.setPath(normalized, for: provider.id) {
-        case .changed, .unchanged:
+        case .changed:
             refusedDuplicateOwner = nil
+        case .unchanged:
+            // Nothing stored (an emptied field is not a folder), so no `onChange` puts the field
+            // back: show again where the source really points.
+            refusedDuplicateOwner = nil
+            pathDraft.adopt(provider.rootPath)
         case .refusedDuplicate(let existingId):
             // Put the field back to what the source points at. Nothing was written, so no
             // `onChange(of: provider.rootPath)` will do it.
@@ -2592,7 +2686,7 @@ struct FilingSettingsTab: View {
                         }
                         .onDisappear(perform: commitInbox)
                 }
-                .help("The folder (relative to the provider root) where loose files pile up — e.g. “TODO”. Organize offers it on its overview as a one-click way to narrow to that folder. It does not open there on its own; leave this blank and the offer disappears.")
+                .help("The folder, inside each source, where loose files pile up, like “TODO”. Organize’s overview offers a one-click way to narrow to it. Leave it blank and the offer goes away.")
                 if let onOpenRules {
                     SettingsRow("Rules you taught by correcting") {
                         Button("Open Rules", action: onOpenRules)
@@ -2779,7 +2873,7 @@ struct OrganizeSuggestionsPage: View {
             ) {
                 if let onJump {
                     HStack {
-                        Text("Key, model and limit")
+                        Text("Key and limit")
                         Spacer(minLength: 12)
                         Button("Ask Claude ▸ Key & Spending") { onJump(SettingsPlace(.keyAndSpending)) }
                             .controlSize(.small)
@@ -2794,7 +2888,7 @@ struct OrganizeSuggestionsPage: View {
                 Toggle("Reuse suggestions for files that haven’t changed", isOn: $filingReuseVerdicts.loggingSettingsChange("intelligence.reuseSuggestions"))
                     .disabled(!filingUseAI)
                     .help("Gives a file that hasn’t been edited, renamed, or moved the suggestion it got last time, instead of asking the model — or paying Claude — again.")
-                SettingsRow("Saved suggestions") {
+                SettingsRow("Saved") {
                     HStack(spacing: 8) {
                         Text(savedSuggestionCount == 1 ? "1 file" : "\(savedSuggestionCount) files")
                             .foregroundStyle(.secondary)
@@ -2930,12 +3024,12 @@ struct IntelligenceSettingsTab: View {
                             // Hidden by path: a folder renamed or moved since is no longer
                             // covered, so the list says so rather than looking protected.
                             if !FileManager.default.fileExists(atPath: folder) {
-                                Text("Not found — renamed or moved?")
+                                Text("Not found. Renamed or moved?")
                                     .scaledFont(.caption)
                                     .foregroundStyle(SemanticColor.warning)
                                     .help("This is hidden by its path. If it was renamed or moved, add it again under its new name.")
                             }
-                            Button("Remove") {
+                            Button("Remove…") {
                                 if Self.unhideIfConfirmed(folder, in: .standard, confirm: RemovalPrompt.showToClaude(
                                     named: (folder as NSString).lastPathComponent,
                                     isFolder: Self.isFolderOrMissing(folder)).ask) {
@@ -3040,8 +3134,8 @@ struct IntelligenceSettingsTab: View {
         }
 
         SettingsSection(
-            "Monthly limit",
-            caption: "Estimated from list prices. Ask Claude, Refine, Try Another and Refine Names share it, and stop at it until the month turns."
+            "Spending",
+            caption: "Estimated from list prices. Everything the key pays for stops here until the month turns."
         ) {
             SettingsRow("Monthly limit") {
                 Picker("Monthly limit", selection: $askClaudeLimitUSD.loggingSettingsChange("intelligence.monthlyLimit")) {
@@ -3185,7 +3279,7 @@ struct KeptNamesList: View {
                             .hoverInk()
                     }
                     .buttonStyle(.hoverAffordance(.inline))
-                    .help("Report “\(name)” again — here, on its row, and in Organize")
+                    .help("Stops allowing “\(name)”. It’s flagged again here, on its row and in Organize.")
                     .accessibilityLabel("Report \(name) again")
                 }
             }
@@ -3195,7 +3289,7 @@ struct KeptNamesList: View {
                     clearAll(confirm: RemovalPrompt.clearKeptNames(count: store.names.count).ask)
                 }
                 .controlSize(.small)
-                .help("Stops keeping every name listed, so each is flagged again. Asks first.")
+                .help("Stops allowing every name listed, so each is flagged again. Asks first.")
             }
         }
     }
@@ -3384,7 +3478,11 @@ struct PeopleList: View {
                isPresented: Binding(get: { confirmingRemoval != nil },
                                     set: { if !$0 { confirmingRemoval = nil } })) {
             Button("Remove", role: .destructive) {
-                if let p = confirmingRemoval { store.remove(id: p.id) }
+                if let p = confirmingRemoval {
+                    store.remove(id: p.id)
+                    // Their name suggestions go with them: Add on one would do nothing.
+                    suggestions.removeAll { $0.personId == p.id }
+                }
                 confirmingRemoval = nil
             }
             Button("Cancel", role: .cancel) { confirmingRemoval = nil }
@@ -3958,6 +4056,8 @@ struct AdvancedSettingsTab: View {
     @State private var runningLevelDiffers = false
     /// Human-readable size of the log file, refreshed on appear and after Clear Log.
     @State private var logFileSizeText: String?
+    /// What Copy Log for Sharing came to, shown in place of the log's size for a moment.
+    @State private var copyLogNote: (text: String, failed: Bool)?
     /// Human-readable sizes of the two saved-scan-data files, or nil where there is no file. nil is
     /// what disables each Clear, so "None" and a live button cannot disagree.
     @State private var hashIndexSizeText: String?
@@ -4006,7 +4106,10 @@ struct AdvancedSettingsTab: View {
 
                 SettingsRow("Log file") {
                     HStack(spacing: 8) {
-                        if let logFileSizeText {
+                        if let copyLogNote {
+                            Text(copyLogNote.text)
+                                .foregroundStyle(copyLogNote.failed ? AnyShapeStyle(SemanticColor.warning) : AnyShapeStyle(.secondary))
+                        } else if let logFileSizeText {
                             Text(logFileSizeText)
                                 .foregroundStyle(.secondary)
                         }
@@ -4014,7 +4117,12 @@ struct AdvancedSettingsTab: View {
                             NSWorkspace.shared.activateFileViewerSelecting([Logger.shared.logFileURL])
                         }
                         Button(CopyLogForSharing.title) {
-                            Task { await CopyLogForSharing.copy() }
+                            Task {
+                                let copied = await CopyLogForSharing.copy()
+                                copyLogNote = copied ? ("Copied", false) : ("Couldn’t read the log", true)
+                                try? await Task.sleep(for: .seconds(3))
+                                copyLogNote = nil
+                            }
                         }
                         .help(CopyLogForSharing.help)
                         // Asks first, like the Activity Log's trash button: one gesture, one name.
@@ -4022,7 +4130,7 @@ struct AdvancedSettingsTab: View {
                             guard Logger.shared.clearIfConfirmed() else { return }
                             Task { await refreshLogFileSize() }
                         }
-                        .help("Empty the Activity Log and the log file on disk")
+                        .help("Empties the Activity Log and the log file on disk. Asks first.")
                     }
                     .controlSize(.small)
                 }
@@ -4134,7 +4242,7 @@ struct AdvancedSettingsTab: View {
                     Button("Reset All Settings…", role: .destructive) {
                         confirmReset(onResetAllSettings)
                     }
-                    .help("Returns SyncCloud’s settings to their defaults and removes the folders you added as sources; keeps what you made — Rules, signatures, Favorites, pins and your choices while organizing — the folders hidden from Claude, and Claude’s spending limits and record. Asks first; your files aren’t touched.")
+                    .help("Returns SyncCloud’s settings to their defaults and removes the folders you added as sources; keeps what you made (Rules, signatures, Favorites, pins and your choices while organizing), the folders hidden from Claude, Claude’s spending limits and record, and everything in the Vault. Asks first; your files aren’t touched.")
                 }
             }
         }
@@ -4177,7 +4285,7 @@ struct AdvancedSettingsTab: View {
         informativeText: "SyncCloud forgets that setup has run and which location it learns from, and opens setup now, from the beginning. On a Mac that hasn’t learned a folder tree yet, the name and household answers setup was holding are discarded with it. Your folder profile, people and other settings stay.")
 
     /// What Reset All Settings takes and what it keeps, in the confirmation.
-    static let resetAllExplanation = "Settings return to their defaults, apart from what is kept below. Folders you added as sources, ignored items, and source names and paths are removed, and SyncCloud forgets that setup has run.\n\nKept: your Rules, saved signatures, Favorites and pins, and the choices you made while organizing (corrections, groups kept separate, names kept); the folders you hid from Claude, and Notes for Claude; and your spending limits for Claude and the record of what it has cost. One-Way Sync stays set up as it is, with its choices for a Dropbox file deleted, renamed, moved or edited, and Launch at login stays as it is: macOS holds it. Your Claude API key, folder profile, Ask Claude chats and your files are not touched."
+    static let resetAllExplanation = "Settings return to their defaults, apart from what is kept below. Folders you added as sources, ignored items, and source names and paths are removed, and SyncCloud forgets that setup has run.\n\nKept: your Rules, saved signatures, Favorites and pins, and the choices you made while organizing (corrections, groups kept separate, names kept); the folders you hid from Claude, and Notes for Claude; and your spending limits for Claude and the record of what it has cost. The Vault keeps all of its settings, folders and backups. One-Way Sync stays set up as it is, with its choices for a Dropbox file deleted, renamed, moved or edited, and Launch at login stays as it is: macOS holds it. Your Claude API key, folder profile, Ask Claude chats and your files are not touched."
 
     /// The confirmation's words, with what the reset would raise for Claude from the values now
     /// (`SettingsActions.resetAllRaises`) — the same in Settings and on an Ask Claude card.

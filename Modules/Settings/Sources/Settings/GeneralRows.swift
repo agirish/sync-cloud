@@ -42,7 +42,7 @@ public struct LaunchAtLoginRow: View {
     } caption: {
         if loginItem.needsApproval {
             HStack(spacing: 4) {
-                Text("Approval needed — allow SyncCloud in Login Items settings.")
+                Text("Approval needed. Allow SyncCloud in Login Items settings.")
                 Button("Open Login Items Settings") {
                     SMAppService.openSystemSettingsLoginItems()
                 }
@@ -120,7 +120,7 @@ public struct OneWaySyncNotifyRow: View {
 /// What a notification switch says when it is on but macOS refuses notifications.
 private struct NotificationsDeniedHint: View {
     var body: some View {
-        Text("Notifications are disabled in System Settings — allow SyncCloud under Notifications to see these alerts.")
+        Text("Notifications are off in System Settings. Allow SyncCloud there to see these alerts.")
             .foregroundStyle(SemanticColor.warning)
     }
 }

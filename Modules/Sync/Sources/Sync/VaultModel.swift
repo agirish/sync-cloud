@@ -1499,9 +1499,13 @@ public final class VaultModel: ObservableObject {
     }
 
     /// How the lock is set, in Settings ▸ Vault's words, for the log.
+    /// The menu's short labels leave out that an idle choice also locks on close (the setting's
+    /// help says it once); the log says it, so a line read alone is the whole rule.
     static func lockMode(_ settings: VaultLockSettings) -> String {
-        "asks " + settings.ask.label.lowercased()
-            + (settings.ask == .whenOpened ? ", locks " + settings.relock.label.lowercased() : "")
+        let relock = settings.relock
+        let alsoOnClose = relock.locksOnClose && relock != .whenClosed ? ", or when vault closes" : ""
+        return "asks " + settings.ask.label.lowercased()
+            + (settings.ask == .whenOpened ? ", locks " + relock.label.lowercased() + alsoOnClose : "")
     }
 
     /// Says the Vault locked and why (VT22): only an open Vault holding its numbers locks, which is

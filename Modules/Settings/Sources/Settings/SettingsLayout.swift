@@ -6,9 +6,9 @@ import SwiftUI
 // Built so each tab fits its opening: a control cut in half by the sheet's edge reads as "you've
 // reached the end". `SettingsRail` stands the search field and tabs down the left, the macOS
 // Settings convention, so they cost the content column no height. `SettingsSection` keeps a
-// grouped Form's structure (a titled group with one explanation underneath) without the box:
-// ~77pt per section against grouped Form's ~115. `.formStyle(.columns)` is shorter still, but
-// sets section headers at body weight in the value column, so they read as captions.
+// grouped Form's structure (a titled group with one explanation underneath) without the box, so
+// its air is ours to set (`sectionPitch` and the rest below). `.formStyle(.columns)` is shorter,
+// but sets section headers at body weight in the value column, so they read as captions.
 
 /// How big the sheet is and how much of it the selected tab gets.
 ///
@@ -52,8 +52,8 @@ enum SettingsSheetMetrics {
     static let sectionTitleAir: CGFloat = 8
 
     /// The title row's height, fixed so the content opening is arithmetic rather than a guess.
-    /// 44pt clears `.headline` at the largest text scale (15.85pt: 13pt is above the 11pt knee, so
-    /// it grows damped, 11 × 1.35 + 2 × 0.5) with padding.
+    /// 52pt (44 until the Settings polish) clears `.headline` at the largest text scale (15.85pt:
+    /// 13pt is above the 11pt knee, so it grows damped, 11 × 1.35 + 2 × 0.5) with room to spare.
     static let headerHeight: CGFloat = 52
 
     /// The sub-tab strip's height on a paged tab, fixed for `headerHeight`'s reason: each page's
@@ -186,7 +186,7 @@ struct SettingsSection<Content: View, Caption: View>: View {
     }
 
     var body: some View {
-        // Spacing 0 with each gap spelled out: the title keeps its 9pt (`5 + sectionTitleAir`)
+        // Spacing 0 with each gap spelled out: the title keeps its 13pt (`5 + sectionTitleAir`)
         // while the caption sits at the tighter `captionGap`, which one stack spacing can't do.
         VStack(alignment: .leading, spacing: 0) {
             if let title {
@@ -328,7 +328,7 @@ struct SettingsRail: View {
                 // frame.
                 .selectionLensTracksVisibleRegion(visibleTabs)
                 // Bring the selected row into view when the rail can't show every row, or a deep
-                // link (`cloudRefineSetup` opens Organize, sixth of nine rows) lands on a rail
+                // link (`cloudRefineSetup` opens Ask Claude, eighth of ten rows) lands on a rail
                 // showing no selection. Unanimated: it is a jump, and `withAnimation { scrollTo }`
                 // does nothing while the display is asleep. A no-op when the row is visible.
                 //
@@ -428,6 +428,8 @@ struct SettingsRail: View {
                 Image(systemName: tab.symbolName)
                     .frame(width: 16)
                     .scaledFont(.callout)
+                    // The row's name says it; VoiceOver would otherwise read "paintbrush" first.
+                    .accessibilityHidden(true)
                 Text(tab.displayName)
                     .scaledFont(.callout)
                 Spacer(minLength: 0)

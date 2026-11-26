@@ -1494,12 +1494,7 @@ extension ContentView {
                 case "settings":
                     // A tab or page by name, or the page holding a named setting ("Monthly
                     // limit"), by Settings' own search index; Ask Claude when it's about this chat.
-                    let wanted = tab?.lowercased()
-                    let chosen = SettingsView.SettingsTab.allCases.first { $0.displayName.lowercased() == wanted || $0.rawValue == wanted }
-                        .map { SettingsPlace($0) }
-                        ?? SettingsSubTab.allCases.first { $0.displayName.lowercased() == wanted || $0.rawValue.lowercased() == wanted }
-                        .map { SettingsPlace($0) }
-                        ?? tab.flatMap(SettingsPlace.holding)
+                    let chosen = tab.flatMap(SettingsPlace.named)
                         ?? (tab == nil ? SettingsPlace(.intelligence) : nil)
                     guard let chosen else { return .noSuchPlace }
                     openSettings(on: chosen)

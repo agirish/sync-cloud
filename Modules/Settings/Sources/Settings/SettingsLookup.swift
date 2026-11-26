@@ -176,6 +176,15 @@ public struct SettingsLookup {
     }
 
     func read(_ entry: SettingEntry) async -> Reading {
+        // The Vault's settings are the owner's own: Claude neither changes nor reads them, so how
+        // the Vault is locked, and whether its screen-share hiding or activity list is off, never
+        // reaches a chat. Claude still learns the setting exists, and where.
+        guard entry.place.tab != .vault else { return .notReadable }
+        // The inbox is a folder inside each source: named to Claude only while no source hides it.
+        if entry.id == "organize.inbox", case .value(.string(let inbox)) = readNow(entry), let settings,
+           settings.enabledProviders.contains(where: { isHidden(($0.rootPath as NSString).appendingPathComponent(inbox)) }) {
+            return .notReadable
+        }
         switch entry.storage {
         case .appStorage, .settingsManager:
             return readNow(entry)

@@ -94,7 +94,7 @@ public struct SettingsPeople {
     /// Saves a person's fields, as Settings' editor does. A name can't be blank.
     public func update(_ person: Person) -> SettingsWriter.Outcome {
         if let refusal { return .refused(refusal) }
-        guard let store, store.person(id: person.id) != nil else { return .refused("That person isn’t in the list any more.") }
+        guard let store, store.person(id: person.id) != nil else { return .refused("That person isn’t in the list anymore.") }
         guard !person.displayName.trimmingCharacters(in: .whitespaces).isEmpty else { return .refused("A person needs a name.") }
         store.update(person)
         return .done

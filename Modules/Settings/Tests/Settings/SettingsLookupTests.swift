@@ -40,6 +40,46 @@ import Sync
         #expect(!words.contains("Medical"))
     }
 
+    /// The Vault's settings are the owner's own: Claude learns one exists and where, never its value,
+    /// and a loosened lock never shows in what has changed.
+    @Test func theVaultsSettingsAreNamedButNeverRead() async throws {
+        let defaults = scratch()
+        defaults.set(VaultLockSettings.Ask.everyNumber.rawValue, forKey: VaultLockSettings.askKey)
+        defaults.set(false, forKey: VaultSharingSettings.hidesFromCaptureKey)
+        let (lookup, _) = lookup(defaults)
+        let ask = try #require(SettingsCatalog.entry("vault.ask"))
+        // The app's own cards still read it; only the words for Claude leave it out.
+        #expect(lookup.currentValue(ask) == .string(VaultLockSettings.Ask.everyNumber.rawValue))
+
+        let got = await lookup.get(["vault.ask", "vault.hidesFromScreenSharing"])
+        // The choices are listed (they're the same for everyone); the value is not.
+        #expect(got.contains("value: shown in Settings ▸ Vault ▸ Lock"), "\(got)")
+        #expect(!got.contains("value: \(VaultLockSettings.Ask.everyNumber.label)"))
+        #expect(!got.contains("changed: yes"))
+        let changed = await lookup.changed()
+        #expect(!changed.contains("Vault"), "changed names a Vault setting: \(changed)")
+        let found = await lookup.find("screen sharing")
+        let line = found.split(separator: "\n").first { $0.hasPrefix("vault.hidesFromScreenSharing") }
+        #expect(line?.hasSuffix("shown in Settings ▸ Vault ▸ Lock") == true, "\(found)")
+    }
+
+    /// The inbox is a folder in each source: a hidden one isn't named to Claude.
+    @Test func aHiddenInboxIsNotNamedToClaude() async {
+        let defaults = scratch()
+        defaults.set("Scans", forKey: GeneralSettings.filingInboxRelativePathKey)
+        let settings = SettingsManager(autoDiscover: false, userDefaults: defaults, overridesDomainName: defaults.scratchSuiteName,
+                                       cloudStorageLister: { .read([]) }, pathValidator: { _ in true })
+        settings.availableProviders = [
+            CloudProvider(id: "Acct", displayName: "Dropbox", imageName: "cloud", rootPath: "/Volumes/x/Dropbox", openAt: "", type: .dropBox),
+        ]
+        func lookup(hiding: Bool) -> SettingsLookup {
+            SettingsLookup(defaults: defaults, settings: settings, keyIsSaved: { false }, hiddenCount: { 0 },
+                           isHidden: { hiding && $0.hasSuffix("/Scans") }, loginItemIsOn: { false })
+        }
+        #expect(await lookup(hiding: false).get(["organize.inbox"]).contains("Scans"))
+        #expect(!(await lookup(hiding: true).get(["organize.inbox"]).contains("Scans")))
+    }
+
     @Test func findMatchesTheWordsPeopleUse() async {
         let suite = scratch()
         let (lookup, _) = lookup(suite)

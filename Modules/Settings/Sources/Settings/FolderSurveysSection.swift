@@ -186,13 +186,13 @@ struct FolderSurveysSection: View {
                         syncManager.setSourceSurveyChoice(root: source.root, choice)
                         generation += 1
                     })) {
-                    Text("\(FilingSurveyInUse.possessive(primaryName)) Survey").tag(SourceSurveyChoice.primary)
-                    Text("Its Own Survey").tag(SourceSurveyChoice.own)
+                    Text("\(FilingSurveyInUse.possessive(primaryName)) survey").tag(SourceSurveyChoice.primary)
+                    Text("Its own survey").tag(SourceSurveyChoice.own)
                 }
                 .labelsHidden()
                 .fixedSize()
-                Button("Forget…") { forgetting = source }
-                    .help("Move this source’s own survey to the Trash.")
+                Button("Forget…", role: .destructive) { forgetting = source }
+                    .help("Moves this source’s own survey to the Trash. Asks first.")
             } else {
                 Button("Learn Its Folders") {
                     Task {

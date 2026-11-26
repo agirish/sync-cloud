@@ -52,7 +52,7 @@ struct PeopleTester: View {
     private var answer: some View {
         let report = registry.explain(in: stem)
         if report.isEmpty {
-            Label("Names nobody — Organize would file this without a person to go on.",
+            Label("Names nobody. Organize would file this without a person to go on.",
                   systemImage: "person.slash")
                 .scaledFont(.subheadline)
                 .foregroundStyle(.secondary)

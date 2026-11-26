@@ -43,7 +43,7 @@ public struct RemovalPrompt: Equatable, Sendable {
             messageText: "Remove “\(name)” from your sources?",
             informativeText: "SyncCloud stops showing this folder and forgets any name you gave it, "
                 + "where it opens, whether it was switched off, and what you ignored while comparing "
-                + "it. Adding the folder again starts it afresh. The folder and its files stay where "
+                + "it. Adding the folder again starts it over. The folder and its files stay where "
                 + "they are.",
             confirmTitle: "Remove")
     }
@@ -77,8 +77,8 @@ public struct RemovalPrompt: Equatable, Sendable {
     /// Organize ▸ Kept names ▸ Clear All.
     public static func clearKeptNames(count: Int) -> RemovalPrompt {
         RemovalPrompt(
-            messageText: count == 1 ? "Stop keeping 1 name?"
-                : "Stop keeping all \(count.formatted()) names?",
+            messageText: count == 1 ? "Stop allowing 1 name?"
+                : "Stop allowing all \(count.formatted()) names?",
             informativeText: "SyncCloud flags each of these names again — on its row at once, and in "
                 + "Organize from the next scan — until you choose Always Allow This Name for it "
                 + "again. No file is renamed.",

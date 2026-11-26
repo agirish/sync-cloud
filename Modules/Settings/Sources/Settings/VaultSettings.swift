@@ -27,14 +27,8 @@ struct VaultSettingsTab: View {
     @State private var hasPassphrase = false
     @State private var backupFolder = ""
     @State private var lastBackup: Date?
-    /// What the last backup or restore came to, in words.
-    @State private var backupMessage: String?
-    @State private var backupFailed = false
-    /// Whether ``backupMessage`` came from a restore, so it shows under Restore rather than Backup.
-    @State private var messageIsRestore = false
-    @State private var isBackingUp = false
-    /// A backup chosen to restore is being opened (its key derived): another choice waits.
-    @State private var openingBackup = false
+    /// A backup or restore under way, and what the last one came to: shared by the three pages.
+    @ObservedObject private var progress = VaultBackupProgress.shared
     @State private var settingPassphrase = false
     /// A backup file chosen to restore that the kept passphrase did not open: asked for here.
     @State private var askingPassphraseFor: BackupFile?
@@ -52,7 +46,7 @@ struct VaultSettingsTab: View {
     private func checkTouchID() {
         if case .notSetUp(let why) = VaultDeviceOwnerProof().touchID { touchIDMissing = why } else { touchIDMissing = nil }
     }
-    /// Settings ▸ Vault ▸ Folders to read, read again when the page appears.
+    /// Settings ▸ Vault ▸ Read's folders, read again when the page appears.
     @State private var readFolders: [String] = []
     /// How many numbers Read Documents keeps out, counted when the page appears; nil while the
     /// Vault that holds them is locked.
@@ -60,6 +54,12 @@ struct VaultSettingsTab: View {
 
     var body: some View {
         SettingsPage {
+            // Without Touch ID nothing here works, on any page: Backup's buttons wait for it too.
+            if let touchIDMissing {
+                Label(touchIDMissing, systemImage: "touchid")
+                    .foregroundStyle(SemanticColor.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             switch page {
             case .lock: lockPage
             case .backup: backupPage
@@ -109,7 +109,7 @@ struct VaultSettingsTab: View {
         .sheet(item: $askingPassphraseFor) { file in
             let url = file.url
             VaultPassphraseSheet(title: "Passphrase for This Backup",
-                                 note: "“\(url.lastPathComponent)” was sealed with another passphrase than the one kept here.",
+                                 note: "“\(url.lastPathComponent)” was sealed with a different passphrase from the one kept here.",
                                  confirms: false, action: "Open") { passphrase in
                 guard let backup else { return "The Vault’s folder couldn’t be found." }
                 switch await backup.read(url, passphrase: passphrase) {
@@ -189,7 +189,7 @@ struct VaultSettingsTab: View {
         }
         SettingsSection(
             "Set aside",
-            caption: "IDs you marked Not an ID or removed. Discover More skips them until you forget them."
+            caption: "IDs marked Not an ID, or read from a document and removed. Discover More skips them until you forget them."
         ) {
             SettingsRow("IDs set aside") {
                 HStack(spacing: 8) {
@@ -221,12 +221,6 @@ struct VaultSettingsTab: View {
             "Lock",
             caption: "Touch ID before any ID is shown or copied. IDs stay sealed here and never go to Claude."
         ) {
-            if let touchIDMissing {
-                // Not used at all without Touch ID: what opens the Vault here waits for it.
-                Label(touchIDMissing, systemImage: "touchid")
-                    .foregroundStyle(SemanticColor.warning)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
             SettingsRow("When to ask") {
                 Picker("When to ask", selection: $ask.loggingSettingsChange("vault.ask")) {
                     ForEach(VaultLockSettings.Ask.allCases, id: \.self) { choice in
@@ -272,7 +266,7 @@ struct VaultSettingsTab: View {
         }
         SettingsSection(
             "Activity",
-            caption: "Names each ID, never its number. Sealed with the Vault, never sent to Claude."
+            caption: "Lists each ID by its name, never its number. Sealed with the Vault, never sent to Claude."
         ) {
             // The switch and the list it keeps on one row: the section's title already says what
             // the row is about.
@@ -311,7 +305,7 @@ struct VaultSettingsTab: View {
                     .controlSize(.small)
                     .disabled(isAsking || touchIDMissing != nil)
                 }
-                .help("Asks for Touch ID. Kept in your keychain so a backup can be made without asking for it. Backups already made open with the passphrase they were made with. Without it, a backup cannot be opened.")
+                .help("Asks for Touch ID. Kept in your Keychain so a backup can be made without asking for it. Backups already made open with the passphrase they were made with. Without it, a backup cannot be opened.")
             }
             SettingsRow("Folder") {
                 HStack(spacing: 8) {
@@ -337,12 +331,12 @@ struct VaultSettingsTab: View {
                         .foregroundStyle(.secondary)
                     Button("Back Up Now") { backUpNow() }
                         .controlSize(.small)
-                        .disabled(!hasPassphrase || isBackingUp || touchIDMissing != nil)
+                        .disabled(!hasPassphrase || progress.isBackingUp || touchIDMissing != nil)
                 }
                 .help(touchIDMissing == nil ? "Asks for Touch ID, then writes a backup of every saved ID."
                       : "Set up Touch ID to back up the Vault.")
             }
-            if backupMessage != nil, !messageIsRestore { backupMessageText }
+            if progress.message != nil, !progress.isRestore { backupMessageText }
         }
         SettingsSection(
             "Restore",
@@ -351,20 +345,20 @@ struct VaultSettingsTab: View {
             SettingsRow("From a backup") {
                 Button("Choose…") { chooseBackupToRestore() }
                     .controlSize(.small)
-                    .disabled(isBackingUp || touchIDMissing != nil)
+                    .disabled(progress.isBackingUp || touchIDMissing != nil)
                     .help("Asks for Touch ID, then opens a backup file. You choose whether to add what this Vault is missing or to replace it; Replace sets the Vault that was here aside.")
             }
-            if backupMessage != nil, messageIsRestore { backupMessageText }
+            if progress.message != nil, progress.isRestore { backupMessageText }
         }
     }
 
     /// What the last backup or restore came to, under the section that did it.
     @ViewBuilder
     private var backupMessageText: some View {
-        if let backupMessage {
-            Text(backupMessage)
+        if let message = progress.message {
+            Text(message)
                 .scaledFont(.callout)
-                .foregroundStyle(backupFailed ? AnyShapeStyle(SemanticColor.warning) : AnyShapeStyle(.secondary))
+                .foregroundStyle(progress.failed ? AnyShapeStyle(SemanticColor.warning) : AnyShapeStyle(.secondary))
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -490,22 +484,22 @@ struct VaultSettingsTab: View {
 
     private func backUpNow() {
         guard let backup else { return }
-        isBackingUp = true
+        progress.isBackingUp = true
         Task { @MainActor in
             let result = await backup.backUpNow()
-            isBackingUp = false
+            progress.isBackingUp = false
             switch result {
             case .success(let url):
-                backupFailed = false
-                messageIsRestore = false
-                backupMessage = "Backed up to “\(url.lastPathComponent)”."
+                progress.failed = false
+                progress.isRestore = false
+                progress.message = "Backed up to “\(url.lastPathComponent)”."
                 SettingsWindowLog.log("vault.backUpNow", "backed up")
             case .failure(.notProved):
                 break
             case .failure(let error):
-                backupFailed = true
-                messageIsRestore = false
-                backupMessage = Self.message(for: error)
+                progress.failed = true
+                progress.isRestore = false
+                progress.message = Self.message(for: error)
             }
             refreshBackupState()
         }
@@ -519,12 +513,12 @@ struct VaultSettingsTab: View {
         panel.directoryURL = backup.folder
         panel.prompt = "Open Backup"
         panel.message = "Choose a Vault backup (.\(VaultBackupFile.fileExtension))."
-        guard !openingBackup, panel.runModal() == .OK, let url = panel.url else { return }
+        guard !progress.openingBackup, panel.runModal() == .OK, let url = panel.url else { return }
         // Opened off the main actor (VT58): the key derivation takes most of a second, and a
         // second choice meanwhile waits for this one rather than offering two restores.
-        openingBackup = true
+        progress.openingBackup = true
         Task { @MainActor in
-            defer { openingBackup = false }
+            defer { progress.openingBackup = false }
             // Touch ID before the backup is opened and this Vault's IDs counted against it (VT114).
             guard await proved("open a backup of your Vault") else { return }
             restoreProvedAt = Date()
@@ -534,9 +528,9 @@ struct VaultSettingsTab: View {
             case .failure(.wrongPassphrase), .failure(.noPassphrase):
                 askingPassphraseFor = BackupFile(url: url)
             case .failure(let error):
-                backupFailed = true
-                messageIsRestore = true
-                backupMessage = Self.message(for: error)
+                progress.failed = true
+                progress.isRestore = true
+                progress.message = Self.message(for: error)
             }
         }
     }
@@ -547,23 +541,23 @@ struct VaultSettingsTab: View {
 
     private func restore(_ contents: VaultBackupContents, _ mode: VaultRestoreMode) {
         guard let backup else { return }
-        isBackingUp = true
+        progress.isBackingUp = true
         Task { @MainActor in
             let result = await backup.restore(contents, mode: mode, provedAt: restoreProvedAt)
             restoreProvedAt = nil
-            isBackingUp = false
+            progress.isBackingUp = false
             switch result {
             case .success(let count):
-                backupFailed = false
-                messageIsRestore = true
-                backupMessage = "Restored. The Vault now holds \(count == 1 ? "1 ID" : "\(count) IDs")."
+                progress.failed = false
+                progress.isRestore = true
+                progress.message = "Restored. The Vault now holds \(count == 1 ? "1 ID" : "\(count) IDs")."
                 SettingsWindowLog.log("vault.restore", mode == .replace ? "replaced" : "added")
             case .failure(.notProved):
                 break
             case .failure(let error):
-                backupFailed = true
-                messageIsRestore = true
-                backupMessage = Self.message(for: error)
+                progress.failed = true
+                progress.isRestore = true
+                progress.message = Self.message(for: error)
             }
         }
     }
@@ -581,6 +575,29 @@ struct VaultSettingsTab: View {
         case .notProved: return "macOS couldn’t confirm it was you."
         case .newerFormat: return "A newer version of SyncCloud made this. Update SyncCloud to use it."
         }
+    }
+}
+
+/// The Vault's backup or restore under way, and what the last one came to. Shared, not a page's
+/// own state: each of Vault's pages is its own view, so a backup still running when you looked at
+/// Lock would read as finished on Backup, and Back Up Now would start a second.
+@MainActor
+final class VaultBackupProgress: ObservableObject {
+    static let shared = VaultBackupProgress()
+
+    @Published var isBackingUp = false
+    /// A backup chosen to restore is being opened (its key derived): another choice waits.
+    @Published var openingBackup = false
+    /// What the last backup or restore came to, in words; cleared when Settings closes.
+    @Published var message: String?
+    @Published var failed = false
+    /// Whether ``message`` came from a restore, so it shows under Restore rather than Backup.
+    @Published var isRestore = false
+
+    /// Settings closed: the next visit starts without an old result.
+    func forgetMessage() {
+        message = nil
+        failed = false
     }
 }
 

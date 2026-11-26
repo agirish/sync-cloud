@@ -16482,3 +16482,18 @@ Backup… open their page. Settings text that kept a fixed size now follows the 
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` | No Vault; a 760×624 sheet sized against its own pages | RECORDED — not owed (UI polish, new feature) |
 | `v3.x` / `v2.x` | No Vault; a 760×700 sheet | RECORDED — not owed (UI polish, new feature) |
+
+## Settings: fixes from an adversarial review — main only, recorded, not owed
+
+2026-11-26, for v7.2. Reset All Settings keeps every `vault…` key (`SettingsResetKeeps.vaultKeyPrefix`);
+Claude's settings lookup never reads a Vault setting's value or a hidden inbox's name; a change
+from Ask Claude logs no private value (`SettingsWriter.doneLine`). Esc clears the rail's search
+before it closes the sheet; the page under a search stays alive; search finds tabs and pages by
+name, best match first; `SettingsPlace.named` is the one resolver for Ask Claude's `show_in_app`.
+A folder source's Location field shows its path again after an emptied commit; the API key's Save
+trims newlines as the Keychain store does; Notes for Claude says when a save or clear fails.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` | The rail search (Esc closes the sheet, a search drops the page, no page names), the key field's whitespace-only trim, the blank Location field (`case .changed, .unchanged`). No Vault, no Notes for Claude | RECORDED — not owed |
+| `v2.x` | The rail search and the key field's trim; not the Location field | RECORDED — not owed |

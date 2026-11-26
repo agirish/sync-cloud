@@ -75,7 +75,8 @@ struct PersonEditor: View {
                 .buttonStyle(.borderedProminent)
                 .accentedProminent()
                 .chromeHover()
-                .disabled(!Self.canSave(displayName: draft.displayName))
+                .disabled(!Self.canSave(displayName: draft.displayName)
+                          || Self.nameTaken(draft.displayName, besides: draft.id, in: roster) != nil)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
@@ -97,12 +98,18 @@ struct PersonEditor: View {
                     set: { draft.relationship = $0.isEmpty ? nil : $0 }))
                     .textFieldStyle(.roundedBorder)
                     .controlSize(.small)
-                    .help("Their relationship to you — a label for you only; it changes nothing about filing.")
+                    .help("Their relationship to you: a label for you only. It changes nothing about filing.")
             }
-            Text("The first name is what your folders are called — `School/\(draft.displayName.isEmpty ? "Daughter" : draft.displayName)`. The relationship is a label for you; it changes nothing about filing.")
+            Text("The first name is what your folders are called, like `School/\(draft.displayName.isEmpty ? "Daughter" : draft.displayName)`. The relationship is a label for you; it changes nothing about filing.")
                 .scaledFont(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let taken = Self.nameTaken(draft.displayName, besides: draft.id, in: roster) {
+                Text("\(taken.displayName) is already someone here. Two people can’t share a folder name.")
+                    .scaledFont(.subheadline)
+                    .foregroundStyle(SemanticColor.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -125,7 +132,7 @@ struct PersonEditor: View {
     private var aliasesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             eyebrow("Also called")
-            Text("What you call them in a filename when you do not use their name — “Mom”, “Dad”. These resolve to the same person, so `Mom - passport.pdf` belongs in Granny’s folder.")
+            Text("What you call them in a filename instead of their name, like “Mom”. Then `Mom - passport.pdf` goes in their folder.")
                 .scaledFont(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -146,7 +153,7 @@ struct PersonEditor: View {
         return VStack(alignment: .leading, spacing: 8) {
             eyebrow("What Organize will match")
             if facts.matchedForms.isEmpty {
-                Text("Nothing yet — give them a first name.")
+                Text("Nothing yet. Give them a first name.")
                     .scaledFont(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
@@ -224,6 +231,13 @@ struct PersonEditor: View {
     /// still how a folder gets recognised as theirs.
     nonisolated static func canSave(displayName: String) -> Bool {
         !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Someone else already called this (any case): their folders would be the same folder.
+    nonisolated static func nameTaken(_ displayName: String, besides id: String, in roster: [Person]) -> Person? {
+        let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+        return roster.first { $0.id != id && $0.displayName.compare(name, options: .caseInsensitive) == .orderedSame }
     }
 
     /// The draft as it would be stored, with a pending entry in either add-field folded in.

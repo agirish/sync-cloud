@@ -29,6 +29,37 @@ import Testing
 
     /// An entry on a paged tab names its page, or a jump to it lands on whichever page was last
     /// shown, which may not hold it. A one-page tab's entry names no page.
+    /// Ask Claude's `show_in_app` names a place: a bare page name is that page, never a page whose
+    /// keyword happens to be the same word ("privacy" is Ask Claude ▸ Privacy, not Organize ▸ People).
+    @Test func aPlaceNamedByItsNameIsThatPlace() {
+        #expect(SettingsPlace.named("privacy") == SettingsPlace(.privacy))
+        #expect(SettingsPlace.named("Window") == SettingsPlace(.window))
+        #expect(SettingsPlace.named("look") == SettingsPlace(.look))
+        #expect(SettingsPlace.named("text") == SettingsPlace(.text))
+        #expect(SettingsPlace.named("pdf") == SettingsPlace(.pdf))
+        #expect(SettingsPlace.named("differences") == SettingsPlace(.differences))
+        #expect(SettingsPlace.named("intelligence") == SettingsPlace(.intelligence))
+        #expect(SettingsPlace.named("General") == SettingsPlace(.general))
+        #expect(SettingsPlace.named("Vault ▸ Backup") == SettingsPlace(.backup))
+        #expect(SettingsPlace.named("monthly limit") == SettingsPlace(.keyAndSpending))
+        #expect(SettingsPlace.named("  ") == nil)
+    }
+
+    /// A tab or page is found by its own name, and the best match leads: the sheet searches the
+    /// pages before the settings, ranked.
+    @Test func aPageIsFoundByItsNameAndTheBestMatchLeads() {
+        let all = SettingsSearchIndex.pages + SettingsSearchIndex.all
+        for page in SettingsSubTab.allCases {
+            #expect(filterSettings(all, query: page.displayName).contains { $0.place == SettingsPlace(page) },
+                    "searching “\(page.displayName)” doesn't find \(SettingsPlace(page).name)")
+        }
+        #expect(filterSettings(all, query: "advanced").first?.place == SettingsPlace(.advanced))
+        #expect(filterSettings(all, query: "Window").first?.place == SettingsPlace(.window))
+        let log = filterSettings(all, query: "log").map(\.title)
+        let level = log.firstIndex(of: "Log level"), login = log.firstIndex { $0.contains("at login") }
+        #expect(level != nil && login != nil && level! < login!, "\(log)")
+    }
+
     @Test func everyEntryOnAPagedTabNamesItsPage() {
         for entry in SettingsSearchIndex.all {
             if entry.tab.subTabs.isEmpty {
@@ -276,6 +307,8 @@ import Testing
         "Startup", "Copying and moving", "Notifications", "Logging", "Maintenance", "Setup",
         "Inbox", "Saved scan data", "Markdown", "Reading", "Organize",
         "On-device", "What Claude may see",
+        // Ask Claude ▸ Key & Spending's header over Monthly limit and the month's spend, each indexed.
+        "Spending",
         // Vault ▸ Lock's header over the clipboard time and the screen-sharing switch, each indexed.
         "Copying and sharing",
         "Across your tree", "Names found in your documents", "Every folder",

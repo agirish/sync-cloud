@@ -28,7 +28,7 @@ struct AskClaudePastChatsSettings: View {
                     .labelsHidden()
                     .fixedSize()
                     .help("How long a chat stays in Ask Claude’s Past Chats after its last question. Continue sends Claude only your questions from a past chat.")
-                    Button("Clear All…", role: .destructive) {
+                    Button("Delete All…", role: .destructive) {
                         clearAll(confirm: RemovalPrompt.clearPastChats(count: files?.entries().count ?? 0).ask)
                     }
                     .controlSize(.small)
