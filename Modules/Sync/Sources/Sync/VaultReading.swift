@@ -117,7 +117,7 @@ public enum VaultReading {
 
     /// Raised whenever a rule changes what is read, so the next Read Documents reads every file
     /// again rather than trusting what an older build made of it.
-    public static let version = 29
+    public static let version = 30
 
     /// Every number on a document, once each, and the numbers it only names.
     /// `roots` are the read folders and `people` the household's, for account numbers: which area
@@ -832,16 +832,29 @@ public struct MachineZone: Equatable, Sendable {
         }
     }
 
+    /// Whether this zone was read only by working out a smudged character (VT51): filled or
+    /// swapped, with the page printing neither its number nor both its dates outside the zone, which
+    /// would be a second reading of the paper.
+    func workedOut(on printed: PrintedPage) -> Bool {
+        guard recovery == .fill || recovery == .swap else { return false }
+        let outside = PrintedPage(printed.lines.filter { !$0.contains("<") })
+        let number = VaultReading.normalized(self.number).lowercased()
+        let dates = Set(outside.dates(order: nil))
+        let datesAgree = [born, expires].allSatisfy(dates.contains)
+        return !(outside.squeezed.contains(number) && datesAgree)
+    }
+
     func passportFind(from path: String, page: Int?, printed: PrintedPage = PrintedPage([])) -> VaultFind {
         let where_ = page.map { " · page \($0)" } ?? ""
         var details = [VaultDetail("Issuing country", .text(issuer))]
         if nationality != issuer && !nationality.isEmpty { details.append(VaultDetail("Nationality", .text(nationality))) }
         if let issued = printed.issueDate(born: born, expires: expires) { details.append(VaultDetail("Issued", .date(issued))) }
         details.append(VaultDetail("Valid until", .date(expires)))
-        let facts = VaultReadFacts(category: .passport, holder: holder.isEmpty ? nil : holder, born: born,
+        var facts = VaultReadFacts(category: .passport, holder: holder.isEmpty ? nil : holder, born: born,
                                    issuer: issuer, dated: expires, validUntil: expires, details: details,
                                    sources: [VaultSource(path: path, role: "Passport photo page" + where_,
                                                          rank: VaultReading.Rank.passportPage + (nameRead ? 1 : 0))])
+        facts.zoneWorkedOut = workedOut(on: printed) ? true : nil
         let note = [holder, "\(issuer) passport", "expires \(VaultReading.spelled(expires))"].filter { !$0.isEmpty }
         return VaultFind(title: "Passport", value: number, note: VaultReading.sentence(note), facts: facts)
     }
@@ -866,10 +879,11 @@ public struct MachineZone: Equatable, Sendable {
         details.append(VaultDetail("Valid until", .date(expires)))
         details.append(VaultDetail("In passport", .number(number)))
         let country = issuer == "USA" ? "US" : issuer
-        let facts = VaultReadFacts(category: .usVisa, holder: holder.isEmpty ? nil : holder, born: born,
+        var facts = VaultReadFacts(category: .usVisa, holder: holder.isEmpty ? nil : holder, born: born,
                                    issuer: issuer, dated: issued ?? expires, validUntil: expires,
                                    inPassport: number, details: details,
                                    sources: [VaultSource(path: path, role: "Visa foil" + where_, rank: VaultReading.Rank.visaFoil)])
+        facts.zoneWorkedOut = workedOut(on: printed) ? true : nil
         let title = "\(country) visa" + (visaClass.map { " · \($0)" } ?? "")
         let note = [holder, "expires \(VaultReading.spelled(expires))"].filter { !$0.isEmpty }
         return VaultFind(title: title, value: control, note: VaultReading.sentence(note), facts: facts)
@@ -891,9 +905,10 @@ public struct MachineZone: Equatable, Sendable {
         if let issued { details.append(VaultDetail("Issued", .date(issued))) }
         details.append(VaultDetail("Valid", .text("Lifelong")))
         if let passport { details.append(VaultDetail("Passport", .number(passport))) }
-        let facts = VaultReadFacts(category: .usVisa, holder: holder.isEmpty ? nil : holder, born: born, issuer: "IND",
+        var facts = VaultReadFacts(category: .usVisa, holder: holder.isEmpty ? nil : holder, born: born, issuer: "IND",
                                    form: "OCI", dated: issued, details: details,
                                    sources: [VaultSource(path: path, role: "OCI card" + where_, rank: VaultReading.Rank.visaFoil)])
+        facts.zoneWorkedOut = workedOut(on: printed) ? true : nil
         let note = [holder, "OCI for life"].filter { !$0.isEmpty }
         return VaultFind(title: "OCI card", value: number, note: VaultReading.sentence(note), facts: facts)
     }

@@ -22,6 +22,24 @@ import Testing
         #expect(find?.holder == "Anna Eriksson")
     }
 
+    /// VT93 (owner, 2026-11-26): an older card's holder line spoiled by the scan leaves only the
+    /// father's read; the card is offered with no holder rather than as his. Read whole, or with
+    /// the father's line spoiled instead, the holder is the holder still.
+    @Test func anOlderPANCardWhoseHolderLineIsSpoiledTakesNoHolder() {
+        let header = ["INCOME TAX DEPARTMENT", "GOVT. OF INDIA", "Permanent Account Number", "ABCPE1234F"]
+        func holder(_ lines: [String]) -> String?? { VaultFixtures.read(lines).first.map(\.holder) }
+        #expect(holder(header + ["ANN4 ER1KSS0N", "ERIK ERIKSSON", "12/08/1974"]) == .some(nil), "digits for letters")
+        #expect(holder(header + ["ANNA FRIKSSON", "ERIK ERIKSSON", "12/08/1974"]) == .some(nil), "the surname's letter misread")
+        #expect(holder(header + ["ANNA ERIKSSON", "ER1K ERlKSS0N", "12/08/1974"]) == "Anna Eriksson", "the father's spoiled")
+        #expect(holder(header + ["ANNA ERIKSSON", "ERIK ERIKSSON", "12/08/1974"]) == "Anna Eriksson")
+        // The other layout: the names above the number.
+        let above = ["INCOME TAX DEPARTMENT", "GOVT. OF INDIA", "ANNA FRIKSSON", "ERIK ERIKSSON", "12/08/1974",
+                     "Permanent Account Number", "ABCPE1234F"]
+        #expect(holder(above) == .some(nil))
+        // A labelled card goes by its labels, as before.
+        #expect(holder(VaultIDReadingTests.panCard) == "Anna Eriksson")
+    }
+
     @Test func anotherScriptsDigitsNeitherCrashNorRead() {
         #expect(VaultFixtures.read(["Unique Identification Authority of India", "2345 ६७८९ ०१२३"]).isEmpty)
         #expect(!VaultReading.passesVerhoeff("2345६७८९०१२३"))

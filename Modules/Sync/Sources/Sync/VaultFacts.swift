@@ -147,6 +147,11 @@ public struct VaultReadFacts: Codable, Equatable, Sendable {
     /// the name says nothing about whose it is (``VaultModel``'s copies of one number). Nil
     /// otherwise.
     public var printedForSubscriber: Bool?
+    /// The machine-readable zone was read only after a smudged character was worked out from its
+    /// check digits (``MachineZone/Recovery``, `fill` or `swap`), and nothing else on the page
+    /// prints the same number and dates: true then, nil otherwise. The details say to compare it
+    /// with the document (VT51, owner, 2026-11-26). Never counted in which reading speaks.
+    public var zoneWorkedOut: Bool?
 
     public init(category: VaultCategory, holder: String? = nil, born: Date? = nil, issuer: String? = nil,
                 form: String? = nil, dated: Date? = nil, validUntil: Date? = nil, pending: Bool = false,
@@ -745,6 +750,8 @@ public enum VaultCopies {
             guard sameDocument(speaker, copy.facts) || newer == true else { continue }
             lend(copy.facts.details, to: &best.facts.details)
         }
+        // Worked out only while every copy was: one read cleanly vouches for the number (VT51).
+        best.facts.zoneWorkedOut = ordered.allSatisfy { $0.facts.zoneWorkedOut == true } ? true : nil
         return best
     }
 

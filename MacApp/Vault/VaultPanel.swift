@@ -3407,6 +3407,7 @@ struct VaultCard: View {
                     callout("Expired, and the newest of its kind read for \(row.whose). It stays here until a newer one is read.",
                             tint: SemanticColor.warning)
                 }
+                if let note = row.zoneNote { callout(note, tint: SemanticColor.warning) }
                 refreshNotes(row, shown: shown)
                 numberBox(row, shown: shown)
                 actionBar(row)

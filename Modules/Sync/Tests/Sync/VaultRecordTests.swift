@@ -27,6 +27,7 @@ import Testing
                                addedAt: day, updatedAt: day.addingTimeInterval(60), category: .passport, facts: facts)
         entry.facts?.spokenBy = "Immigration/Passport/Pat/Passport 2030.pdf"
         entry.facts?.printedForSubscriber = true
+        entry.facts?.zoneWorkedOut = true
         entry.assignment = .person("pat")
         entry.pin = .older
         entry.geo = .india
@@ -459,7 +460,10 @@ extension VaultRecordTests {
         "records[].origin.read.facts.sources[].phones[].number",
         "records[].origin.read.facts.sources[].phones[].person",
         "records[].origin.read.facts.sources[].rank", "records[].origin.read.facts.sources[].role",
-        "records[].origin.read.facts.spokenBy", "records[].origin.read.facts.validUntil",
+        "records[].origin.read.facts.spokenBy",
+        // VT51 (2026-11-26): no format change. It is what a read found, and comes back at the
+        // next read of its file; a build before it, saving, drops only that note.
+        "records[].origin.read.facts.zoneWorkedOut", "records[].origin.read.facts.validUntil",
         "records[].origin.read.savedFrom", "records[].origin.typed", "records[].owner",
         "records[].owner.household", "records[].owner.person", "records[].readAs",
         "records[].readAs[].contents", "records[].readAs[].reads", "records[].state", "records[].title",

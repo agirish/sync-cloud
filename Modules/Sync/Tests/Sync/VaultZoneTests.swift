@@ -146,4 +146,28 @@ import Testing
         #expect(line == "Vault: 3 machine-readable zone(s) read: asRead 2, fill 1, swap 0, printedNumber 0")
         #expect(!line.contains(specimen.number))
     }
+
+    /// VT51 (owner, 2026-11-26): a zone read only by working out a smudged character is offered
+    /// with a note to compare it with the document. The page printing its number and dates
+    /// outside the zone vouches for it, as a copy read cleanly does.
+    @Test func aZoneWorkedOutFromASmudgeIsMarkedToCheck() throws {
+        let zone = VaultReadingTests.zone("P", number: "X1234567", born: "740812", expires: "320415")
+        var smudged = Array(zone[1])
+        smudged[15] = "~"   // a birth date digit the scan lost
+        let page = ["PASSPORT", zone[0], String(smudged)]
+        let find = try #require(VaultFixtures.read(page).first { $0.facts.category == .passport })
+        #expect(find.value == "X1234567", "worked out all the same")
+        #expect(find.facts.zoneWorkedOut == true)
+        // Read whole, no note.
+        let clean = try #require(VaultFixtures.read(["PASSPORT"] + zone).first { $0.facts.category == .passport })
+        #expect(clean.facts.zoneWorkedOut == nil)
+        // The page printing the number and both dates outside the zone: no note.
+        let printed = ["PASSPORT", "Passport No. X1234567", "Date of Birth 12 AUG 1974", "Date of Expiry 15 APR 2032"] + Array(page.dropFirst())
+        #expect(VaultFixtures.read(printed).first { $0.facts.category == .passport }?.facts.zoneWorkedOut == nil)
+        // Two copies, one read cleanly: it vouches for the number.
+        var other = clean
+        other.facts.sources = [VaultSource(path: "/docs/copy.pdf", role: "Passport photo page", rank: 50)]
+        #expect(VaultCopies.merged([find, other])?.facts.zoneWorkedOut == nil)
+        #expect(VaultCopies.merged([find])?.facts.zoneWorkedOut == true)
+    }
 }

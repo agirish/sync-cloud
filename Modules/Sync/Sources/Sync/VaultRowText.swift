@@ -52,6 +52,14 @@ extension VaultModel.Row {
         return row.isTypedIn ? row.title : row.title.replacingOccurrences(of: " case", with: "")
     }
 
+    /// What the details say of a number read only by working out a smudged character of its
+    /// document's machine-readable zone, which nothing else on the page vouched for (VT51, owner,
+    /// 2026-11-26): it is offered still, to be compared with the document.
+    public var zoneNote: String? {
+        guard facts?.zoneWorkedOut == true else { return nil }
+        return "One character in the lines of <<< at the bottom was smudged and worked out from its check digits. Compare the number and dates with the document."
+    }
+
     /// Why an ID is on the card it is, when not as read: never lost from sight. The folder's
     /// name is masked unless its ID is `shown`, as the documents list masks it (the final review).
     public func kindNote(shown: Bool) -> String? {

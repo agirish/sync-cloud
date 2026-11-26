@@ -707,7 +707,13 @@ extension VaultReading {
 
     /// The first name on the page whose surname starts with the PAN's fifth letter: the card holder,
     /// before the father's name printed below it.
+    ///
+    /// An older card prints no labels: the holder's name, then the father's, who shares the
+    /// surname's letter. With only one of them read, and a line just above it that looks like a
+    /// name the scan spoiled, the one read may be the father's: no holder is taken, and whose the
+    /// card is comes from its folder or the user (VT93, owner, 2026-11-26).
     private static func panHolder(_ page: [String], initial: Character) -> String? {
+        var named: [(index: Int, name: String)] = []
         for (index, line) in page.enumerated() {
             // The line under "Father's Name" is the father's, who shares the surname's letter.
             if index > 0, relativeLabels.contains(where: page[index - 1].lowercased().contains) { continue }
@@ -718,9 +724,27 @@ extension VaultReading {
             }
             guard let name = nameOnly(text), let last = name.split(separator: " ").last,
                   last.uppercased().first == initial else { continue }
-            return name
+            named.append((index, name))
         }
-        return nil
+        guard let first = named.first else { return nil }
+        let labelled = page.contains { line in
+            relativeLabels.contains(where: line.lowercased().contains)
+                || line.range(of: #"^\s*Name\b"#, options: [.regularExpression, .caseInsensitive]) != nil
+        }
+        guard !labelled, named.count == 1 else { return first.name }
+        let above = page[max(0, first.index - 2)..<first.index]
+        return above.contains(where: spoiledName) ? nil : first.name
+    }
+
+    /// Whether a line looks like a name the scan spoiled: two words or more, mostly Latin letters,
+    /// no card word or relative's label, yet not read as a name of the card's surname letter.
+    static func spoiledName(_ line: String) -> Bool {
+        let words = line.split(separator: " ").map { $0.lowercased().filter(\.isLetter) }.filter { $0.count >= 2 }
+        guard words.count >= 2, !words.contains(where: cardWords.contains),
+              !relativeLabels.contains(where: line.lowercased().contains) else { return false }
+        let marks = line.filter { !$0.isWhitespace }
+        let letters = marks.filter { $0.isLetter && $0.isASCII }
+        return letters.count >= 5 && Double(letters.count) >= 0.6 * Double(marks.count)
     }
 
     // MARK: Aadhaar
