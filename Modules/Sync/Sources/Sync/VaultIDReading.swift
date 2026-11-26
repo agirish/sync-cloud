@@ -571,6 +571,29 @@ extension VaultReading {
         return try! NSRegularExpression(pattern: "(?m)(?:\(tied)|\(named)|\(together))")
     }()
 
+    /// The e-PAN's own heading, "e-Permanent Account Number Card" or "e - Permanent Account Number
+    /// (e-PAN) Card": a small e, so never the end of "the" or "i.e", nor a list's lettered item.
+    private static let ePANHeading = try! NSRegularExpression(
+        pattern: #"(?<![A-Za-z.])e[ \t]*[-\u2010-\u2014]?[ \t]*[Pp](?i:ermanent\s+account\s+number)"#)
+
+    /// The label over a PAN card's holder or father, alone on its line, after its Hindi and a
+    /// slash or without: "Name", "नाम / Name", "Father's Name". A form's field carries its value or
+    /// more words beside it ("Name of applicant: …").
+    private static let holderLabel = try! NSRegularExpression(
+        pattern: #"(?i)^(?:[^A-Za-z/]*/)?[ \t]*(?:father['’]?s[ \t]*)?name[ \t]*:?[ \t]*$"#)
+
+    /// Whether a page naming the e-PAN is the e-PAN: its heading, or the holder's block under it.
+    /// A form asking for a copy of one only names it.
+    private static func isEPAN(_ printed: PrintedPage) -> Bool {
+        let text = printed.text
+        guard ePANHeading.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) == nil else {
+            return true
+        }
+        return printed.lines.contains { line in
+            holderLabel.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil
+        }
+    }
+
     static func panNumbers(on printed: PrintedPage, from path: String) -> [VaultFind] {
         let page = printed.lines
         let squeezed = printed.spacedSqueezed
@@ -578,10 +601,11 @@ extension VaultReading {
         let ePAN = ePANWord.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) != nil
         guard squeezed.contains("permanentaccountnumber") || squeezed.contains("incometaxdepartment")
                 || ePAN || squeezed.contains("panverification") else { return [] }
-        // An e-PAN prints neither the department nor "card", only that it is one. The department's
-        // name alone is on every tax notice too: the older card also prints "GOVT. OF INDIA" and
-        // the holder's father, which a notice does not.
-        let card = squeezed.contains("permanentaccountnumbercard") || ePAN || squeezed.contains("cardnotvalidunless")
+        // An e-PAN prints neither the department nor "card", only that it is one, and its holder's
+        // block. The department's name alone is on every tax notice too: the older card also
+        // prints "GOVT. OF INDIA" and the holder's father, which a notice does not.
+        let card = squeezed.contains("permanentaccountnumbercard") || (ePAN && isEPAN(printed))
+            || squeezed.contains("cardnotvalidunless")
             || squeezed.contains("panverificationrecord")
             || (squeezed.contains("incometaxdepartment") && squeezed.contains("govt")
                 && squeezed.contains("permanentaccountnumber")

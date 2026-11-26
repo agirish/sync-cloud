@@ -98,6 +98,32 @@ import Testing
         }
     }
 
+    @Test func aFormAskingForAnEPANIsNotTheCard() throws {
+        // A form that only names the e-PAN as a paper to attach quotes the number, as any form does:
+        // it never says whose it is, nor ties the card.
+        let forms = [["KYC Application Form", "Name of applicant: ANNA ERIKSSON", "PAN ABCPE1234F",
+                      "Please attach a copy of PAN card / e-PAN"],
+                     ["INCOME TAX DEPARTMENT", "Form 49A", "PAN ABCPE1234F", "Upload your e-PAN"],
+                     ["Account opening checklist", "ePAN or PAN card copy", "PAN: ABCPE1234F", "Date of birth: 12/08/1974"]]
+        for form in forms {
+            let find = try #require(VaultFixtures.read(form).first, "\(form[0])")
+            #expect(find.value == "ABCPE1234F", "\(form[0])")
+            #expect(find.facts.primary?.rank == VaultReading.IDRank.quoted, "\(form[0])")
+            #expect(find.holder == nil, "\(form[0])")
+            #expect(find.facts.born == nil, "\(form[0])")
+        }
+        // The e-PAN itself prints its own heading (here the only cue: the name shares its label's
+        // line), or the holder's block under bilingual labels.
+        let ePANs = [["e - Permanent Account Number (e-PAN) Card", "ABCPE1234F", "Name ANNA ERIKSSON"],
+                     ["INCOME TAX DEPARTMENT", "e-PAN", "ABCPE1234F", "नाम / Name", "ANNA ERIKSSON",
+                      "पिता का नाम / Father\u{2019}s Name", "ERIK ERIKSSON", "जन्म की तारीख / Date of Birth", "12/08/1974"]]
+        for page in ePANs {
+            let card = try #require(VaultFixtures.read(page).first, "\(page[1])")
+            #expect(card.facts.primary?.rank == VaultReading.IDRank.card, "\(page[1])")
+            #expect(card.holder == "Anna Eriksson", "\(page[1])")
+        }
+    }
+
     @Test func anOpenEnrollmentNoticeIsNotAnAadhaarLetter() throws {
         // A health plan's twelve-digit member ID, which passes Verhoeff one time in ten.
         let member = VaultIDReadingTests.spaced(VaultIDReadingTests.aadhaar("23456789012"))

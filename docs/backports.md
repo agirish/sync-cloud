@@ -16311,6 +16311,7 @@ Batch 46: the ink-only reading takes the render size the first reading needed (V
 Batch 47: a full typed page over a scan is read from its picture too (VT88).
 Batch 48: a page read both ways is one page, its typed reading speaking (VT88).
 Batch 49: a scan drawn inline or by an annotation is read (VT88).
+Batch 50: a page naming an e-PAN is not the PAN card (VT90).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed
