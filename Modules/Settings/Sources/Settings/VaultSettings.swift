@@ -35,6 +35,9 @@ struct VaultSettingsTab: View {
     @State private var askingPassphraseFor: BackupFile?
     /// A backup opened and waiting for the choice of how to put it back.
     @State private var restoreOffer: RestoreOffer?
+    /// When Touch ID was given to open the backup being restored: Restore asks again only after
+    /// ``VaultBackup/proofLasts`` (VT114).
+    @State private var restoreProvedAt: Date?
     /// macOS's prompt is up. Show… waits for its answer rather than queue a second prompt.
     @State private var isAsking = false
     /// Why the Vault is not used on this Mac: Touch ID is not set up. Asked as the page appears
@@ -109,20 +112,32 @@ struct VaultSettingsTab: View {
                 SettingsRow("Backup passphrase") {
                     HStack(spacing: 8) {
                         Text(hasPassphrase ? "Set" : "Not set").foregroundStyle(.secondary)
-                        Button(hasPassphrase ? "Change…" : "Set…") { settingPassphrase = true }
-                            .controlSize(.small)
+                        Button(hasPassphrase ? "Change…" : "Set…") {
+                            Task { @MainActor in
+                                if await proved(hasPassphrase ? "change the Vault’s backup passphrase" : "set the Vault’s backup passphrase") {
+                                    settingPassphrase = true
+                                }
+                            }
+                        }
+                        .controlSize(.small)
+                        .disabled(isAsking || touchIDMissing != nil)
                     }
-                    .help("Kept in your keychain so a backup can be made without asking for it. Backups already made open with the passphrase they were made with.")
+                    .help("Asks for Touch ID. Kept in your keychain so a backup can be made without asking for it. Backups already made open with the passphrase they were made with.")
                 }
                 SettingsRow("Backup folder") {
                     HStack(spacing: 8) {
                         Text((backupFolder as NSString).abbreviatingWithTildeInPath)
                             .foregroundStyle(.secondary)
                             .lineLimit(1).truncationMode(.middle)
-                        Button("Choose…") { chooseBackupFolder() }
-                            .controlSize(.small)
+                        Button("Choose…") {
+                            Task { @MainActor in
+                                if await proved("choose where the Vault’s backups go") { chooseBackupFolder() }
+                            }
+                        }
+                        .controlSize(.small)
+                        .disabled(isAsking || touchIDMissing != nil)
                     }
-                    .help("Where backups are written. A folder that syncs is fine: the file is sealed.")
+                    .help("Asks for Touch ID. Where backups are written. A folder that syncs is fine: the file is sealed.")
                 }
                 Toggle("Back up every week", isOn: $backsUpWeekly.loggingSettingsChange("vault.backupWeekly"))
                     .help("Makes a backup when the Vault is opened and the last one is a week old. It needs a passphrase set.")
@@ -142,7 +157,7 @@ struct VaultSettingsTab: View {
                     Button("Choose…") { chooseBackupToRestore() }
                         .controlSize(.small)
                         .disabled(isBackingUp || touchIDMissing != nil)
-                        .help("Opens a backup file. You choose whether to add what this Vault is missing or to replace it.")
+                        .help("Asks for Touch ID, then opens a backup file. You choose whether to add what this Vault is missing or to replace it.")
                 }
                 if let backupMessage {
                     Text(backupMessage)
@@ -371,6 +386,15 @@ struct VaultSettingsTab: View {
         lastBackup = backup.lastBackup
     }
 
+    /// Touch ID before a change to the backup or a restore (VT114, owner, 2026-11-26): someone at
+    /// the unlocked Mac must not send the next backup, every ID in it, somewhere of theirs.
+    private func proved(_ reason: String) async -> Bool {
+        guard let backup, !isAsking else { return false }
+        isAsking = true
+        defer { isAsking = false }
+        return await backup.prove(reason)
+    }
+
     private func chooseBackupFolder() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -418,6 +442,9 @@ struct VaultSettingsTab: View {
         openingBackup = true
         Task { @MainActor in
             defer { openingBackup = false }
+            // Touch ID before the backup is opened and this Vault's IDs counted against it (VT114).
+            guard await proved("open a backup of your Vault") else { return }
+            restoreProvedAt = Date()
             switch await backup.read(url) {
             case .success(let contents):
                 offerRestore(contents)
@@ -438,7 +465,8 @@ struct VaultSettingsTab: View {
         guard let backup else { return }
         isBackingUp = true
         Task { @MainActor in
-            let result = await backup.restore(contents, mode: mode)
+            let result = await backup.restore(contents, mode: mode, provedAt: restoreProvedAt)
+            restoreProvedAt = nil
             isBackingUp = false
             switch result {
             case .success(let count):

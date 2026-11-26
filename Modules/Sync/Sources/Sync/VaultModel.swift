@@ -1594,6 +1594,9 @@ public final class VaultModel: ObservableObject {
         // unlocked (on open, and as the lock lifts).
         if let backingUp { return backingUp }
         guard let backup, contents == .loaded, !isSealedShut, !entries.isEmpty, backup.isDue else { return nil }
+        // Only after Touch ID since the Vault loaded (VT114): "For every number" loads it with
+        // none, and a backup is every ID in it.
+        guard provedSinceLoad else { return nil }
         // A later build's document is not this build's to back up: it would leave out what it
         // cannot read.
         if keepsDocument, readOnly == .newerFormat { return nil }
@@ -1613,6 +1616,10 @@ public final class VaultModel: ObservableObject {
         backingUp = task
         return task
     }
+
+    /// Touch ID was given since the Vault last loaded: to open it, or for a number. What the weekly
+    /// backup waits for (VT114).
+    private var provedSinceLoad = false
 
     /// The weekly backup being written, if one is.
     private var backingUp: Task<Void, Never>?
@@ -1786,6 +1793,7 @@ public final class VaultModel: ObservableObject {
         }
         entries = []
         finds = []
+        provedSinceLoad = false
         cardReadings = [:]
         correctionUndo = nil
         lastCorrection = nil
@@ -1986,6 +1994,9 @@ public final class VaultModel: ObservableObject {
             notice = nil
             lock.proved(for: ids, at: now)
             if ids.isEmpty { record(.unlocked) }
+            provedSinceLoad = true
+            // "For every number": the weekly backup waits for the first proof (VT114).
+            if !ids.isEmpty { backUpIfDue() }
             return true
         case .cancelled:
             // Someone asked and did not prove it: worth a line, since it may not have been the owner.

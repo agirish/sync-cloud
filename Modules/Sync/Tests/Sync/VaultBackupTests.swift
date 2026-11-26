@@ -203,6 +203,49 @@ import Testing
         #expect(try await backup.read(made).get().entries == [Self.mortgage])
     }
 
+    /// VT114 (owner, 2026-11-26): "For every number" loads the Vault with no proof; the weekly
+    /// backup, every ID in it, waits for the first Touch ID, and is made then.
+    @Test func underForEveryNumberTheWeeklyBackupWaitsForTouchID() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.mortgage])
+        rig.defaults.set(VaultLockSettings.Ask.everyNumber.rawValue, forKey: VaultLockSettings.askKey)
+        let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
+        let backup = Self.backup(rig, folder: folder)
+        try backup.setPassphrase(Self.phrase)
+        rig.auth.answer = .allowed
+        let model = rig.model(backup: backup)
+        await model.opened()
+        try #require(model.contents == .loaded && !model.isSealedShut, "loaded with no proof")
+        #expect(rig.auth.reasons.isEmpty)
+        #expect(model.backUpIfDue() == nil, "a backup with no Touch ID since the Vault loaded")
+        #expect(backup.lastBackup == nil)
+
+        #expect(await model.copy(Self.mortgage.id))
+        await model.backUpIfDue()?.value
+        #expect(backup.lastBackup != nil, "made after the first proof")
+    }
+
+    /// VT114: Settings asks Touch ID before a backup is opened; Restore then asks nothing more
+    /// within ``VaultBackup/proofLasts``, and asks again after.
+    @Test func aProofToOpenABackupStandsForItsRestoreAWhile() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.mortgage])
+        let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
+        let backup = Self.backup(rig, folder: folder)
+        let contents = VaultBackupContents(madeAt: VaultLockTests.t0, entries: [Self.mortgage, Self.passport])
+        rig.auth.answer = .cancelled
+        #expect(await backup.prove("open a backup of your Vault") == false)
+        rig.auth.answer = .allowed
+        #expect(await backup.prove("open a backup of your Vault"))
+        let provedAt = rig.clock.now
+        let asked = rig.auth.reasons.count
+        #expect(await backup.restore(contents, mode: .addMissing, provedAt: provedAt) == .success(2))
+        #expect(rig.auth.reasons.count == asked, "asked again within the time")
+        rig.clock.advance(VaultBackup.proofLasts + 1)
+        rig.auth.answer = .cancelled
+        #expect(await backup.restore(contents, mode: .addMissing, provedAt: provedAt) == .failure(.notProved))
+    }
+
     // MARK: Putting one back
 
     @Test func addWhatIsMissingAddsOnlyWhatThisVaultLacksAndChangesNothingElse() async throws {

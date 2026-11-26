@@ -504,6 +504,18 @@ public struct VaultBackup {
 
     /// Back Up Now: proves it is the owner, reads the Vault, and writes a backup, with the
     /// household's typed contacts as the weekly backup carries them.
+    /// Touch ID for a change to where a backup goes or what it is sealed under, or before a backup
+    /// is opened to restore (VT114, owner, 2026-11-26): someone at the unlocked Mac could otherwise
+    /// send the next weekly backup, every ID in it, to a folder and passphrase of theirs. True when
+    /// it was given.
+    public func prove(_ reason: String) async -> Bool {
+        if case .allowed = await authenticator.prove(reason: reason) { return true }
+        return false
+    }
+
+    /// How long a proof to open a backup also stands for restoring it.
+    public static let proofLasts: TimeInterval = 120
+
     public func backUpNow() async -> Result<URL, VaultBackupError> {
         guard hasPassphrase else { return .failure(.noPassphrase) }
         guard case .allowed = await authenticator.prove(reason: "back up your Vault") else { return .failure(.notProved) }
@@ -617,9 +629,16 @@ public struct VaultBackup {
     /// Into a Vault kept as the v7.2 document, the document is written (``restoreDocument(_:mode:)``),
     /// from a backup of either version. Into one still kept in the v1 files, the v1 file is, as
     /// before 7.2: a version 2 backup gives it its saved IDs, typed contacts and kinds.
-    public func restore(_ contents: VaultBackupContents, mode: VaultRestoreMode) async -> Result<Int, VaultBackupError> {
-        guard case .allowed = await authenticator.prove(reason: "restore your Vault from a backup") else {
-            return .failure(.notProved)
+    ///
+    /// `provedAt`: when Touch ID was given to open this backup (``prove(_:)``, VT114). Within
+    /// ``proofLasts`` of it nothing more is asked; otherwise Restore asks.
+    public func restore(_ contents: VaultBackupContents, mode: VaultRestoreMode,
+                        provedAt: Date? = nil) async -> Result<Int, VaultBackupError> {
+        let fresh = provedAt.map { clock().timeIntervalSince($0) < Self.proofLasts } ?? false
+        if !fresh {
+            guard case .allowed = await authenticator.prove(reason: "restore your Vault from a backup") else {
+                return .failure(.notProved)
+            }
         }
         if store.keepsDocument { return restoreDocument(contents, mode: mode) }
         let entries: [VaultEntry]
