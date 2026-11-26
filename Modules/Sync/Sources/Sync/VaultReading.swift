@@ -138,14 +138,29 @@ public enum VaultReading {
     /// Every number on a document, once each, and the numbers it only names.
     /// `roots` are the read folders and `people` the household's, for account numbers: which area
     /// a paper is in, and which of its folders names who issued it (``accountNumbers(on:from:under:people:)``).
+    /// `origins` says which page of the file each of `pages` is, and which reading of a page read
+    /// both ways (``VaultPageSource/filePages(_:)``); nil when each is the page of its place.
     public static func read(pages: [[String]], from path: String, under roots: [String] = [],
-                            people: [Person] = []) -> (finds: [VaultFind], mentions: [VaultMention]) {
+                            people: [Person] = [], origins: [VaultPageOrigin]? = nil)
+        -> (finds: [VaultFind], mentions: [VaultMention]) {
+        let origins = origins.flatMap { $0.count == pages.count ? $0 : nil } ?? pages.indices.map { VaultPageOrigin(page: $0 + 1) }
         var out: [VaultFind] = []
         var seen = Set<String>()
-        func keep(_ find: VaultFind) {
+        // The page each number kept was first read on, by its index in `pages`.
+        var readOn: [String: Int] = [:]
+        func keep(_ find: VaultFind, on page: Int) {
             let key = normalized(find.value)
             if seen.insert(key).inserted {
                 out.append(find)
+                readOn[key] = page
+            } else if let index = out.firstIndex(where: { normalized($0.value) == key }),
+                      let held = readOn[key], origins[held].page == origins[page].page,
+                      Set([origins[held].half, origins[page].half]) == [.textLayer, .picture] {
+                // One page's text layer and its picture: the layer speaks, as typed (VT88).
+                let heldIsLayer = origins[held].half == .textLayer
+                let both = heldIsLayer ? VaultCopies.filled(out[index], from: find) : VaultCopies.filled(find, from: out[index])
+                out[index] = VaultFind(id: out[index].id, title: both.title, value: both.value, note: both.note, facts: both.facts)
+                readOn[key] = heldIsLayer ? held : page
             } else if let index = out.firstIndex(where: { normalized($0.value) == key }),
                       let both = VaultCopies.merged([out[index], find]) {
                 // The same number on two pages of one file (a receipt notice, then its approval):
@@ -160,6 +175,7 @@ public enum VaultReading {
         let printedPages = pages.map(PrintedPage.init)
         var visaPassports: [VaultMention] = []
         var allZones: [MachineZone] = []
+        let paged = origins.contains { $0.page > 1 }
         for (index, page) in printedPages.enumerated() {
             let zones = MachineZone.zones(in: page.lines)
             allZones += zones
@@ -170,27 +186,30 @@ public enum VaultReading {
                     visaPassports.append(VaultMention(value: zone.number, category: .passport,
                                                       source: VaultSource(path: path, role: "US visa", rank: Rank.mention)))
                 }
-                if let find = zone.find(from: path, page: pages.count > 1 ? index + 1 : nil, printed: printed, file: file) {
-                    keep(find)
+                // Its page of the file, when the file has more than one: a second reading of a
+                // page (``VaultPageSource/filePages(_:)``) is that page, never one past the last.
+                if let find = zone.find(from: path, page: paged ? origins[index].page : nil, printed: printed, file: file) {
+                    keep(find, on: index)
                 }
             }
         }
         if let line = MachineZone.recoveryLine(allZones) { Events.Logger.shared.debug(line) }
         // Page by page: one PDF can hold two notices, each for its own person, form and dates.
-        for printed in printedPages {
-            for find in receiptNumbers(in: printed.text, from: path) { keep(find) }
-            for find in admissionNumbers(in: printed.text, from: path) { keep(find) }
-            for find in travelPermits(on: printed, from: path) { keep(find) }
-            for find in accountNumbers(on: printed, from: path, under: roots, people: people) { keep(find) }
+        for (index, printed) in printedPages.enumerated() {
+            for find in receiptNumbers(in: printed.text, from: path) { keep(find, on: index) }
+            for find in admissionNumbers(in: printed.text, from: path) { keep(find, on: index) }
+            for find in travelPermits(on: printed, from: path) { keep(find, on: index) }
+            for find in accountNumbers(on: printed, from: path, under: roots, people: people) { keep(find, on: index) }
         }
         // A license's barcode before its printed front, wherever each is in the file: it states
         // what the front's print can only suggest.
-        let identity = printedPages.flatMap { identityNumbers(on: $0, from: path) }.enumerated().sorted { a, b in
-            let (ba, bb) = (a.element.facts.primary?.role.hasSuffix("barcode") == true,
-                            b.element.facts.primary?.role.hasSuffix("barcode") == true)
-            return ba != bb ? ba : a.offset < b.offset
-        }
-        for (_, find) in identity { keep(find) }
+        let identity = printedPages.indices.flatMap { index in identityNumbers(on: printedPages[index], from: path).map { (index, $0) } }
+            .enumerated().sorted { a, b in
+                let (ba, bb) = (a.element.1.facts.primary?.role.hasSuffix("barcode") == true,
+                                b.element.1.facts.primary?.role.hasSuffix("barcode") == true)
+                return ba != bb ? ba : a.offset < b.offset
+            }
+        for (_, (index, find)) in identity { keep(find, on: index) }
         // The home the paper is mailed to and the phones it prints under a name in People, as of
         // the paper's date: read once for the file, and given to each number it holds. A
         // license's barcode keeps the address it states.

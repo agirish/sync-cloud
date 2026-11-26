@@ -325,6 +325,49 @@ import Testing
         #expect(same == VaultPageSource.Reading(lines: ["Statement, page 1 of 2.", "Account Number: 1234 5678 9012"]))
     }
 
+    /// The layer and the picture read one number, and the picture knows more of it (its form) but
+    /// misreads the name the layer has exactly. The layer's words speak; the picture adds only
+    /// what the layer is silent on (VT88). As two documents, the picture spoke for having more,
+    /// misread name and all, and the layer was dropped as saying nothing new.
+    @Test func whereBothReadOneNumberTheLayersNameSpeaks() throws {
+        let typed = "Receipt Number LIN2412345678\nApplicant ERIKSSON, ANNA"
+        let notice = ["I-797C Receipt Notice", "Receipt Number LIN2412345678", "Applicant ERIKSSON, ANMA", "Form I-539"]
+        func read(_ picture: [String]) throws -> VaultFind {
+            let reading = try #require(Self.reading(typed, Self.picture(Asked(), reads: picture)))
+            let file = VaultPageSource.filePages([(1, reading)])
+            let finds = VaultReading.read(pages: file.pages, from: Self.path, origins: file.origins).finds
+            return try #require(finds.first { $0.value == "LIN2412345678" })
+        }
+        let find = try read(notice)
+        #expect(find.holder == "Anna Eriksson")
+        #expect(find.facts.form == "I-539", "what the layer is silent on comes from the picture")
+        // The picture with a number of its own is the page, and the layer the second reading: the
+        // layer still speaks for the number both read.
+        let more = try read(notice + ["Receipt Number EAC2190012345"])
+        #expect(more.holder == "Anna Eriksson" && more.facts.form == "I-539")
+    }
+
+    /// A page read both ways is one page of its file, whichever reading a zone is found in: a
+    /// one-page file's zone names no page, and a second reading's zone is on the page it was read
+    /// from, never one past the last (VT88). The typed zone under a picture that reads another
+    /// number is that second reading.
+    @Test func aSecondReadingIsThePageItWasReadFrom() throws {
+        let zone = Self.passport.joined(separator: "\n")
+        let reading = try #require(Self.reading(zone, Self.picture(Asked(), reads: ["Receipt Number EAC2190012345"])))
+        #expect(reading == VaultPageSource.Reading(lines: ["Receipt Number EAC2190012345"], also: Self.passport))
+        func role(_ read: [(page: Int, reading: VaultPageSource.Reading)]) throws -> String? {
+            let file = VaultPageSource.filePages(read)
+            #expect(file.pages.count == read.count + 1, "the second reading is a page of its own")
+            let finds = VaultReading.read(pages: file.pages, from: Self.path, origins: file.origins).finds
+            return try #require(finds.first { $0.value == "L898902C3" }).facts.primary?.role
+        }
+        #expect(try role([(1, reading)]) == "Passport photo page")
+        let cover = VaultPageSource.Reading(lines: ["Cover letter for the enclosed copies."])
+        #expect(try role([(1, cover), (2, reading)]) == "Passport photo page · page 2")
+        // A page left out (Vision refused it) leaves the next its own number.
+        #expect(try role([(2, reading)]) == "Passport photo page · page 2")
+    }
+
     /// The layer only names the number (a cover sheet: "passport number L898902C3 enclosed");
     /// the picture reads it, from the passport itself. Naming is less than reading: on the
     /// owner's papers two passport scans gave nothing while the two were counted alike.

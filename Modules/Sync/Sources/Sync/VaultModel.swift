@@ -15,7 +15,9 @@ public protocol VaultDocumentReading: Sendable {
     func reading(_ file: URL) async -> (pages: [[String]], complete: Bool)
     /// ``reading(_:)``, and how it went, counts only (VT25): passed over as locked or unopenable,
     /// pages not recognised, pages read from their picture. A reader that cannot tell notes nothing.
-    func noted(_ file: URL) async -> (pages: [[String]], complete: Bool, notes: VaultReadNotes)
+    /// `origins` says which page of the file each page is, and which reading of a page read both
+    /// ways (``VaultPageSource/filePages(_:)``); nil when each is the page of its place (VT88).
+    func noted(_ file: URL) async -> (pages: [[String]], complete: Bool, notes: VaultReadNotes, origins: [VaultPageOrigin]?)
     /// What a file holds, as a key two files share only when their bytes are the same (its size
     /// and SHA-256): a file whose bytes were read already in this read is not read again, its
     /// pages reused (VT107). Nil when the reader cannot tell, which reads every file.
@@ -45,9 +47,9 @@ extension VaultDocumentReading {
 
     public func reading(_ file: URL) async -> (pages: [[String]], complete: Bool) { (await pages(in: file), true) }
 
-    public func noted(_ file: URL) async -> (pages: [[String]], complete: Bool, notes: VaultReadNotes) {
+    public func noted(_ file: URL) async -> (pages: [[String]], complete: Bool, notes: VaultReadNotes, origins: [VaultPageOrigin]?) {
         let read = await reading(file)
-        return (read.pages, read.complete, VaultReadNotes())
+        return (read.pages, read.complete, VaultReadNotes(), nil)
     }
 
     public func contentKey(of file: URL) async -> String? { nil }
@@ -2471,7 +2473,7 @@ public final class VaultModel: ObservableObject {
         let ownDocuments = scope.isRefresh ? Set(entries.compactMap(Self.ownDocument)) : []
         var ownStamps: [String: String] = [:]
         /// What each file's bytes gave, by ``VaultDocumentReading/contentKey(of:)``, for this read.
-        var readByContent: [String: ([[String]], Bool)] = [:]
+        var readByContent: [String: ([[String]], Bool, [VaultPageOrigin]?)] = [:]
         // Sizes and stamps, read off the main actor in one pass (VT67); a size two planned files
         // share marks possible copies. A stamp taken before its file is read can only be older
         // than what is read, which reads the file once more next time, never one less.
@@ -2564,16 +2566,16 @@ public final class VaultModel: ObservableObject {
             let content = sharedSizes.contains(size)
                 ? bytes.map { VaultReadPlan.area(of: file.path, under: roots).description + " " + $0 }
                 : nil
-            let (pages, complete): ([[String]], Bool)
+            let (pages, complete, origins): ([[String]], Bool, [VaultPageOrigin]?)
             var tooLarge = false
             if let content, let read = readByContent[content] {
-                (pages, complete) = read
+                (pages, complete, origins) = read
             } else {
                 let read = await reader.noted(file)
-                (pages, complete) = (read.pages, read.complete)
+                (pages, complete, origins) = (read.pages, read.complete, read.origins)
                 tooLarge = read.notes.tooLarge > 0
                 run.tally.notes = run.tally.notes + read.notes
-                if let content, !pages.isEmpty { readByContent[content] = (pages, complete) }
+                if let content, !pages.isEmpty { readByContent[content] = (pages, complete, origins) }
             }
             // Locked meanwhile, even if opened again since: this read was stopped.
             guard !Task.isCancelled, contents == .loaded else { return false }
@@ -2595,7 +2597,7 @@ public final class VaultModel: ObservableObject {
             // thousands of tries, and the panel draws meanwhile (the 2026-11-23 review).
             let people = self.people
             var read = await Task.detached(priority: .userInitiated) {
-                VaultReading.read(pages: pages, from: file.path, under: roots, people: people)
+                VaultReading.read(pages: pages, from: file.path, under: roots, people: people, origins: origins)
             }.value
             // A choice made about this very file while its pages were read (Not for This ID, a
             // correction) holds for it too: the notes again, and its bytes when it now needs them.

@@ -443,11 +443,11 @@ import Testing
         var opened: Int { lock.withLock { opens } }
         func files() async -> [URL] { [URL(fileURLWithPath: "/r/A.pdf")] }
         func pages(in file: URL) async -> [[String]] { [] }
-        func noted(_ file: URL) async -> (pages: [[String]], complete: Bool, notes: VaultReadNotes) {
+        func noted(_ file: URL) async -> (pages: [[String]], complete: Bool, notes: VaultReadNotes, origins: [VaultPageOrigin]?) {
             lock.withLock { opens += 1 }
             var notes = VaultReadNotes()
             notes.tooLarge = 1
-            return ([], true, notes)
+            return ([], true, notes, nil)
         }
         func stamp(of file: URL) -> String? { "2" }
     }

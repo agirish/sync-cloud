@@ -51,6 +51,11 @@ public enum VaultPageSource {
         /// ``lines``: a rule that looks at a whole page (is this a form, whose notice is this)
         /// would take the two for one document.
         public var also: [String]?
+        /// Whether ``also`` is the text layer and ``lines`` the picture, which is the page when it
+        /// reads a number of its own; otherwise ``lines`` is the layer. Where the two read one
+        /// number, the layer's reading of it speaks (VT88): never part of what the page says, so
+        /// two readings of the same lines are equal however they were come by.
+        public var alsoIsLayer = false
         /// How the page was read, counted for the read's summary (VT25): never part of what it says,
         /// so two readings of the same lines are equal however they were come by.
         public var notes = VaultReadNotes()
@@ -58,15 +63,36 @@ public enum VaultPageSource {
         /// layer for now, and its file is not marked read, so the picture is tried again (VT54).
         public var pictureUnread = false
 
-        public init(lines: [String], also: [String]? = nil, notes: VaultReadNotes = VaultReadNotes(),
-                    pictureUnread: Bool = false) {
+        public init(lines: [String], also: [String]? = nil, alsoIsLayer: Bool = false,
+                    notes: VaultReadNotes = VaultReadNotes(), pictureUnread: Bool = false) {
             self.lines = lines
             self.also = also
+            self.alsoIsLayer = alsoIsLayer
             self.notes = notes
             self.pictureUnread = pictureUnread
         }
 
         public static func == (a: Reading, b: Reading) -> Bool { a.lines == b.lines && a.also == b.also }
+    }
+
+    /// A file's pages as the readers take them, from each page read and its number in the file
+    /// (1 for the first), in order: the pages' own readings, then each second reading
+    /// (``Reading/also``) as one more page after them, never joined to its page. Each says which
+    /// page of the file it is, so a zone found in a second reading is on the page it was read
+    /// from, and a one-page file read both ways is still one page (VT88).
+    public static func filePages(_ read: [(page: Int, reading: Reading)]) -> (pages: [[String]], origins: [VaultPageOrigin]) {
+        var pages: [[String]] = [], origins: [VaultPageOrigin] = []
+        var seconds: [([String], VaultPageOrigin)] = []
+        for (page, reading) in read {
+            pages.append(reading.lines)
+            guard let also = reading.also else {
+                origins.append(VaultPageOrigin(page: page))
+                continue
+            }
+            origins.append(VaultPageOrigin(page: page, half: reading.alsoIsLayer ? .picture : .textLayer))
+            seconds.append((also, VaultPageOrigin(page: page, half: reading.alsoIsLayer ? .textLayer : .picture)))
+        }
+        return (pages + seconds.map(\.0), origins + seconds.map(\.1))
     }
 
     /// The page as read, or nil when its picture could not be read and it has no text layer, or
@@ -146,15 +172,23 @@ public enum VaultPageSource {
                 return (new, new || (!shared.isEmpty && !keepsEverything(shared, other.finds)))
             }
             let picture = saysMore(pictured, than: typed), text = saysMore(typed, than: pictured)
+            // A number both read, which the layer reads otherwise than the picture (a name, a birth
+            // date): the layer's reading of it speaks, so the layer is kept beside the picture even
+            // where it says nothing the picture does not (VT88).
+            let typedOtherwise = typed.finds.contains { find in
+                pictured.finds.contains { VaultReading.normalized($0.value) == VaultReading.normalized(find.value)
+                    && VaultCopies.readsOtherwise(find.facts, $0.facts) }
+            }
             // Counts and kinds of reading only, here and below: never what was read.
             if picture.more {
+                let both = text.more || typedOtherwise
                 Logger.shared.debug("Vault: a scan under a text layer was read from its picture"
-                                    + (text.more || trusted ? "; the two readings are kept as two pages" : ""))
+                                    + (both || trusted ? "; the two readings are kept as two pages" : ""))
                 // A full page of text is never dropped for its picture: kept beside it.
                 guard !trusted else { return Reading(lines: layer, also: seen.lines, notes: fromPicture) }
-                guard text.more else { return Reading(lines: seen.lines, notes: fromPicture) }
+                guard both else { return Reading(lines: seen.lines, notes: fromPicture) }
                 // The one with a number of its own is the page; with neither, what was typed.
-                return picture.new ? Reading(lines: seen.lines, also: layer, notes: fromPicture)
+                return picture.new ? Reading(lines: seen.lines, also: layer, alsoIsLayer: true, notes: fromPicture)
                     : Reading(lines: layer, also: seen.lines, notes: fromPicture)
             }
             Logger.shared.debug("Vault: a scan under a text layer gave no more from its picture")
@@ -281,6 +315,28 @@ public enum VaultPageSource {
             return keeps(\.holder) && keeps(\.born) && keeps(\.issuer) && keeps(\.dated) && keeps(\.validUntil)
                 && Set(was.details.map(\.label)).isSubset(of: Set(kept.details.map(\.label)))
         }
+    }
+}
+
+/// Which page of its file a page as read is (``VaultPageSource/filePages(_:)``), and, for a page
+/// read both ways, which of its two readings.
+public struct VaultPageOrigin: Equatable, Sendable {
+    public enum Half: Hashable, Sendable {
+        /// The page read one way.
+        case alone
+        /// Its text layer, read beside its picture: where both read one number, this one speaks.
+        case textLayer
+        /// Its picture, read beside its text layer.
+        case picture
+    }
+
+    /// The page of the file, 1 for the first.
+    public var page: Int
+    public var half: Half
+
+    public init(page: Int, half: Half = .alone) {
+        self.page = page
+        self.half = half
     }
 }
 

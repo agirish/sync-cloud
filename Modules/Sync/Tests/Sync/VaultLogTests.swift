@@ -141,10 +141,10 @@ import Testing
         func files() async -> [URL] { paths.map { URL(fileURLWithPath: $0) } }
         func pages(in file: URL) async -> [[String]] { [] }
         func stamp(of file: URL) -> String? { nil }
-        func noted(_ file: URL) async -> (pages: [[String]], complete: Bool, notes: VaultReadNotes) {
+        func noted(_ file: URL) async -> (pages: [[String]], complete: Bool, notes: VaultReadNotes, origins: [VaultPageOrigin]?) {
             var notes = VaultReadNotes()
             notes.locked = 1
-            return ([], true, notes)
+            return ([], true, notes, nil)
         }
     }
 

@@ -778,16 +778,53 @@ public enum VaultCopies {
             // front's state), or a newer document (the extension's admit-until), placed after the
             // detail it follows there. Never one from an older document.
             guard sameDocument(speaker, copy.facts) || newer == true else { continue }
-            for (index, detail) in copy.facts.details.enumerated()
-            where !best.facts.details.contains(where: { $0.label == detail.label }) {
-                let before = copy.facts.details[..<index].reversed().first { prior in
-                    best.facts.details.contains { $0.label == prior.label }
-                }
-                let at = before.flatMap { prior in best.facts.details.firstIndex { $0.label == prior.label } }.map { $0 + 1 } ?? 0
-                best.facts.details.insert(detail, at: at)
-            }
+            lend(copy.facts.details, to: &best.facts.details)
         }
         return best
+    }
+
+    /// Each of `details` that `kept` has no detail of its label for, placed after the detail it
+    /// follows in `details`.
+    private static func lend(_ details: [VaultDetail], to kept: inout [VaultDetail]) {
+        for (index, detail) in details.enumerated() where !kept.contains(where: { $0.label == detail.label }) {
+            let before = details[..<index].reversed().first { prior in kept.contains { $0.label == prior.label } }
+            let at = before.flatMap { prior in kept.firstIndex { $0.label == prior.label } }.map { $0 + 1 } ?? 0
+            kept.insert(detail, at: at)
+        }
+    }
+
+    /// One number as a page's text layer and its picture both read it (``VaultPageOrigin``): the
+    /// layer speaks, as typed, and the picture adds only what the layer is silent on (VT88). A
+    /// scan's picture misreads a name the layer has exactly ("Anma" for "Anna"); ordered as two
+    /// documents (``merged(_:speaking:)``), the picture spoke whenever it read a date or a detail
+    /// more, and its misread name with it. A name the picture reads fuller, starting alike, is
+    /// still taken (``fuller(_:_:)``).
+    static func filled(_ typed: VaultFind, from picture: VaultFind) -> VaultFind {
+        var out = typed
+        let (own, seen) = (typed.facts, picture.facts)
+        for source in seen.sources { out.facts.add(source) }
+        out.facts.holder = fuller(own.holder, seen.holder)
+        out.facts.born = own.born ?? seen.born
+        out.facts.issuer = own.issuer ?? seen.issuer
+        out.facts.form = own.form ?? seen.form
+        out.facts.dated = own.dated ?? seen.dated
+        out.facts.validUntil = own.validUntil ?? seen.validUntil
+        out.facts.inPassport = own.inPassport ?? seen.inPassport
+        out.facts.printedForSubscriber = own.printedForSubscriber ?? seen.printedForSubscriber
+        out.facts.pending = own.pending && seen.pending
+        lend(seen.details, to: &out.facts.details)
+        out.facts.spokenBy = typed.sourcePath
+        return out
+    }
+
+    /// Whether a page's text layer reads a number it shares with the picture with other words
+    /// about whose it is: another name, or another birth date. Only then is a layer that says
+    /// nothing more than the picture kept beside it, to speak for the number (``filled(_:from:)``).
+    static func readsOtherwise(_ typed: VaultReadFacts, _ picture: VaultReadFacts) -> Bool {
+        if let a = typed.holder, let b = picture.holder,
+           VaultReading.spellingKey(a) != VaultReading.spellingKey(b), fuller(a, b) == a { return true }
+        if let a = typed.born, let b = picture.born, a != b { return true }
+        return false
     }
 
     /// The name to keep of two read for one number: the one present, and of two that start
