@@ -365,12 +365,38 @@ extension VaultReading {
                                                      "yournewsocialsecuritycard", "newsocialsecuritycard",
                                                      "replacementsocialsecuritycard", "yourreplacementsocialsecuritycard"]
     /// A form's own number as a line prints it ("Form W-4", "Form I–765", "Form N-400", "Form
-    /// 1040", whichever dash a scan read), or its OMB number. Not the "Form SSA-3000" on a card's
-    /// back, a "Form" that only ends the line above a number, or the word before a number
-    /// written out ("in the form 123-45-6789").
+    /// 1040", "Forms W-2 and W-4"), whichever dash a scan read and however it spaced it ("W - 2",
+    /// "W -4", or a capital and a digit apart, "Form W 4"), or its OMB number. Not the "Form
+    /// SSA-3000" on a card's back, a "Form" that only ends the line above a number, the word
+    /// before a number written out ("in the form 123-45-6789"), or before a word and a number
+    /// ("the form in 2 weeks").
     private static let formLine = try! NSRegularExpression(
-        pattern: #"(?<![A-Za-z])(?:form\s*(?!ssa|oa)(?![0-9]{3}-[0-9]{2}-[0-9]{4})(?:[a-z0-9]{1,3}[-\u2010-\u2014][0-9]|[a-z]{1,3}[0-9]|[0-9]{3,4}(?![0-9]))|[o0]mb\s*(?:no|n0|#|control|approval|number))"#,
+        pattern: #"(?<![A-Za-z])(?:forms?(?:\s*(?!ssa|oa)(?![0-9]{3}-[0-9]{2}-[0-9]{4})(?:[a-z0-9]{1,3}\s?[-\u2010-\u2014]\s?[0-9]|[a-z]{1,3}[0-9]|[0-9]{3,4}(?![0-9]))|\s+(?!ssa|oa)(?-i:[A-Z]{1,3})\s[0-9])|[o0]mb\s*(?:no|n0|#|control|approval|number))"#,
         options: [.caseInsensitive])
+
+    /// A line that is one item of a list of things to bring: a box or bullet before it, or a box
+    /// a scan read as a line of its own; a number or letter ("1.", "a)"); a copy of a paper;
+    /// another paper such a list asks for; or the line leading the list in ("Please bring:").
+    static func isListItem(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard let first = trimmed.unicodeScalars.first else { return false }
+        if listMarks.contains(first) || trimmed.hasSuffix(":") { return true }
+        if trimmed.range(of: #"^(?:\[\s?[xX\u2713\u2714]?\s?\]|\(\s?\)|[0-9]{1,2}[.)]|[A-Za-z]\))(?:\s|$)"#,
+                         options: .regularExpression) != nil { return true }
+        let letters = trimmed.lowercased().filter(\.isLetter)
+        return letters.hasPrefix("copyof") || letters.hasPrefix("copiesof") || otherPapers.contains(where: letters.contains)
+    }
+
+    /// The boxes, ticks and bullets a list prints before an item.
+    private static let listMarks: Set<Unicode.Scalar> = ["\u{2610}", "\u{2611}", "\u{2612}", "\u{25A1}", "\u{25A0}",
+                                                         "\u{25A2}", "\u{25AA}", "\u{25AB}", "\u{25CF}", "\u{25CB}",
+                                                         "\u{2022}", "\u{25E6}", "\u{2023}", "\u{2219}", "\u{00B7}",
+                                                         "\u{2713}", "\u{2714}", "-", "\u{2013}", "\u{2014}",
+                                                         "*", "\u{203A}", "\u{00BB}"]
+    /// The other papers a list of things to bring names beside the card, squeezed.
+    private static let otherPapers = ["passport", "birthcertificate", "driverslicense", "driverlicense", "driverslicence",
+                                      "photoid", "stateid", "proofof", "utilitybill", "paystub", "greencard",
+                                      "permanentresidentcard", "marriagecertificate", "voidedcheck", "bankstatement"]
 
     /// A card, or the sheet it came on, and not a form that prints the card's words.
     ///
@@ -380,7 +406,8 @@ extension VaultReading {
     /// "Social Security card" alone is also what a form asks about: "the name on your social
     /// security card" (W-4, W-2), "issue you a Social Security card" (I-765, N-400). With none of
     /// the card's print read, those words count only on the sheet itself: a page with the
-    /// sheet's heading on a line of its own, or what it tells the holder to do with the card
+    /// sheet's heading on a line of its own (and not an item of a list of things to bring, with
+    /// another item next to it), or what it tells the holder to do with the card
     /// ("Sign this card in ink"; "Do not laminate" with "Keep your card in a safe place"), and
     /// with no form's number on it.
     static func isSocialSecurityCard(_ printed: PrintedPage) -> Bool {
@@ -393,11 +420,16 @@ extension VaultReading {
             return true
         }
         guard squeezed.contains("socialsecuritycard") else { return false }
-        let heading = page.contains { line in
+        let heading = page.indices.contains { index in
             // A colon may end a heading; a full stop or a question mark ends a sentence that
             // wrapped ("Do you want the SSA to issue you a / Social Security card?").
-            let words = line.trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: ":")))
-            return words.allSatisfy { $0.isLetter || $0 == " " } && sheetHeadings.contains(words.lowercased().filter(\.isLetter))
+            let words = page[index].trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: ":")))
+            guard words.allSatisfy({ $0.isLetter || $0 == " " }),
+                  sheetHeadings.contains(words.lowercased().filter(\.isLetter)) else { return false }
+            // Nor is it a heading when a line next to it is another item of a list.
+            let hasText = { (line: String) in !line.trimmingCharacters(in: .whitespaces).isEmpty }
+            let neighbours = [page[..<index].last(where: hasText), page[(index + 1)...].first(where: hasText)]
+            return !neighbours.contains { $0.map(isListItem) == true }
         }
         guard heading || sheetCues.contains(where: squeezed.contains)
                 || looseSheetCues.filter(squeezed.contains).count >= 2 else { return false }

@@ -280,6 +280,43 @@ import Testing
                                     "Show the number in the form 123-45-6789 to your employer"]).map(\.value) == ["123456789"])
     }
 
+    /// "Social Security card" alone on a line, as a list of things to bring prints it: an item,
+    /// not the sheet's heading.
+    @Test func aChecklistItemNamedForTheCardIsNotTheCard() {
+        let pages = [
+            // Ticked boxes and bullets around it, or a box a scan put on a line of its own.
+            ["Documents to bring", "\u{2610} Passport", "Social Security card", "\u{2610} Proof of address",
+             "Employee SSN", "123-45-6789"],
+            ["New hire checklist", "\u{2610}", "Social Security card", "123-45-6789"],
+            ["Onboarding", "\u{2022} Photo ID", "", "Social Security card", "123-45-6789"],
+            ["1. Two recent photos", "Social Security card", "123-45-6789"],
+            // Other papers to bring, with no mark at all; a copy of one; a list's lead-in.
+            ["What to bring", "Passport", "Social Security card", "Birth certificate", "123-45-6789"],
+            ["Social Security card", "Copy of your lease", "Applicant SSN", "123-45-6789"],
+            ["Please bring the following:", "Social Security card", "123-45-6789"],
+        ]
+        for page in pages {
+            #expect(VaultFixtures.read(page).isEmpty, "\(page[0].prefix(12))")
+        }
+        // Only the heading's own neighbours count: the sheet with a bullet further down is the sheet.
+        #expect(VaultFixtures.read(["Your Social Security Card", "ANNA MARIA ERIKSSON", "12 OAK STREET", "123-45-6789",
+                                    "\u{2022} Keep this letter"]).map(\.value) == ["123456789"])
+    }
+
+    /// A form's number as a scan breaks it, under the sheet's heading: still a form.
+    @Test func aFormNumberAScanBrokeIsStillAForm() {
+        for form in ["Form W 4", "Forms W-2 and W-4", "Form W - 2", "Form W -4", "FORM W 2 Wage and Tax Statement"] {
+            let page = ["Your Social Security Card", form, "123-45-6789"]
+            #expect(VaultFixtures.read(page).isEmpty, "\(form)")
+            #expect(!VaultReading.wantsSharperRead(["Your Social Security Card", form, "1234-56-789"]), "\(form)")
+        }
+        // "Form" as a word, before a word and a number; the card's back's own form, spaced: the sheet.
+        for line in ["Return the form in 2 weeks if we ask.", "Form SSA 3000 (01-2011)"] {
+            #expect(VaultFixtures.read(["Your Social Security Card", "ANNA MARIA ERIKSSON", "123-45-6789", line])
+                        .map(\.value) == ["123456789"], "\(line.prefix(12))")
+        }
+    }
+
     @Test func aVisaControlNumberHasNoLetterForADigit() throws {
         let zone = VaultReadingTests.zone("V", number: "X1234567", born: "740812", expires: "300516")
         let find = try #require(VaultReading.read(pages: [["Control Number 2O24123456789O"] + zone], from: "/v.pdf").finds
