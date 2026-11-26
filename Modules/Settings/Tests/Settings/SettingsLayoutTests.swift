@@ -247,6 +247,9 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
          (SettingsPlace(.pdf), AnyView(EditSettingsTab(page: .pdf))),
          (SettingsPlace(.claudeGeneral), AnyView(IntelligenceSettingsTab(page: .claudeGeneral))),
          (SettingsPlace(.keyAndSpending), AnyView(IntelligenceSettingsTab(page: .keyAndSpending))),
+         // Vault ▸ Read is exempt (its folders grow); Lock and Backup are fixed rows.
+         (SettingsPlace(.lock), AnyView(VaultSettingsTab(page: .lock))),
+         (SettingsPlace(.backup), AnyView(VaultSettingsTab(page: .backup))),
          (SettingsPlace(.advanced), AnyView(AdvancedSettingsTab(syncManager: nil, onResetAllSettings: {},
                                                                 onRunSetup: {}, onResetSetup: {})))]
     }

@@ -16468,3 +16468,17 @@ build before this one finds the Vault unreadable and never writes over it.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |
+
+## Settings: a roomier sheet, and Vault in three pages — main only, recorded, not owed
+
+2026-11-26, for v7.2. The Settings sheet grows from 760×512 to 920×648 (`SettingsSheetMetrics`),
+with more air between and inside sections, a wider rail and wider page margins; its floor widens to
+560pt. Settings ▸ Vault becomes three pages, Read · Lock · Backup (`SettingsSubTab` `read`, `lock`,
+`backup`), its captions cut to a line with the detail moved into tooltips, and its lock menu reads
+"For every ID" and "After 1 minute idle". The Vault panel's Folder Settings… and Restore from a
+Backup… open their page. Settings text that kept a fixed size now follows the app's text size.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` | No Vault; a 760×624 sheet sized against its own pages | RECORDED — not owed (UI polish, new feature) |
+| `v3.x` / `v2.x` | No Vault; a 760×700 sheet | RECORDED — not owed (UI polish, new feature) |

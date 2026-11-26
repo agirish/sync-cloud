@@ -117,7 +117,7 @@ import Testing
         rig.model.kindFilter = rig.model.groups.group(of: .passport)
         try #require(rig.model.count(in: rig.model.tab) == 0, "every ID hidden")
         let size = VaultPanelRenderTests.size
-        let panel = VaultCard(model: rig.model, glassHue: .blue, onClose: {}, onOpenSettings: {},
+        let panel = VaultCard(model: rig.model, glassHue: .blue, onClose: {}, onOpenSettings: { _ in },
                               onQuickLook: { _ in }, onReveal: { _ in }, onAddPerson: { _, _ in nil },
                               quickLookPath: nil, onCloseQuickLook: {})
             .frame(width: size.width, height: size.height)

@@ -43,7 +43,7 @@ import Testing
     }
 
     static func render(_ model: VaultModel, defaults: UserDefaults, name: String, scheme: ColorScheme = .light) throws -> NSBitmapImageRep {
-        let panel = VaultCard(model: model, glassHue: .blue, onClose: {}, onOpenSettings: {},
+        let panel = VaultCard(model: model, glassHue: .blue, onClose: {}, onOpenSettings: { _ in },
                               onQuickLook: { _ in }, onReveal: { _ in }, onAddPerson: { _, _ in nil },
                               quickLookPath: nil, onCloseQuickLook: {})
             .frame(width: size.width, height: size.height)

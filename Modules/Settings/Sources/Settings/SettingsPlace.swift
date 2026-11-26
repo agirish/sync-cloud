@@ -19,6 +19,8 @@ public enum SettingsSubTab: String, CaseIterable, Sendable {
     case text, pdf
     // Ask Claude
     case claudeGeneral, privacy, keyAndSpending
+    // Vault. Read first: the folders Discover More reads are what a new Vault is set up with.
+    case read, lock, backup
 
     /// The tab whose strip shows this page.
     public var tab: SettingsView.SettingsTab {
@@ -30,6 +32,7 @@ public enum SettingsSubTab: String, CaseIterable, Sendable {
         case .toFile, .suggestions, .people, .duplicates: return .filing
         case .text, .pdf: return .edit
         case .claudeGeneral, .privacy, .keyAndSpending: return .intelligence
+        case .read, .lock, .backup: return .vault
         }
     }
 
@@ -56,6 +59,9 @@ public enum SettingsSubTab: String, CaseIterable, Sendable {
         case .claudeGeneral: return "General"
         case .privacy: return "Privacy"
         case .keyAndSpending: return "Key & Spending"
+        case .read: return "Read"
+        case .lock: return "Lock"
+        case .backup: return "Backup"
         }
     }
 }
@@ -121,7 +127,6 @@ public struct SettingsPlace: Hashable, Sendable {
     // paged tab without saying which page.
     static let general = SettingsPlace(SettingsView.SettingsTab.general)
     static let advanced = SettingsPlace(SettingsView.SettingsTab.advanced)
-    static let vault = SettingsPlace(SettingsView.SettingsTab.vault)
     static let look = SettingsPlace(SettingsSubTab.look)
     static let textAndSpacing = SettingsPlace(SettingsSubTab.textAndSpacing)
     static let cloudProviders = SettingsPlace(SettingsSubTab.cloudProviders)
@@ -141,6 +146,9 @@ public struct SettingsPlace: Hashable, Sendable {
     static let claudeGeneral = SettingsPlace(SettingsSubTab.claudeGeneral)
     static let privacy = SettingsPlace(SettingsSubTab.privacy)
     static let keyAndSpending = SettingsPlace(SettingsSubTab.keyAndSpending)
+    static let read = SettingsPlace(SettingsSubTab.read)
+    static let lock = SettingsPlace(SettingsSubTab.lock)
+    static let backup = SettingsPlace(SettingsSubTab.backup)
 }
 
 /// The page last shown on each paged tab, so coming back to a tab finds the page you left.

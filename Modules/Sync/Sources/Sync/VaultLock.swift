@@ -12,7 +12,7 @@ public struct VaultLockSettings: Equatable, Sendable {
         public var label: String {
             switch self {
             case .whenOpened: return "As soon as Vault opens"
-            case .everyNumber: return "For every number"
+            case .everyNumber: return "For every ID"
             }
         }
     }
@@ -30,12 +30,14 @@ public struct VaultLockSettings: Equatable, Sendable {
         /// Ten idle minutes, across closing and reopening.
         case afterTenMinutes
 
+        /// Short, for a menu: every idle choice but ten minutes also locks when the Vault closes,
+        /// which the setting's help says once rather than each choice repeating it.
         public var label: String {
             switch self {
             case .whenClosed: return "When Vault closes"
-            case .afterOneMinute: return "After 1 minute idle, or when Vault closes"
-            case .afterTwoMinutes: return "After 2 minutes idle, or when Vault closes"
-            case .afterFiveMinutes: return "After 5 minutes idle, or when Vault closes"
+            case .afterOneMinute: return "After 1 minute idle"
+            case .afterTwoMinutes: return "After 2 minutes idle"
+            case .afterFiveMinutes: return "After 5 minutes idle"
             case .afterTenMinutes: return "After 10 minutes idle, even if closed"
             }
         }

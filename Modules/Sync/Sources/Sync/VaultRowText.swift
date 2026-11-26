@@ -118,7 +118,7 @@ extension VaultModel {
     public func drawsAnIDInFull(layout: VaultLayout, editing: Bool) -> Bool {
         let model = self
         // The editor draws a number in full whatever the lock says: one typed into Add while the
-        // Vault is locked, or an ID being edited "For every number" whose row the list no longer
+        // Vault is locked, or an ID being edited "For every ID" whose row the list no longer
         // selects (the final review).
         if editing { return true }
         guard model.contents == .loaded else { return false }

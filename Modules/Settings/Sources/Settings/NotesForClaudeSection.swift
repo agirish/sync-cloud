@@ -98,7 +98,7 @@ public struct NotesForClaudeSection: View {
                 if let hiddenNames {
                     Text(Self.hiddenWarning(hiddenNames))
                         .scaledFont(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(SemanticColor.warning)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -112,7 +112,7 @@ public struct NotesForClaudeSection: View {
         let over = draft.count > AskClaudeNotes.limit
         return VStack(alignment: .leading, spacing: 6) {
             TextEditor(text: Binding(get: { self.draft ?? "" }, set: { self.draft = $0 }))
-                .font(.system(.callout, design: .monospaced))
+                .scaledFont(.callout.monospaced())
                 .frame(minHeight: 180)
                 .scrollContentBackground(.hidden)
                 .padding(4)
@@ -154,7 +154,7 @@ public struct NotesForClaudeSection: View {
         Text(Self.footer(text))
             .scaledFont(.caption)
             .foregroundStyle(text.count > AskClaudeNotes.limit ? AnyShapeStyle(.red)
-                : text.count >= AskClaudeNotes.nearlyFull ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                : text.count >= AskClaudeNotes.nearlyFull ? AnyShapeStyle(SemanticColor.warning) : AnyShapeStyle(.secondary))
             .monospacedDigit()
     }
 

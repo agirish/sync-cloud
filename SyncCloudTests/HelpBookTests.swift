@@ -542,6 +542,16 @@ import Testing
             for text in Self.copy(of: topic) {
                 for (menuName, itemName) in Self.menuDestinations(in: text) {
                     guard menuName != "Settings" else { continue }
+                    // "Settings ▸ Vault ▸ Read": the second arrow names a page of a Settings tab,
+                    // not a menu. Held to that tab's pages instead. Prefix, as below: the extractor
+                    // stops at "&", so "Key & Spending" arrives as "Key".
+                    if text.contains("Settings ▸ \(menuName) ▸ \(itemName)") {
+                        let tab = SettingsView.SettingsTab.allCases.first { $0.displayName == menuName }
+                        let pages = (tab?.subTabs ?? []).map(\.displayName)
+                        #expect(pages.contains { $0.hasPrefix(itemName) },
+                                "“\(topic.title)” sends the user to Settings ▸ \(menuName) ▸ \(itemName), which is not one of its pages: \(pages)")
+                        continue
+                    }
                     checked += 1
                     let menu = mainMenu.items.first { $0.title == menuName }?.submenu
                     #expect(menu != nil,

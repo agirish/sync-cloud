@@ -2534,9 +2534,9 @@ struct ContentView: View {
             onClose: { showVault = false },
             // Settings and the Vault are members of one chain, so the panel closes on the way
             // rather than staying behind the sheet, the hand-off Settings makes to Help.
-            onOpenSettings: {
+            onOpenSettings: { page in
                 showVault = false
-                openSettings(on: SettingsPlace(.vault))
+                openSettings(on: page.map(SettingsPlace.init) ?? SettingsPlace(.vault))
             },
             // Over the Vault, which stays open behind it. The Vault's own preview: one document,
             // not a list left by an earlier preview to step through with ← and →, and not one

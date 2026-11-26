@@ -3,10 +3,13 @@ import Design
 import SwiftUI
 import Sync
 
-/// Settings ▸ Vault: when the Vault asks who is at the Mac, and when it locks again. The lock is
+/// Settings ▸ Vault, three pages: Read (the folders Discover More reads, and the IDs set aside),
+/// Lock (when the Vault asks who is at the Mac, copying, the activity list) and Backup. The lock is
 /// always on, and without Touch ID set up the Vault is not used (owner, 2026-11-24). The numbers
 /// themselves are never here; the panel behind ⌘U owns them.
 struct VaultSettingsTab: View {
+    /// Which of the tab's pages to draw.
+    var page: SettingsSubTab = .read
     /// The app's Vault: Set Aside counts and forgets through it (``VaultModel/setAsideCount``,
     /// ``VaultModel/forgetSetAside()``), wherever it keeps the numbers.
     var vault: VaultModel?
@@ -27,6 +30,8 @@ struct VaultSettingsTab: View {
     /// What the last backup or restore came to, in words.
     @State private var backupMessage: String?
     @State private var backupFailed = false
+    /// Whether ``backupMessage`` came from a restore, so it shows under Restore rather than Backup.
+    @State private var messageIsRestore = false
     @State private var isBackingUp = false
     /// A backup chosen to restore is being opened (its key derived): another choice waits.
     @State private var openingBackup = false
@@ -55,200 +60,10 @@ struct VaultSettingsTab: View {
 
     var body: some View {
         SettingsPage {
-            SettingsSection(
-                "Lock",
-                caption: "The Vault asks for Touch ID before it shows or copies an ID in full. The IDs stay sealed on this Mac, and are never sent to Claude."
-            ) {
-                if let touchIDMissing {
-                    // Not used at all without Touch ID: what opens the Vault here waits for it.
-                    Label(touchIDMissing, systemImage: "touchid")
-                        .foregroundStyle(SemanticColor.warning)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                SettingsRow("When to ask") {
-                    Picker("When to ask", selection: $ask.loggingSettingsChange("vault.ask")) {
-                        ForEach(VaultLockSettings.Ask.allCases, id: \.self) { choice in
-                            Text(choice.label).tag(choice)
-                        }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                    .help("Once as the Vault opens, or again for each ID you show or copy.")
-                }
-                SettingsRow("Lock again") {
-                    Picker("Lock again", selection: $relock.loggingSettingsChange("vault.relock")) {
-                        ForEach(VaultLockSettings.Relock.allCases, id: \.self) { choice in
-                            Text(choice.label).tag(choice)
-                        }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                    .help("When an unlocked Vault locks itself. It always locks when the Mac sleeps or its screen locks.")
-                }
-                // Asking for every number leaves nothing unlocked to time out.
-                .disabled(ask == .everyNumber)
-            }
-            SettingsSection(
-                "Copying and Sharing",
-                caption: "A copied ID is marked so clipboard-history apps skip it, stays on this Mac, and is cleared. While an ID is shown in full, SyncCloud’s window is left out of screen sharing and recordings; your own screenshots of it come out without the window too."
-            ) {
-                SettingsRow("Clear the clipboard after") {
-                    Picker("Clear the clipboard after", selection: $clipboardSeconds.loggingSettingsChange("vault.clipboardSeconds")) {
-                        ForEach(VaultSharingSettings.clipboardChoices, id: \.self) { seconds in
-                            Text(VaultSharingSettings.label(seconds: seconds)).tag(seconds)
-                        }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                    .help("How long an ID copied from the Vault stays on the clipboard.")
-                }
-                Toggle("Hide from screen sharing while an ID is shown", isOn: $hidesFromCapture.loggingSettingsChange("vault.hidesFromScreenSharing"))
-                    .help("Keeps SyncCloud’s window out of screen sharing, recordings and screenshots while the Vault shows an ID in full. Off, a shared screen shows it.")
-            }
-            SettingsSection(
-                "Backup",
-                caption: "A backup holds every saved ID, sealed under a passphrase you choose, so it opens on another Mac and for nobody without the passphrase. Keep the passphrase somewhere safe: without it a backup cannot be opened. Restoring never deletes: Replace sets the Vault that was here aside."
-            ) {
-                SettingsRow("Backup passphrase") {
-                    HStack(spacing: 8) {
-                        Text(hasPassphrase ? "Set" : "Not set").foregroundStyle(.secondary)
-                        Button(hasPassphrase ? "Change…" : "Set…") {
-                            Task { @MainActor in
-                                if await proved(hasPassphrase ? "change the Vault’s backup passphrase" : "set the Vault’s backup passphrase") {
-                                    settingPassphrase = true
-                                }
-                            }
-                        }
-                        .controlSize(.small)
-                        .disabled(isAsking || touchIDMissing != nil)
-                    }
-                    .help("Asks for Touch ID. Kept in your keychain so a backup can be made without asking for it. Backups already made open with the passphrase they were made with.")
-                }
-                SettingsRow("Backup folder") {
-                    HStack(spacing: 8) {
-                        Text((backupFolder as NSString).abbreviatingWithTildeInPath)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1).truncationMode(.middle)
-                        Button("Choose…") {
-                            Task { @MainActor in
-                                if await proved("choose where the Vault’s backups go") { chooseBackupFolder() }
-                            }
-                        }
-                        .controlSize(.small)
-                        .disabled(isAsking || touchIDMissing != nil)
-                    }
-                    .help("Asks for Touch ID. Where backups are written. A folder that syncs is fine: the file is sealed.")
-                }
-                Toggle("Back up every week", isOn: $backsUpWeekly.loggingSettingsChange("vault.backupWeekly"))
-                    .help("Makes a backup when the Vault is opened and the last one is a week old. It needs a passphrase set.")
-                    .disabled(!hasPassphrase)
-                SettingsRow("Last backup") {
-                    HStack(spacing: 8) {
-                        Text(lastBackup.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Never")
-                            .foregroundStyle(.secondary)
-                        Button("Back Up Now") { backUpNow() }
-                            .controlSize(.small)
-                            .disabled(!hasPassphrase || isBackingUp || touchIDMissing != nil)
-                    }
-                    .help(touchIDMissing == nil ? "Asks for Touch ID, then writes a backup of every saved ID."
-                          : "Set up Touch ID to back up the Vault.")
-                }
-                SettingsRow("Restore from a backup") {
-                    Button("Choose…") { chooseBackupToRestore() }
-                        .controlSize(.small)
-                        .disabled(isBackingUp || touchIDMissing != nil)
-                        .help("Asks for Touch ID, then opens a backup file. You choose whether to add what this Vault is missing or to replace it.")
-                }
-                if let backupMessage {
-                    Text(backupMessage)
-                        .font(.callout)
-                        .foregroundStyle(backupFailed ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            SettingsSection(
-                "Activity",
-                caption: "What was unlocked, shown, copied and changed in the Vault, and each proof that was refused. It names an ID, never its number, and is sealed with the Vault: not the app’s log, and never sent to Claude."
-            ) {
-                Toggle("Keep a list of what is done in the Vault", isOn: $keepsActivity.loggingSettingsChange("vault.keepsActivity"))
-                    .help("Off, nothing more is listed. What was listed stays until you clear it.")
-                SettingsRow("Vault activity") {
-                    Button("Show…") { showActivity() }
-                        .controlSize(.small)
-                        .disabled(isAsking || touchIDMissing != nil)
-                        .help("Shows the list after Touch ID.")
-                }
-            }
-            SettingsSection(
-                "Folders to Read",
-                caption: "Discover More in the Vault looks in these folders for passports, visas and OCI cards, I-94 records and USCIS receipt numbers, and for driver’s licenses, Social Security cards, ITINs, PAN, Aadhaar and voter IDs; under Health, Home, Vehicles and School, for account numbers, one paper per account per year. It looks only when you ask, on this Mac, opens only new and changed files after the first time, and adds nothing until you confirm it. Refresh reads again only the document each ID is read from. You can also change the folders from the arrow beside the Vault’s Discover More button."
-            ) {
-                SettingsRow("Folders") {
-                    // One column, right-aligned: each folder's Remove lines up under the last, and
-                    // Add… under them.
-                    VStack(alignment: .trailing, spacing: 6) {
-                        if readFolders.isEmpty {
-                            Text("None yet").foregroundStyle(.secondary)
-                        }
-                        ForEach(readFolders, id: \.self) { folder in
-                            HStack(spacing: 8) {
-                                VStack(alignment: .trailing, spacing: 1) {
-                                    Text((folder as NSString).abbreviatingWithTildeInPath)
-                                        .lineLimit(1).truncationMode(.middle)
-                                    if !FileManager.default.fileExists(atPath: folder) {
-                                        Text("Not found. Renamed or moved?")
-                                            .font(.caption)
-                                            .foregroundStyle(.orange)
-                                    }
-                                }
-                                Button("Remove") {
-                                    VaultReadFolders.remove(folder, in: .standard)
-                                    SettingsWindowLog.log("vault.readFolders", "removed")
-                                    readFolders = VaultReadFolders.folders(in: .standard)
-                                }
-                                .controlSize(.small)
-                                .frame(minWidth: 70, alignment: .trailing)
-                                .accessibilityLabel("Stop reading \((folder as NSString).lastPathComponent)")
-                            }
-                        }
-                        Button("Add…") {
-                            if VaultReadFoldersPanel.add() {
-                                SettingsWindowLog.log("vault.readFolders", "added")
-                                readFolders = VaultReadFolders.folders(in: .standard)
-                            }
-                        }
-                        .controlSize(.small)
-                        .frame(minWidth: 70, alignment: .trailing)
-                    }
-                    .help("Folders and everything in them: the first three pages of each scan or PDF, skipping files over 60 MB.")
-                }
-                Toggle("Refresh by itself when the Vault opens", isOn: $refreshesByItself.loggingSettingsChange("vault.refreshesByItself"))
-                    .help("Reads again a document an ID came from when it has changed, and all of them after an update. It opens no other file. Off, Refresh waits in the arrow beside Discover More.")
-            }
-            SettingsSection(
-                "Set Aside",
-                caption: "IDs you marked Not an ID, or removed after adding them from a document. Discover More doesn’t offer them again until you forget them; then the next read opens every file again."
-            ) {
-                SettingsRow("IDs set aside") {
-                    HStack(spacing: 8) {
-                        Text(Self.setAsideLabel(setAsideCount))
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                        // No question first: forgetting only lets the next read offer them again,
-                        // and Not an ID sets each one aside once more.
-                        Button("Forget") {
-                            if forgetSetAside() {
-                                SettingsWindowLog.log("vault.setAside", "forgotten")
-                            }
-                            setAsideCount = countSetAside()
-                        }
-                        .controlSize(.small)
-                        .frame(minWidth: 70, alignment: .trailing)
-                        .disabled((setAsideCount ?? 0) == 0)
-                    }
-                    .help(setAsideCount == nil ? "Open the Vault to count them or forget them: they are sealed with it."
-                          : "Forget, and the next read opens every file and offers these IDs again.")
-                }
+            switch page {
+            case .lock: lockPage
+            case .backup: backupPage
+            default: readPage
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -311,6 +126,234 @@ struct VaultSettingsTab: View {
             Button("Cancel", role: .cancel) {}
         } message: { offer in
             Text(offer.message)
+        }
+    }
+
+    // MARK: Pages
+
+    /// Read: the folders Discover More reads, and the IDs it has been told to leave out.
+    @ViewBuilder
+    private var readPage: some View {
+        SettingsSection(
+            "Folders to read",
+            caption: "Discover More looks here for IDs when you ask, and adds nothing until you confirm."
+        ) {
+            SettingsRow("Folders") {
+                // One column, right-aligned: each folder's Remove lines up under the last, and
+                // Add… under them.
+                VStack(alignment: .trailing, spacing: 6) {
+                    if readFolders.isEmpty {
+                        Text("None yet").foregroundStyle(.secondary)
+                    }
+                    ForEach(readFolders, id: \.self) { folder in
+                        HStack(spacing: 8) {
+                            VStack(alignment: .trailing, spacing: 1) {
+                                Text((folder as NSString).abbreviatingWithTildeInPath)
+                                    .lineLimit(1).truncationMode(.middle)
+                                if !FileManager.default.fileExists(atPath: folder) {
+                                    Text("Not found. Renamed or moved?")
+                                        .scaledFont(.caption)
+                                        .foregroundStyle(SemanticColor.warning)
+                                }
+                            }
+                            Button("Remove") {
+                                VaultReadFolders.remove(folder, in: .standard)
+                                SettingsWindowLog.log("vault.readFolders", "removed")
+                                readFolders = VaultReadFolders.folders(in: .standard)
+                            }
+                            .controlSize(.small)
+                            .frame(minWidth: 70, alignment: .trailing)
+                            .accessibilityLabel("Stop reading \((folder as NSString).lastPathComponent)")
+                        }
+                    }
+                    Button("Add…") {
+                        if VaultReadFoldersPanel.add() {
+                            SettingsWindowLog.log("vault.readFolders", "added")
+                            readFolders = VaultReadFolders.folders(in: .standard)
+                        }
+                    }
+                    .controlSize(.small)
+                    .frame(minWidth: 70, alignment: .trailing)
+                }
+                .help("Looks for passports, visas and OCI cards, I-94 records and USCIS receipt numbers, driver’s licenses, Social Security cards, ITINs, PAN, Aadhaar and voter IDs; under Health, Home, Vehicles and School, for account numbers, one paper per account per year. Reads the first three pages of each scan or PDF on this Mac, skips files over 60 MB, and after the first time opens only new and changed files. Also set from the arrow beside Discover More.")
+            }
+            Toggle("Refresh by itself when the Vault opens", isOn: $refreshesByItself.loggingSettingsChange("vault.refreshesByItself"))
+                .help("Reads again only the document each ID came from, when it has changed, and all of them after an update. It opens no other file. Off, Refresh waits in the arrow beside Discover More.")
+        }
+        SettingsSection(
+            "Set aside",
+            caption: "IDs you marked Not an ID or removed. Discover More skips them until you forget them."
+        ) {
+            SettingsRow("IDs set aside") {
+                HStack(spacing: 8) {
+                    Text(Self.setAsideLabel(setAsideCount))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                    // No question first: forgetting only lets the next read offer them again,
+                    // and Not an ID sets each one aside once more.
+                    Button("Forget") {
+                        if forgetSetAside() {
+                            SettingsWindowLog.log("vault.setAside", "forgotten")
+                        }
+                        setAsideCount = countSetAside()
+                    }
+                    .controlSize(.small)
+                    .frame(minWidth: 70, alignment: .trailing)
+                    .disabled((setAsideCount ?? 0) == 0)
+                }
+                .help(setAsideCount == nil ? "Open the Vault to count them or forget them: they are sealed with it."
+                      : "Forget, and the next read opens every file and offers these IDs again.")
+            }
+        }
+    }
+
+    /// Lock: when Touch ID is asked for, how far a shown or copied ID travels, and the activity list.
+    @ViewBuilder
+    private var lockPage: some View {
+        SettingsSection(
+            "Lock",
+            caption: "Touch ID before any ID is shown or copied. IDs stay sealed here and never go to Claude."
+        ) {
+            if let touchIDMissing {
+                // Not used at all without Touch ID: what opens the Vault here waits for it.
+                Label(touchIDMissing, systemImage: "touchid")
+                    .foregroundStyle(SemanticColor.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            SettingsRow("When to ask") {
+                Picker("When to ask", selection: $ask.loggingSettingsChange("vault.ask")) {
+                    ForEach(VaultLockSettings.Ask.allCases, id: \.self) { choice in
+                        Text(choice.label).tag(choice)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .help("Once as the Vault opens, or again for each ID you show or copy.")
+            }
+            SettingsRow("Lock again") {
+                Picker("Lock again", selection: $relock.loggingSettingsChange("vault.relock")) {
+                    ForEach(VaultLockSettings.Relock.allCases, id: \.self) { choice in
+                        Text(choice.label).tag(choice)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .help("When an unlocked Vault locks itself. 1, 2 and 5 minutes idle also lock it when it closes; 10 minutes lasts across closing. It always locks when the Mac sleeps or its screen locks.")
+            }
+            // Asking for every ID leaves nothing unlocked to time out.
+            .disabled(ask == .everyNumber)
+        }
+        SettingsSection(
+            "Copying and sharing",
+            caption: "Copied IDs skip clipboard-history apps, stay on this Mac, and clear on their own."
+        ) {
+            SettingsRow("Clear the clipboard after") {
+                Picker("Clear the clipboard after", selection: $clipboardSeconds.loggingSettingsChange("vault.clipboardSeconds")) {
+                    ForEach(VaultSharingSettings.clipboardChoices, id: \.self) { seconds in
+                        Text(VaultSharingSettings.label(seconds: seconds)).tag(seconds)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .help("How long an ID copied from the Vault stays on the clipboard.")
+            }
+            Toggle("Hide from screen sharing while an ID is shown", isOn: $hidesFromCapture.loggingSettingsChange("vault.hidesFromScreenSharing"))
+                .help("Keeps SyncCloud’s window out of screen sharing, recordings and your own screenshots while the Vault shows an ID in full. Off, a shared screen shows it.")
+        }
+        SettingsSection(
+            "Activity",
+            caption: "Names each ID, never its number. Sealed with the Vault, never sent to Claude."
+        ) {
+            // The switch and the list it keeps on one row: the section's title already says what
+            // the row is about.
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Toggle("Keep an activity list", isOn: $keepsActivity.loggingSettingsChange("vault.keepsActivity"))
+                    .help("Lists what was unlocked, shown, copied and changed in the Vault, and each Touch ID check that was refused. Not the app’s log. Off, nothing more is listed; what was listed stays until you clear it.")
+                Spacer(minLength: 12)
+                Button("Show…") { showActivity() }
+                    .controlSize(.small)
+                    .disabled(isAsking || touchIDMissing != nil)
+                    .help("Shows the list after Touch ID.")
+                    .accessibilityLabel("Show Vault activity")
+            }
+        }
+    }
+
+    /// Backup: making backups, and putting one back.
+    @ViewBuilder
+    private var backupPage: some View {
+        SettingsSection(
+            "Backup",
+            caption: "Sealed with your passphrase, so it opens on another Mac. Keep the passphrase somewhere safe."
+        ) {
+            SettingsRow("Passphrase") {
+                HStack(spacing: 8) {
+                    Text(hasPassphrase ? "Set" : "Not set").foregroundStyle(.secondary)
+                    Button(hasPassphrase ? "Change…" : "Set…") {
+                        Task { @MainActor in
+                            if await proved(hasPassphrase ? "change the Vault’s backup passphrase" : "set the Vault’s backup passphrase") {
+                                settingPassphrase = true
+                            }
+                        }
+                    }
+                    .controlSize(.small)
+                    .disabled(isAsking || touchIDMissing != nil)
+                }
+                .help("Asks for Touch ID. Kept in your keychain so a backup can be made without asking for it. Backups already made open with the passphrase they were made with. Without it, a backup cannot be opened.")
+            }
+            SettingsRow("Folder") {
+                HStack(spacing: 8) {
+                    Text((backupFolder as NSString).abbreviatingWithTildeInPath)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                    Button("Choose…") {
+                        Task { @MainActor in
+                            if await proved("choose where the Vault’s backups go") { chooseBackupFolder() }
+                        }
+                    }
+                    .controlSize(.small)
+                    .disabled(isAsking || touchIDMissing != nil)
+                }
+                .help("Asks for Touch ID. Where backups are written. A folder that syncs is fine: the file is sealed.")
+            }
+            Toggle("Back up every week", isOn: $backsUpWeekly.loggingSettingsChange("vault.backupWeekly"))
+                .help("Makes a backup when the Vault is opened and the last one is a week old. It needs a passphrase set.")
+                .disabled(!hasPassphrase)
+            SettingsRow("Last backup") {
+                HStack(spacing: 8) {
+                    Text(lastBackup.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Never")
+                        .foregroundStyle(.secondary)
+                    Button("Back Up Now") { backUpNow() }
+                        .controlSize(.small)
+                        .disabled(!hasPassphrase || isBackingUp || touchIDMissing != nil)
+                }
+                .help(touchIDMissing == nil ? "Asks for Touch ID, then writes a backup of every saved ID."
+                      : "Set up Touch ID to back up the Vault.")
+            }
+            if backupMessage != nil, !messageIsRestore { backupMessageText }
+        }
+        SettingsSection(
+            "Restore",
+            caption: "Add what this Vault is missing, or replace it. Nothing is deleted."
+        ) {
+            SettingsRow("From a backup") {
+                Button("Choose…") { chooseBackupToRestore() }
+                    .controlSize(.small)
+                    .disabled(isBackingUp || touchIDMissing != nil)
+                    .help("Asks for Touch ID, then opens a backup file. You choose whether to add what this Vault is missing or to replace it; Replace sets the Vault that was here aside.")
+            }
+            if backupMessage != nil, messageIsRestore { backupMessageText }
+        }
+    }
+
+    /// What the last backup or restore came to, under the section that did it.
+    @ViewBuilder
+    private var backupMessageText: some View {
+        if let backupMessage {
+            Text(backupMessage)
+                .scaledFont(.callout)
+                .foregroundStyle(backupFailed ? AnyShapeStyle(SemanticColor.warning) : AnyShapeStyle(.secondary))
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -416,12 +459,14 @@ struct VaultSettingsTab: View {
             switch result {
             case .success(let url):
                 backupFailed = false
+                messageIsRestore = false
                 backupMessage = "Backed up to “\(url.lastPathComponent)”."
                 SettingsWindowLog.log("vault.backUpNow", "backed up")
             case .failure(.notProved):
                 break
             case .failure(let error):
                 backupFailed = true
+                messageIsRestore = false
                 backupMessage = Self.message(for: error)
             }
             refreshBackupState()
@@ -452,6 +497,7 @@ struct VaultSettingsTab: View {
                 askingPassphraseFor = BackupFile(url: url)
             case .failure(let error):
                 backupFailed = true
+                messageIsRestore = true
                 backupMessage = Self.message(for: error)
             }
         }
@@ -471,12 +517,14 @@ struct VaultSettingsTab: View {
             switch result {
             case .success(let count):
                 backupFailed = false
+                messageIsRestore = true
                 backupMessage = "Restored. The Vault now holds \(count == 1 ? "1 ID" : "\(count) IDs")."
                 SettingsWindowLog.log("vault.restore", mode == .replace ? "replaced" : "added")
             case .failure(.notProved):
                 break
             case .failure(let error):
                 backupFailed = true
+                messageIsRestore = true
                 backupMessage = Self.message(for: error)
             }
         }
@@ -530,20 +578,20 @@ struct VaultPassphraseSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title).font(.headline)
+            Text(title).scaledFont(.headline)
             Text(note)
-                .font(.callout)
+                .scaledFont(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             SecureField("Passphrase", text: $passphrase)
             if confirms {
                 SecureField("Passphrase again", text: $again)
                 if !again.isEmpty, again != passphrase {
-                    Text("The two don’t match yet.").font(.caption).foregroundStyle(.orange)
+                    Text("The two don’t match yet.").scaledFont(.caption).foregroundStyle(SemanticColor.warning)
                 }
             }
             if let problem {
-                Text(problem).font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                Text(problem).scaledFont(.callout).foregroundStyle(SemanticColor.warning).fixedSize(horizontal: false, vertical: true)
             }
             HStack {
                 Spacer()
@@ -586,7 +634,7 @@ struct VaultActivitySheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Vault Activity").font(.headline)
+            Text("Vault Activity").scaledFont(.headline)
             if events.isEmpty {
                 Text("Nothing has been listed yet.")
                     .foregroundStyle(.secondary)
@@ -595,12 +643,12 @@ struct VaultActivitySheet: View {
                 List(events) { event in
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
                         Text(event.at.formatted(date: .abbreviated, time: .shortened))
-                            .font(.callout.monospacedDigit())
+                            .scaledFont(.callout.monospacedDigit())
                             .foregroundStyle(.secondary)
                             .frame(width: 150, alignment: .leading)
                         Text(event.line)
-                            .font(.callout)
-                            .foregroundStyle(event.kind == .proofRefused ? AnyShapeStyle(.orange) : AnyShapeStyle(.primary))
+                            .scaledFont(.callout)
+                            .foregroundStyle(event.kind == .proofRefused ? AnyShapeStyle(SemanticColor.warning) : AnyShapeStyle(.primary))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -628,7 +676,7 @@ struct VaultActivitySheet: View {
     }
 }
 
-/// Adding folders to read for IDs, from Settings ▸ Vault ▸ Folders to Read or the Vault's own Add
+/// Adding folders to read for IDs, from Settings ▸ Vault ▸ Read or the Vault's own Add
 /// Folder…: one panel for both.
 @MainActor
 public enum VaultReadFoldersPanel {

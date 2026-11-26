@@ -24,59 +24,66 @@ enum SettingsSheetMetrics {
     /// display's window clamps the sheet to (`theClampedOpeningFitsEveryTextSize`).
     ///
     /// 648pt until TE332 split the tabs into pages and cut the captions to a line: the tallest page
-    /// then had 158pt to spare.
-    static let baseSize = CGSize(width: 760, height: 512)
+    /// then had 158pt to spare. 760×512 until the Settings polish (RE, 2026-11-26) gave every page
+    /// more air (`sectionPitch` and the rest), which this grew to hold.
+    static let baseSize = CGSize(width: 920, height: 648)
 
     /// Below this, a rail plus a usable content column stops being possible. The sheet stops
     /// shrinking and its content scrolls instead: overflowing a tiny window is better than a
     /// sheet too small to use.
-    static let floorSize = CGSize(width: 520, height: 380)
+    ///
+    /// 520pt wide until the Settings polish (RF) widened the rail and the page margins: the text
+    /// size row needs this much to fit beside them (`theTextSizeRowFitsTheNarrowestColumnTheSheetCanOffer`).
+    static let floorSize = CGSize(width: 560, height: 380)
 
     /// Breathing room kept between the sheet and the window edge.
     static let hostMargin: CGFloat = 48
 
     /// The rail's width. Wide enough for the longest tab name ("Appearance") plus its symbol at
     /// the largest text size without the label truncating.
-    static let railWidth: CGFloat = 176
+    static let railWidth: CGFloat = 200
 
     /// Extra air under a section title, beyond the stack's own spacing.
     ///
     /// Measured against System Settings ▸ Appearance side by side: with matching type sizes, its
     /// headers stand ~37pt off their first row against our ~25pt without this, and its groups end
-    /// ~38pt before the next header against our ~22pt. This closes about a third of the gap, what
-    /// the height budget allows; matching outright would need +12pt a section and a taller sheet.
-    static let sectionTitleAir: CGFloat = 4
+    /// ~38pt before the next header against our ~22pt. At 8 (4 until the Settings polish, RF) a
+    /// header stands 13pt off its first row.
+    static let sectionTitleAir: CGFloat = 8
 
     /// The title row's height, fixed so the content opening is arithmetic rather than a guess.
     /// 44pt clears `.headline` at the largest text scale (15.85pt: 13pt is above the 11pt knee, so
     /// it grows damped, 11 × 1.35 + 2 × 0.5) with padding.
-    static let headerHeight: CGFloat = 44
+    static let headerHeight: CGFloat = 52
 
     /// The sub-tab strip's height on a paged tab, fixed for `headerHeight`'s reason: each page's
     /// opening is `pageOpening`, arithmetic rather than a guess. Clears a small segmented control
     /// at the largest text scale with air above and below.
-    static let subTabStripHeight: CGFloat = 40
+    static let subTabStripHeight: CGFloat = 48
 
-    /// Air between a section's last control and its caption. Tight, to save height: a caption
-    /// belongs to the group it explains, so close to its controls it reads as grouping, and it
-    /// spends none of the between-section air. The title keeps its 9pt (`5 + sectionTitleAir`);
+    /// Air between a section's last control and its caption. Tight: a caption belongs to the group
+    /// it explains, so close to its controls it reads as grouping, and it spends none of the
+    /// between-section air. The title keeps its 13pt (`5 + sectionTitleAir`);
     /// `SettingsSection.body` spells both gaps out.
-    static let captionGap: CGFloat = 3
+    static let captionGap: CGFloat = 5
 
-    /// The gap between sections on a settings page (`SettingsPage`'s stack spacing). Trimmed for
-    /// height against the System Settings comparison on `sectionTitleAir` (Apple ends groups ~38pt
-    /// before the next header; this gives ~20), so it is the first to restore if the budget
-    /// loosens. A tab that scrolls on a small display loses all its air, not 2pt.
-    static let sectionPitch: CGFloat = 14
+    /// Between the controls inside a section.
+    static let rowGap: CGFloat = 10
+
+    /// The gap between sections on a settings page (`SettingsPage`'s stack spacing). Against the
+    /// System Settings comparison on `sectionTitleAir` (Apple ends groups ~38pt before the next
+    /// header): 14 until the Settings polish (RF) found the sheet cramped. Sized with `baseSize`
+    /// against the tightest page; the first to trim if a must-fit page outgrows the sheet.
+    static let sectionPitch: CGFloat = 32
 
     /// A settings page's own top and bottom inset. The page sits under the title row's divider
     /// and above the sheet's bottom edge, both already boundaries, so this is the cheapest air to
     /// trim.
-    static let pagePaddingV: CGFloat = 12
+    static let pagePaddingV: CGFloat = 22
 
     /// A settings page's side inset: the difference between the content column and the width a
     /// control gets, which `theTextSizeRowFitsTheNarrowestColumnTheSheetCanOffer` measures against.
-    static let pagePaddingH: CGFloat = 18
+    static let pagePaddingH: CGFloat = 32
 
     /// The sheet's size: the base size scaled by the text setting, then clamped to what the host
     /// actually has room for (never below `floorSize`).
@@ -187,7 +194,7 @@ struct SettingsSection<Content: View, Caption: View>: View {
                     .scaledFont(.subheadline.weight(.semibold))
                     .padding(.bottom, 5 + SettingsSheetMetrics.sectionTitleAir)
             }
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: SettingsSheetMetrics.rowGap) {
                 content
             }
             caption

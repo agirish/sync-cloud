@@ -108,7 +108,7 @@ import Testing
         #expect(await model.unlock())
         model.lockNow()
 
-        let loaded = "Vault: loaded, 11 saved ID(s) and 0 to confirm; asks as soon as vault opens, locks after 1 minute idle, or when vault closes"
+        let loaded = "Vault: loaded, 11 saved ID(s) and 0 to confirm; asks as soon as vault opens, locks after 1 minute idle"
         let letGo = "Vault: let go of 11 saved ID(s) and 0 to confirm from memory"
         #expect(own.all == ["Vault: a proof to unlock was given", loaded, "Vault: locked (idle)", letGo,
                             "Vault: a proof to unlock was canceled", "Vault: a proof to unlock was given", loaded,
@@ -162,7 +162,7 @@ import Testing
                 "\(lines.filter { $0.contains("9 document(s)") })")
     }
 
-    /// A close says "locked" only when it locked an open Vault: not under "For every number",
+    /// A close says "locked" only when it locked an open Vault: not under "For every ID",
     /// where nothing was open to lock, and not twice.
     @Test func aCloseThatLocksNothingSaysNothingLocked() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }

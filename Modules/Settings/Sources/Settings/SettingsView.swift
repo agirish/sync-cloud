@@ -153,7 +153,7 @@ public struct SettingsView: View {
         /// - One-Way Sync is drawn by the app (`SettingsView.oneWaySync`), so a test here has
         ///   nothing to measure.
         /// - Ask Claude ▸ Privacy grows with the hidden and shared lists.
-        /// - Vault grows with the folders it reads, a row each.
+        /// - Vault ▸ Read grows with the folders it reads, a row each.
         ///
         /// **A fit-guard fixture built with a nil dependency measures only the empty state**, so a
         /// page with an unbounded list belongs here however well its `else` branch fits. Name
@@ -163,7 +163,7 @@ public struct SettingsView: View {
         public static let exemptFromFitGuard: Set<SettingsPlace> = [
             SettingsPlace(.cloudProviders), SettingsPlace(.localFolders), SettingsPlace(.nameChecks),
             SettingsPlace(.people), SettingsPlace(.oneWaySync), SettingsPlace(.privacy),
-            SettingsPlace(.toFile), SettingsPlace(.ignored), SettingsPlace(.vault),
+            SettingsPlace(.toFile), SettingsPlace(.ignored), SettingsPlace(.read),
         ]
 
         /// The rail's rows in groups, separated by a hairline.
@@ -336,7 +336,7 @@ public struct SettingsView: View {
                     .help(ShortcutHint.tooltip("Close settings", "esc"))
                     .accessibilityLabel("Close settings")
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 20)
             // Fixed, not padding-derived: the content opening is computed as
             // `height − headerHeight − 1`, and every layout assertion rests on that.
             .frame(height: SettingsSheetMetrics.headerHeight * fontSize.scale)
@@ -423,7 +423,7 @@ public struct SettingsView: View {
         case .intelligence:
             IntelligenceSettingsTab(page: subTab ?? .claudeGeneral)
         case .vault:
-            VaultSettingsTab(vault: vault)
+            VaultSettingsTab(page: subTab ?? .read, vault: vault)
         case .advanced:
             AdvancedSettingsTab(syncManager: syncManager, onResetAllSettings: onResetAllSettings,
                                 onRunSetup: onRunSetup, onResetSetup: onResetSetup,
@@ -851,35 +851,35 @@ enum SettingsSearchIndex {
         .init(at: .keyAndSpending, title: "Of that, Organize",
               keywords: ["organize spend", "refine spend", "refine cost", "try another", "refine names", "filing cost"]),
         // Vault
-        .init(at: .vault, title: "When to ask",
-              keywords: ["vault", "every number", "when vault opens", "ask each time", "touch id", "password",
+        .init(at: .lock, title: "When to ask",
+              keywords: ["vault", "every id", "every number", "when vault opens", "ask each time", "touch id", "password",
                          "lock", "unlock", "fingerprint", "secure", "passport", "numbers"]),
-        .init(at: .vault, title: "Lock again",
+        .init(at: .lock, title: "Lock again",
               keywords: ["vault", "relock", "timeout", "idle", "one minute", "two minutes", "five minutes", "ten minutes", "auto lock"]),
-        .init(at: .vault, title: "Clear the clipboard after",
+        .init(at: .lock, title: "Clear the clipboard after",
               keywords: ["vault", "copying and sharing", "clipboard", "copy", "paste", "clear", "30 seconds", "minute", "pasteboard"]),
-        .init(at: .vault, title: "Hide from screen sharing while an ID is shown",
+        .init(at: .lock, title: "Hide from screen sharing while an ID is shown",
               keywords: ["vault", "screen sharing", "screenshot", "recording", "zoom", "share screen", "capture", "hide window"]),
-        .init(at: .vault, title: "Keep a list of what is done in the Vault",
+        .init(at: .lock, title: "Keep an activity list",
               keywords: ["vault", "activity", "history", "audit", "access log", "who copied", "record"]),
-        .init(at: .vault, title: "Vault activity",
+        .init(at: .lock, title: "Vault activity",
               keywords: ["vault", "activity", "history", "recent", "copied", "unlocked", "refused", "show activity"]),
-        .init(at: .vault, title: "Backup passphrase",
+        .init(at: .backup, title: "Backup passphrase",
               keywords: ["vault", "backup", "passphrase", "password", "export", "another mac"]),
-        .init(at: .vault, title: "Backup folder",
+        .init(at: .backup, title: "Backup folder",
               keywords: ["vault", "backup", "where", "location", "folder", "icloud", "dropbox"]),
-        .init(at: .vault, title: "Back up every week",
+        .init(at: .backup, title: "Back up every week",
               keywords: ["vault", "backup", "weekly", "automatic", "schedule"]),
-        .init(at: .vault, title: "Last backup",
+        .init(at: .backup, title: "Last backup",
               keywords: ["vault", "backup", "back up now", "export", "save a copy"]),
-        .init(at: .vault, title: "Restore from a backup",
+        .init(at: .backup, title: "Restore from a backup",
               keywords: ["vault", "restore", "backup", "import", "new mac", "recover", "lost key", "replace"]),
-        .init(at: .vault, title: "Folders to read",
+        .init(at: .read, title: "Folders to read",
               keywords: ["vault", "read documents", "discover more", "scan", "passport", "receipt number", "i-94",
                          "folders", "what to read"]),
-        .init(at: .vault, title: "Refresh by itself when the Vault opens",
+        .init(at: .read, title: "Refresh by itself when the Vault opens",
               keywords: ["vault", "refresh", "automatic", "by itself", "read again", "update", "changed document"]),
-        .init(at: .vault, title: "IDs set aside",
+        .init(at: .read, title: "IDs set aside",
               keywords: ["vault", "not this", "set aside", "forget", "offered again", "read documents", "discover more"]),
         // Advanced
         .init(at: .advanced, title: "Run Setup Again",
@@ -2931,8 +2931,8 @@ struct IntelligenceSettingsTab: View {
                             // covered, so the list says so rather than looking protected.
                             if !FileManager.default.fileExists(atPath: folder) {
                                 Text("Not found — renamed or moved?")
-                                    .font(.caption)
-                                    .foregroundStyle(.orange)
+                                    .scaledFont(.caption)
+                                    .foregroundStyle(SemanticColor.warning)
                                     .help("This is hidden by its path. If it was renamed or moved, add it again under its new name.")
                             }
                             Button("Remove") {
@@ -3997,7 +3997,7 @@ struct AdvancedSettingsTab: View {
                         // over a log that is keeping everything.
                         if runningLevelDiffers {
                             Text("This launch logs at Debug: a trace switch is on.")
-                                .font(.caption)
+                                .scaledFont(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }

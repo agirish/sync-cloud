@@ -19,10 +19,10 @@ import Testing
     }
 
     /// What the settings say each event leaves, from their own rules: only "As soon as Vault
-    /// opens" opens the whole Vault, and asks as it opens; "For every number" loads the list and
+    /// opens" opens the whole Vault, and asks as it opens; "For every ID" loads the list and
     /// asks per number, never at opening; idle locks after the limit, closing locks unless "even
     /// if closed", and sleep and Lock Now lock whatever the setting. A locked Vault under "As
-    /// soon as Vault opens" lets its numbers go; under "For every number" Lock Now leaves the list.
+    /// soon as Vault opens" lets its numbers go; under "For every ID" Lock Now leaves the list.
     /// Each setting's idle limit and whether closing locks, as Settings ▸ Vault words them: written
     /// out here, not read from the settings, so a rule changed there shows as a red row.
     static let rules: [VaultLockSettings.Relock: (limit: TimeInterval?, locksOnClose: Bool)] = [
@@ -106,7 +106,7 @@ import Testing
                                    clock: { [clock = rig.clock] in clock.now }, copyToPasteboard: { _ in })
             auth.model = model
             let id = try await open(model)
-            // Under "For every number", or from empty (nothing is asked as it opens), the proof is
+            // Under "For every ID", or from empty (nothing is asked as it opens), the proof is
             // the number's own: asked as it is shown.
             if model.contents == .loaded { #expect(await model.show(id) == false) }
             return Outcome(open: model.isOpen, loaded: model.contents == .loaded, proofs: auth.asked)

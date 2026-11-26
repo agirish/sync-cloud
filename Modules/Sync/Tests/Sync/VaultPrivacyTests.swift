@@ -182,7 +182,7 @@ import Testing
     }
 
     /// The editor draws a number in full whatever the lock says: Add while the Vault is locked,
-    /// and Edit "For every number" once the list selects another row, keep the window out of
+    /// and Edit "For every ID" once the list selects another row, keep the window out of
     /// capture (the final review).
     @Test @MainActor func theEditorKeepsTheWindowOutOfCaptureLockedOrNot() async throws {
         let rig = try VaultRig(); defer { rig.cleanUp() }

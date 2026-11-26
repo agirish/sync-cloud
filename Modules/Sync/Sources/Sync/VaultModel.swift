@@ -1572,7 +1572,7 @@ public final class VaultModel: ObservableObject {
         return contents == .loaded
     }
 
-    /// Settings ▸ Vault ▸ Folders to Read, from this model's settings: the panel's list and the
+    /// Settings ▸ Vault ▸ Read, from this model's settings: the panel's list and the
     /// folders a read looks in are always the same one (VT74).
     public var readFolders: [String] { VaultReadFolders.folders(in: defaults) }
 
@@ -1594,7 +1594,7 @@ public final class VaultModel: ObservableObject {
         // unlocked (on open, and as the lock lifts).
         if let backingUp { return backingUp }
         guard let backup, contents == .loaded, !isSealedShut, !entries.isEmpty, backup.isDue else { return nil }
-        // Only after Touch ID since the Vault loaded (VT114): "For every number" loads it with
+        // Only after Touch ID since the Vault loaded (VT114): "For every ID" loads it with
         // none, and a backup is every ID in it.
         guard provedSinceLoad else { return nil }
         // A later build's document is not this build's to back up: it would leave out what it
@@ -1949,7 +1949,7 @@ public final class VaultModel: ObservableObject {
 
     /// Shows every one of `ids` in full for one proof, when any of them needs one: what an editor
     /// drawing several IDs (a card's others beside the one being changed) asks before it opens.
-    /// Under "For every number" they show together and hide together; otherwise one proof opens
+    /// Under "For every ID" they show together and hide together; otherwise one proof opens
     /// the Vault as any other does. True when all of them may be drawn.
     @discardableResult
     public func showTogether(_ ids: [UUID], reason: String) async -> Bool {
@@ -1995,7 +1995,7 @@ public final class VaultModel: ObservableObject {
             lock.proved(for: ids, at: now)
             if ids.isEmpty { record(.unlocked) }
             provedSinceLoad = true
-            // "For every number": the weekly backup waits for the first proof (VT114).
+            // "For every ID": the weekly backup waits for the first proof (VT114).
             if !ids.isEmpty { backUpIfDue() }
             return true
         case .cancelled:

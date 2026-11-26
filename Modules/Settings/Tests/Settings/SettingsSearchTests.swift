@@ -276,8 +276,8 @@ import Testing
         "Startup", "Copying and moving", "Notifications", "Logging", "Maintenance", "Setup",
         "Inbox", "Saved scan data", "Markdown", "Reading", "Organize",
         "On-device", "What Claude may see",
-        // Vault's header over the clipboard time and the screen-sharing switch, each indexed.
-        "Copying and Sharing",
+        // Vault ▸ Lock's header over the clipboard time and the screen-sharing switch, each indexed.
+        "Copying and sharing",
         "Across your tree", "Names found in your documents", "Every folder",
         // Organize ▸ Suggestions' header over one jump row; "refine" is a keyword of the key.
         "Refine",

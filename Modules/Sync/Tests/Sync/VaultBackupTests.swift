@@ -203,7 +203,7 @@ import Testing
         #expect(try await backup.read(made).get().entries == [Self.mortgage])
     }
 
-    /// VT114 (owner, 2026-11-26): "For every number" loads the Vault with no proof; the weekly
+    /// VT114 (owner, 2026-11-26): "For every ID" loads the Vault with no proof; the weekly
     /// backup, every ID in it, waits for the first Touch ID, and is made then.
     @Test func underForEveryNumberTheWeeklyBackupWaitsForTouchID() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }

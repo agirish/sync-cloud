@@ -48,7 +48,8 @@ struct VaultOverlay: View {
     let glassLevel: GlassLevel
     let surfaceTint: Double
     let onClose: () -> Void
-    let onOpenSettings: () -> Void
+    /// Opens Settings ▸ Vault on a page, or on the page last shown there when nil.
+    let onOpenSettings: (SettingsSubTab?) -> Void
     /// Quick Look over the window, for a document behind a number.
     let onQuickLook: (String) -> Void
     /// Browse at a document's folder, the file selected.
@@ -124,7 +125,8 @@ struct VaultCard: View {
     @ObservedObject var model: VaultModel
     let glassHue: LiquidGlassHue
     let onClose: () -> Void
-    let onOpenSettings: () -> Void
+    /// Opens Settings ▸ Vault on a page, or on the page last shown there when nil.
+    let onOpenSettings: (SettingsSubTab?) -> Void
     let onQuickLook: (String) -> Void
     let onReveal: (String) -> Void
     let onAddPerson: (_ displayName: String, _ fullName: String) -> Person?
@@ -509,7 +511,7 @@ struct VaultCard: View {
             Button("Choose Folders…") { addFolders() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The Vault reads only the folders you choose, such as the one that holds your passport scans. You can change them later from the arrow beside Discover More or in Settings ▸ Vault.")
+            Text("The Vault reads only the folders you choose, such as the one that holds your passport scans. You can change them later from the arrow beside Discover More or in Settings ▸ Vault ▸ Read.")
         }
     }
 
@@ -538,7 +540,7 @@ struct VaultCard: View {
                 // Without Touch ID nothing here can be used: no adding, no reading.
                 Spacer(minLength: 12)
             }
-            Button(action: onOpenSettings) {
+            Button { onOpenSettings(nil) } label: {
                 Label("Settings", systemImage: "gearshape")
             }
             .help("Vault settings")
@@ -593,7 +595,7 @@ struct VaultCard: View {
                 }
             }
             Button("Add Folder…") { addFolders() }
-            Button("Folder Settings…", action: onOpenSettings)
+            Button("Folder Settings…") { onOpenSettings(.read) }
         } label: {
             Label("Discover More", systemImage: "doc.text.viewfinder")
         } primaryAction: {
@@ -937,8 +939,8 @@ struct VaultCard: View {
                 EmptyStateView(icon: "lock.trianglebadge.exclamationmark", tint: SemanticColor.warning,
                                title: "This Vault can’t be opened here",
                                message: VaultModel.message(for: error),
-                               caption: "The sealed file has been left as it is. A backup is restored in Settings ▸ Vault.",
-                               primary: .init("Restore from a Backup…", systemImage: "arrow.counterclockwise") { onOpenSettings() },
+                               caption: "The sealed file has been left as it is. A backup is restored in Settings ▸ Vault ▸ Backup.",
+                               primary: .init("Restore from a Backup…", systemImage: "arrow.counterclockwise") { onOpenSettings(.backup) },
                                secondary: .init("Set It Aside and Start New…", systemImage: "tray.and.arrow.down") { settingAside = true })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .confirmationDialog("Set this Vault aside and start a new one?", isPresented: $settingAside) {
@@ -3624,7 +3626,7 @@ struct VaultCard: View {
     /// What Not an ID… asks. A card printing the number as its subscriber's is most likely the
     /// subscriber's real ID: setting it aside would hide it from every file.
     static func notAnIDMessage(printedForSubscriber: Bool) -> String {
-        let aside = "It comes off the Vault and isn’t offered again, from any file. Settings ▸ Vault can forget the IDs set aside."
+        let aside = "It comes off the Vault and isn’t offered again, from any file. Settings ▸ Vault ▸ Read can forget the IDs set aside."
         guard printedForSubscriber else { return aside }
         return "The card prints this as the subscriber’s ID, so it is most likely the subscriber’s real ID. "
             + "Belongs to gives it to them, and Correct the ID… fixes a misreading. " + aside
@@ -4603,7 +4605,7 @@ struct VaultCard: View {
         model.startReading(with: VaultFolderReader(folders: folders), scope: scope)
     }
 
-    /// Add Folder…: the same list as Settings ▸ Vault ▸ Folders to Read.
+    /// Add Folder…: the same list as Settings ▸ Vault ▸ Read.
     private func addFolders() {
         guard let chosen = VaultReadFoldersPanel.choose(message: "Choose the folders that hold your passport scans, I-94s and USCIS notices.")
         else { return }
@@ -4611,7 +4613,7 @@ struct VaultCard: View {
         reloadReadFolders()
     }
 
-    /// Settings ▸ Vault ▸ Folders to Read, read again into the panel's copy: as it opens, before a
+    /// Settings ▸ Vault ▸ Read, read again into the panel's copy: as it opens, before a
     /// read, and after a folder is added or let go here. Settings changes it only with the Vault
     /// closed, since opening Settings puts the Vault away.
     @discardableResult

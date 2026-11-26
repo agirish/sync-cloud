@@ -17,7 +17,7 @@ struct AskClaudePastChatsSettings: View {
     var body: some View {
         SettingsSection(
             "Past chats",
-            caption: "Kept on this Mac only, and searched here. Names in a folder you hide from Claude later are hidden in them, and Continue sends only your questions from those chats."
+            caption: "Kept and searched on this Mac only. A folder you hide later is hidden in them too."
         ) {
             SettingsRow("Keep past chats") {
                 HStack(spacing: 8) {
@@ -27,7 +27,7 @@ struct AskClaudePastChatsSettings: View {
                     }
                     .labelsHidden()
                     .fixedSize()
-                    .help("How long a chat stays in Ask Claude’s Past Chats after its last question.")
+                    .help("How long a chat stays in Ask Claude’s Past Chats after its last question. Continue sends Claude only your questions from a past chat.")
                     Button("Clear All…", role: .destructive) {
                         clearAll(confirm: RemovalPrompt.clearPastChats(count: files?.entries().count ?? 0).ask)
                     }

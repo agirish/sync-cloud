@@ -276,12 +276,12 @@ struct CloudKeyRow: View {
             case .invalid(let message):
                 Label(message, systemImage: "xmark.octagon.fill").scaledFont(.subheadline).foregroundStyle(.red)
             case .failed(let message):
-                Label("Couldn’t reach Anthropic: \(message)", systemImage: "exclamationmark.triangle.fill").scaledFont(.subheadline).foregroundStyle(.orange)
+                Label("Couldn’t reach Anthropic: \(message)", systemImage: "exclamationmark.triangle.fill").scaledFont(.subheadline).foregroundStyle(SemanticColor.warning)
             }
         } else if state.showsSecret {
             // The one state worth interrupting the usual reassurance for: a secret is on screen.
             Label("Visible until you hide it or leave Settings.", systemImage: "eye")
-                .scaledFont(.subheadline).foregroundStyle(.orange)
+                .scaledFont(.subheadline).foregroundStyle(SemanticColor.warning)
         } else if state == .replacing {
             EmptyView()   // the entry row carries its own caption
         } else if hasStoredKey {

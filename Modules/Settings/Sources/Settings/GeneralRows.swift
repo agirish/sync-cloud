@@ -121,7 +121,7 @@ public struct OneWaySyncNotifyRow: View {
 private struct NotificationsDeniedHint: View {
     var body: some View {
         Text("Notifications are disabled in System Settings — allow SyncCloud under Notifications to see these alerts.")
-            .foregroundStyle(.orange)
+            .foregroundStyle(SemanticColor.warning)
     }
 }
 
