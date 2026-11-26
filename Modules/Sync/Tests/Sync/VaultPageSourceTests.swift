@@ -176,9 +176,10 @@ import Testing
         let inked = VaultPageSource.Picture(isScan: { true }, read: { _ in plain }, barcodes: { [] }, inkOnly: { _ in ink })
         notes = VaultPageSource.noted(inked, from: Self.path)?.notes
         #expect(notes?.inkOnly == 1 && notes?.fromPicture == 1)
-        // A full typed page: nothing of the picture.
+        // A full typed page with no scan on it: nothing of the picture.
         let page = Self.letter + ["Receipt Number LIN2412345678"]
-        #expect(Self.reading(page.joined(separator: "\n"), Self.picture(Asked(), reads: Self.passport))?.notes == VaultReadNotes())
+        #expect(Self.reading(page.joined(separator: "\n"), Self.picture(Asked(), isScan: false, reads: Self.passport))?.notes
+                == VaultReadNotes())
         // A typed license back is rendered once for its barcode: rendered sharper, the layer kept.
         let back = (Self.letter + ["ENDORSEMENTS NONE", "RESTRICTIONS NONE"]).joined(separator: "\n")
         let rendered = Self.reading(back, Self.picture(Asked(), isScan: false, reads: nil, barcodes: ["ANSI 636014"]))
@@ -202,11 +203,43 @@ import Testing
 
     // MARK: A layer that gives a number
 
+    /// The layer is the page, whatever its picture reads: there Vision more often lost the
+    /// layer's number than added one.
     @Test func aFullPageThatGivesANumberIsTrustedAsItIs() {
-        let asked = Asked()
         let page = Self.letter + ["Receipt Number LIN2412345678"]
-        #expect(Self.lines(page.joined(separator: "\n"), Self.picture(asked, reads: Self.passport)) == page)
-        #expect(asked.reads.isEmpty && asked.scans == 0, "not even asked whether it is a scan")
+        let layer = page.joined(separator: "\n")
+        // Typed, with no scan on it: never rendered.
+        let typed = Asked()
+        #expect(Self.reading(layer, Self.picture(typed, isScan: false, reads: Self.passport)) == VaultPageSource.Reading(lines: page))
+        #expect(typed.scans == 1 && typed.reads.isEmpty && typed.barcodes == 0)
+        // Over a scan whose picture lost the number, or reads only what the layer does: the layer, alone.
+        #expect(Self.reading(layer, Self.picture(Asked(), reads: Self.letter)) == VaultPageSource.Reading(lines: page))
+        #expect(Self.reading(layer, Self.picture(Asked(), reads: page)) == VaultPageSource.Reading(lines: page))
+        // A digit misread: kept beside the layer, to be confirmed like any other, never in its place.
+        let misread = Self.letter + ["Receipt Number LIN2412345673"]
+        let beside = Self.reading(layer, Self.picture(Asked(), reads: misread))
+        #expect(beside == VaultPageSource.Reading(lines: page, also: misread))
+        // Vision refused: the layer is kept, and its picture tried again.
+        #expect(Self.reading(layer, Self.picture(Asked(), reads: nil))?.pictureUnread == true)
+    }
+
+    /// VT88: a full typed layer over a scan can hold less than the scan: one number where the scan
+    /// beneath gives a second. Its picture is read, and kept beside the layer when it says
+    /// something the layer does not; the layer stays the page, whatever the picture reads.
+    @Test func aFullPageOverAScanKeepsWhatItsPictureAdds() throws {
+        let page = Self.letter + ["Receipt Number LIN2412345678"]
+        #expect(page.joined().filter { !$0.isWhitespace }.count > VaultPageSource.stampAtMost)
+        // The scan gives a second number: both readings, the layer first.
+        let asked = Asked()
+        let added = try #require(Self.reading(page.joined(separator: "\n"), Self.picture(asked, reads: Self.passport)))
+        #expect(added == VaultPageSource.Reading(lines: page, also: Self.passport))
+        #expect(Self.numbers(added) == ["L898902C3", "LIN2412345678"])
+        #expect(asked.scans == 1 && asked.reads == [false], "one render, at the usual size")
+        #expect(added.notes.fromPicture == 1)
+        // It says all the layer does and more: still both, never the picture alone.
+        let both = Self.passport + ["Receipt Number LIN2412345678"]
+        #expect(Self.reading(page.joined(separator: "\n"), Self.picture(Asked(), reads: both))
+                == VaultPageSource.Reading(lines: page, also: both))
     }
 
     @Test func aStampWithANumberDoesNotHideTheScanUnderIt() {
@@ -321,14 +354,16 @@ import Testing
         let forty = String(repeating: "x", count: VaultPageSource.leastText)
         #expect(Self.lines(forty + " \n ", Self.picture(Asked(), isScan: false, reads: Self.passport)) == Self.passport)
         #expect(Self.lines(forty + "x", Self.picture(Asked(), isScan: false, reads: Self.passport)) == [forty + "x"])
-        // A layer that gives a number is read under only up to four hundred.
+        // A layer that gives a number may be a stamp up to four hundred: there a picture with a
+        // number of its own is the page. Past it the layer is, the picture beside it (VT88).
         let number = "Receipt Number LIN2412345678 "
         let most = number + String(repeating: "x", count: VaultPageSource.stampAtMost - number.filter { $0 != " " }.count)
         #expect(most.filter { $0 != " " }.count == VaultPageSource.stampAtMost)
         let under = Asked(), over = Asked()
-        #expect(Self.numbers(Self.reading(most, Self.picture(under, reads: Self.passport))) == ["L898902C3", "LIN2412345678"])
-        #expect(Self.lines(most + "x", Self.picture(over, reads: Self.passport)) == [most + "x"])
-        #expect(under.reads == [false] && over.reads.isEmpty)
+        #expect(Self.reading(most, Self.picture(under, reads: Self.passport)) == VaultPageSource.Reading(lines: Self.passport, also: [most]))
+        #expect(Self.reading(most + "x", Self.picture(over, reads: Self.passport))
+                == VaultPageSource.Reading(lines: [most + "x"], also: Self.passport))
+        #expect(under.reads == [false] && over.reads == [false])
     }
 
     // MARK: Pages with no layer, and license backs

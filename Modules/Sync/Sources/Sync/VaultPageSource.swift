@@ -76,14 +76,16 @@ public enum VaultPageSource {
     /// A page that is typed, with no scan on it, is its text layer: most pages are, and a render
     /// and a recognition cost about a second. (Only a typed license back is rendered, for its
     /// barcode, and a page whose whole text is forty letters or fewer.) A page that draws a scan
-    /// is read from its picture as well when its layer may not be the whole of it:
+    /// is read from its picture as well, since its layer may not be the whole of it:
     ///
     /// - the layer gives the readers no number, whatever its length: a signing service's stamp
     ///   over a scanned passport, a scanner's own text that garbled the number, a bill whose
     ///   font maps to nothing. On the owner's papers that was 61 of 592 full pages, and 99
     ///   short ones;
     /// - the layer is short (``stampAtMost``) and gives a number: a case number stamped on the
-    ///   scan of something else.
+    ///   scan of something else;
+    /// - the layer is a full page and gives a number: the scan beneath can hold a second number,
+    ///   or more of the same one (VT88: 11 of 203 such pages on the owner's papers).
     ///
     /// A reading says more than the other when it reads a number the other does not, names one
     /// the other never says, or knows more about one both read (whose it is, its dates, a
@@ -94,8 +96,9 @@ public enum VaultPageSource {
     /// kind, there is no telling a stamp, which is exact, from a scanner's own reading, which
     /// is not; both numbers are kept, and each waits to be confirmed like any other.
     ///
-    /// A full page of text that gives a number is trusted as it is: there Vision more often
-    /// lost the layer's number than added one (56 pages against 11).
+    /// A full page of text that gives a number is always the page: there Vision more often lost
+    /// the layer's number than added one (56 pages against 11). Its picture never replaces it,
+    /// and is kept beside it (``Reading/also``) only when it says more.
     public static func reading(textLayer: String, from path: String, under roots: [String] = [],
                                picture: Picture) -> Reading? {
         let letters = textLayer.filter { !$0.isWhitespace }.count
@@ -117,8 +120,10 @@ public enum VaultPageSource {
         // Whether the sharper read was made: it looks for a license's barcode too.
         var readSharper = false
         var notes = VaultReadNotes()
+        // A full page of text that gives a number: the page, whatever its picture reads (VT88).
+        let trusted = !typed.numbers.isEmpty && letters > stampAtMost
         // So short a layer is on a scan, whatever the file's pictures say.
-        if typed.numbers.isEmpty || letters <= stampAtMost, letters <= leastText || picture.isScan() {
+        if letters <= leastText || picture.isScan() {
             guard let seen = look(at: picture, from: path, under: roots) else {
                 // Vision can refuse requests for minutes at a time. A layer that gives or names
                 // a number is kept. One that says nothing is no reading of the page: the page
@@ -144,7 +149,9 @@ public enum VaultPageSource {
             // Counts and kinds of reading only, here and below: never what was read.
             if picture.more {
                 Logger.shared.debug("Vault: a scan under a text layer was read from its picture"
-                                    + (text.more ? "; the two readings are kept as two pages" : ""))
+                                    + (text.more || trusted ? "; the two readings are kept as two pages" : ""))
+                // A full page of text is never dropped for its picture: kept beside it.
+                guard !trusted else { return Reading(lines: layer, also: seen.lines, notes: fromPicture) }
                 guard text.more else { return Reading(lines: seen.lines, notes: fromPicture) }
                 // The one with a number of its own is the page; with neither, what was typed.
                 return picture.new ? Reading(lines: seen.lines, also: layer, notes: fromPicture)

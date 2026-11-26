@@ -231,9 +231,10 @@ struct VaultFolderReader: VaultDocumentReading {
 
     /// Whether the page draws pictures that could be a scan of it: its image objects, and those
     /// inside the forms it draws, come to ``scanPixels`` or more. Where a picture sits on the
-    /// page, or whether it is drawn at all, is not looked at. A wrong yes, on a typed page whose
-    /// text gives no number, costs a recognition (three at most: sharper, and in its ink alone),
-    /// and its picture is the page only if it gives a number the text does not.
+    /// page, or whether it is drawn at all, is not looked at. A wrong yes, on a typed page, costs
+    /// a recognition (three at most: sharper, and in its ink alone); its picture is the page only
+    /// if the text gives no number and the picture one, and beside a full page that gives one
+    /// only if it says more (VT88).
     static func drawsScan(_ page: PDFPage) -> Bool { scanSearch(page).found }
 
     /// ``drawsScan(_:)``, and how many resource dictionaries it opened to find out: each one
