@@ -634,14 +634,16 @@ extension VaultReading {
 
     /// The e-PAN's own heading, "e-Permanent Account Number Card" or "e - Permanent Account Number
     /// (e-PAN) Card": a small e, so never the end of "the" or "i.e", nor a list's lettered item.
+    /// On a line of its own, after its Hindi and a slash or without: a sentence naming it ("a copy
+    /// of your e-Permanent Account Number card") is a form's (the 2026-11-25 review).
     private static let ePANHeading = try! NSRegularExpression(
-        pattern: #"(?<![A-Za-z.])e[ \t]*[-\u2010-\u2014]?[ \t]*[Pp](?i:ermanent\s+account\s+number)"#)
+        pattern: #"(?m)^[^A-Za-z\n]*e[ \t]*[-\u2010-\u2014]?[ \t]*[Pp](?i:ermanent\s+account\s+number)(?:[ \t]*\([ \t]*e[ \t]*-?[ \t]*PAN[ \t]*\))?(?i:[ \t]*card)?[ \t]*$"#)
 
     /// The label over a PAN card's holder or father, alone on its line, after its Hindi and a
     /// slash or without: "Name", "नाम / Name", "Father's Name". A form's field carries its value or
     /// more words beside it ("Name of applicant: …").
     private static let holderLabel = try! NSRegularExpression(
-        pattern: #"(?i)^(?:[^A-Za-z/]*/)?[ \t]*(?:father['’]?s[ \t]*)?name[ \t]*:?[ \t]*$"#)
+        pattern: #"(?i)^(?:[^A-Za-z/]*/)?[ \t]*(?:(?:father['’]?s[ \t]*)?name|date[ \t]+of[ \t]+birth)[ \t]*:?[ \t]*$"#)
 
     /// Whether a page naming the e-PAN is the e-PAN: its heading, or the holder's block under it.
     /// A form asking for a copy of one only names it.
@@ -650,9 +652,11 @@ extension VaultReading {
         guard ePANHeading.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) == nil else {
             return true
         }
-        return printed.lines.contains { line in
+        // Two of the card's labels: a form's table can head a column "Name" alone (the review).
+        let labels = printed.lines.filter { line in
             holderLabel.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil
         }
+        return Set(labels.map { $0.lowercased().filter(\.isLetter) }).count >= 2
     }
 
     static func panNumbers(on printed: PrintedPage, from path: String) -> [VaultFind] {

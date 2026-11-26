@@ -16315,6 +16315,7 @@ Batch 50: a page naming an e-PAN is not the PAN card (VT90).
 Batch 51: a school's enrolment number is the student's ID, never an Aadhaar (VT91).
 Batch 52: a checklist's card line is not the card; broken form numbers are read (VT92).
 Batch 53: five small misreads (VT93).
+Batch 54: fixes from one review of batches 46–53.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

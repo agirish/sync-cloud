@@ -215,12 +215,17 @@ import Testing
         // Over a scan whose picture lost the number, or reads only what the layer does: the layer, alone.
         #expect(Self.reading(layer, Self.picture(Asked(), reads: Self.letter)) == VaultPageSource.Reading(lines: page))
         #expect(Self.reading(layer, Self.picture(Asked(), reads: page)) == VaultPageSource.Reading(lines: page))
-        // A digit misread: kept beside the layer, to be confirmed like any other, never in its place.
+        // A digit misread, all the picture adds: the picture misreading the text it drew, so the
+        // layer alone (the 2026-11-25 review). A number of its own is still kept beside it.
         let misread = Self.letter + ["Receipt Number LIN2412345673"]
-        let beside = Self.reading(layer, Self.picture(Asked(), reads: misread))
-        #expect(beside == VaultPageSource.Reading(lines: page, also: misread))
-        // Vision refused: the layer is kept, and its picture tried again.
-        #expect(Self.reading(layer, Self.picture(Asked(), reads: nil))?.pictureUnread == true)
+        let alone = Self.reading(layer, Self.picture(Asked(), reads: misread))
+        #expect(alone?.lines == page && alone?.also == nil)
+        let another = Self.letter + ["Receipt Number LIN2412345678", "Receipt Number EAC2490012345"]
+        #expect(Self.reading(layer, Self.picture(Asked(), reads: another))?.also == another)
+        // Vision refused: the layer is kept, and the page counts as read, a full page being
+        // the page whatever its picture says.
+        #expect(Self.reading(layer, Self.picture(Asked(), reads: nil))?.pictureUnread == false)
+        #expect(Self.reading(layer, Self.picture(Asked(), reads: nil))?.lines == page)
     }
 
     /// VT88: a full typed layer over a scan can hold less than the scan: one number where the scan
@@ -240,6 +245,23 @@ import Testing
         let both = Self.passport + ["Receipt Number LIN2412345678"]
         #expect(Self.reading(page.joined(separator: "\n"), Self.picture(Asked(), reads: both))
                 == VaultPageSource.Reading(lines: page, also: both))
+    }
+
+    /// A page read both ways merges as two readings do, with only whose it is from the typed
+    /// layer: the layer's stand-in date (its file's name) never beats the picture's printed one
+    /// (the 2026-11-25 review).
+    @Test func aPageReadBothWaysKeepsThePicturesPrintedDate() {
+        let path = "/docs/Immigration/USCIS/I-130 2015.pdf"
+        func find(holder: String, dated: Date) -> VaultFind {
+            VaultFind(title: "I-130 case", value: "WAC2412345678", facts: VaultReadFacts(
+                category: .uscisCase, holder: holder, dated: dated,
+                sources: [VaultSource(path: path, role: "I-797C receipt", rank: 30)]))
+        }
+        let typed = find(holder: "Anna Eriksson", dated: VaultReadingTests.day(2015, 1, 1))
+        let picture = find(holder: "Anma Eriksson", dated: VaultReadingTests.day(2015, 6, 10))
+        let filled = VaultCopies.filled(typed, from: picture)
+        #expect(filled.facts.dated == VaultReadingTests.day(2015, 6, 10))
+        #expect(filled.holder == "Anna Eriksson")
     }
 
     @Test func aStampWithANumberDoesNotHideTheScanUnderIt() {

@@ -342,29 +342,19 @@ public enum VaultReading {
         let valid = validPattern.firstMatch(in: text, range: whole)
         let validFrom = slashDate(valid, in: ns, at: 1)
         let validUntil = slashDate(valid, in: ns, at: 4)
+        // A notice's own kind (I-797, I-797A…E) is never the case's form.
         let forms = formPattern.matches(in: text, range: whole)
-            .filter { !["797", "797A", "797C"].contains(ns.substring(with: $0.range(at: 1))) }
+            .filter { !ns.substring(with: $0.range(at: 1)).hasPrefix("797") }
             .map { (range: $0.range, value: "I-" + ns.substring(with: $0.range(at: 1))) }
         let holders = caseHolderPattern.matches(in: text, range: whole)
             .map { (range: $0.range, value: readingOrder(ns.substring(with: $0.range(at: 1)))) }
-        let receipts = receiptPattern.matches(in: text, range: whole)
-        // A page of one case names its form and its person anywhere on it: the first is taken. A
-        // page of several (a case list, a family's notices) prints each with its own: each number
-        // takes the one printed nearest it, a tie going to the one after it, as a notice prints them.
-        let several = Set(receipts.map { normalized(ns.substring(with: $0.range)) }).count > 1
-        func own(_ found: [(range: NSRange, value: String)], near receipt: NSRange) -> String? {
-            guard several else { return found.first?.value }
-            func distance(_ r: NSRange) -> (Int, Int) {
-                r.location >= NSMaxRange(receipt) ? (r.location - NSMaxRange(receipt), 0) : (receipt.location - NSMaxRange(r), 1)
-            }
-            return found.min { distance($0.range) < distance($1.range) }?.value
-        }
         let source = VaultSource(path: path, role: notice?.role ?? "USCIS notice", rank: notice?.rank ?? Rank.mention)
         // A center's letters set apart from the digits ("LIN 4155551234") are as likely a surname
         // and a phone number: taken only on a page about a case. Run together, they are a receipt.
         let aboutACase = notice != nil
             || ["receipt number", "receipt #", "uscis", "i-797", "immigration services", "case status"].contains(where: lower.contains)
-        return receipts.compactMap { match in
+        // The receipt numbers the page gives, each as read: its range, and its number.
+        let receipts: [(range: NSRange, value: String)] = receiptPattern.matches(in: text, range: whole).compactMap { match in
             let center = ns.substring(with: match.range(at: 1)).uppercased()
             let joined = match.range(at: 2).location == match.range(at: 1).location + match.range(at: 1).length
             guard joined || aboutACase else { return nil }
@@ -372,7 +362,23 @@ public enum VaultReading {
             // Mostly digits as printed: look-alikes are forgiven a few at a time, and a run of
             // letters that only become digits once fixed is a word, not a number.
             guard read.filter(\.isNumber).count >= 7 else { return nil }
-            let form = own(forms, near: match.range), holder = own(holders, near: match.range)
+            return (match.range, center + fixedDigits(read))
+        }
+        // A page of one case names its form and its person anywhere on it: the first is taken. A
+        // page of several (a case list, a family's notices) prints each with its own, after it in
+        // its section: each number takes the first printed between it and the next number, else
+        // the last before it (VT93; the 2026-11-25 review: counted in characters, the previous
+        // section's person, ending a line above, was nearer than the receipt's own below it).
+        let several = Set(receipts.map(\.value)).count > 1
+        func own(_ found: [(range: NSRange, value: String)], for index: Int) -> String? {
+            guard several else { return found.first?.value }
+            let start = NSMaxRange(receipts[index].range)
+            let end = index + 1 < receipts.count ? receipts[index + 1].range.location : ns.length
+            if let after = found.first(where: { $0.range.location >= start && $0.range.location < end }) { return after.value }
+            return found.last { NSMaxRange($0.range) <= receipts[index].range.location }?.value
+        }
+        return receipts.indices.map { index in
+            let form = own(forms, for: index), holder = own(holders, for: index)
             var details: [VaultDetail] = []
             if let form { details.append(VaultDetail("Form", .text(form))) }
             details.append(VaultDetail("Status", .text(notice?.pending == true ? "Pending, receipt notice only"
@@ -389,7 +395,7 @@ public enum VaultReading {
                                        dated: noticeDate ?? received ?? fileDate(path), validUntil: validUntil,
                                        pending: notice?.pending ?? false, details: details, sources: [source])
             return VaultFind(title: form.map { "\($0) case" } ?? "USCIS receipt number",
-                             value: center + fixedDigits(read), note: sentence(notes), facts: facts)
+                             value: receipts[index].value, note: sentence(notes), facts: facts)
         }
     }
 
@@ -413,7 +419,7 @@ public enum VaultReading {
     /// The number's letters are upper case, as printed, though the label's are not: a word's last
     /// lower-case letter ("records 1234567890") is no look-alike digit.
     private static let admissionPattern = try! NSRegularExpression(
-        pattern: #"(?<![A-Za-z0-9])(?:I\#(hyphen)?94|[1l|]\#(hyphen)94|admission)(?![A-Za-z0-9])[^\n0-9]{0,40}?(?-i:((?:[0-9OQDILZSBG]\s?){9}[A-Z0-9]\s?[0-9OQDILZSBG]))(?![0-9])"#,
+        pattern: #"(?<![A-Za-z0-9])(?:I\#(hyphen)?94|[1l|]\#(hyphen)94|admission)(?![A-Za-z0-9])[^\n0-9]{0,40}?(?<![A-Za-z])(?-i:((?:[0-9OQDILZSBG]\s?){9}[A-Z0-9]\s?[0-9OQDILZSBG]))(?![0-9])"#,
         options: [.caseInsensitive])
 
     /// A hyphen, a soft hyphen, the Unicode dashes, or a minus sign.

@@ -82,6 +82,24 @@ import Testing
         }
     }
 
+    /// A form naming an e-PAN with a bare "Name" column, or in a sentence naming the heading's
+    /// words, is not the card (the 2026-11-25 review).
+    @Test func aFormWithANameColumnOrTheHeadingInASentenceIsNotTheEPAN() {
+        let column = ["Please attach a copy of PAN card / e-PAN", "ABCPE1234F", "Name", "ANNA ERIKSSON"]
+        #expect(!VaultFixtures.read(column).contains { $0.facts.primary?.rank == VaultReading.IDRank.card })
+        let sentence = ["Attach a copy of your e-Permanent Account Number (e-PAN) allotment letter", "ABCPE1234F"]
+        #expect(!VaultFixtures.read(sentence).contains { $0.facts.primary?.rank == VaultReading.IDRank.card })
+        // The heading on its own line is the card.
+        let heading = ["e-Permanent Account Number Card", "ABCPE1234F", "ANNA ERIKSSON"]
+        #expect(VaultFixtures.read(heading).first?.facts.primary?.rank == VaultReading.IDRank.card)
+    }
+
+    /// An upper-case word before ten digits is not an I-94's first letters (the review).
+    @Test func aWordBeforeTenDigitsIsNoI94() {
+        #expect(!VaultFixtures.read(["Most Recent I-94", "I-94 RECORDS 8005551234"]).contains { $0.category == .i94 })
+        #expect(VaultFixtures.read(["Admission (I-94) Record Number: 123456789 A1"]).first?.value == "123456789A1")
+    }
+
     @Test func anEPANIsACardHoweverAScanSpacesTheWord() throws {
         // The hyphen read as a gap, the words run together, a letter set apart, the word split
         // over two lines: each was a card before the word had to stand alone, and still is.
@@ -91,7 +109,9 @@ import Testing
                          ["e PAN CARD"], ["E PAN CARD"], ["e PAN"], ["Your E-PAN Card is attached"], ["INSTANT E-PAN"],
                          ["e\u{2013}PAN Card"], ["e\u{2011}PAN Card"], ["ePANcard"]]
         for spelling in spellings {
-            let page = ["INCOME TAX DEPARTMENT"] + spelling + ["ABCPE1234F", "Name", "ANNA ERIKSSON"]
+            // The card's labels, as an e-PAN prints them: a form's table heads one column "Name".
+            let page = ["INCOME TAX DEPARTMENT"] + spelling + ["ABCPE1234F", "Name", "ANNA ERIKSSON",
+                                                              "Father's Name", "BJORN ERIKSSON"]
             let card = try #require(VaultFixtures.read(page).first, "\(spelling)")
             #expect(card.facts.primary?.rank == VaultReading.IDRank.card, "\(spelling)")
             #expect(card.holder == "Anna Eriksson", "\(spelling)")
@@ -429,6 +449,21 @@ import Testing
         #expect(anna?.holder == "Anna Eriksson")
         #expect(bjorn?.facts.form == "I-539")
         #expect(bjorn?.holder == "Bjorn Eriksson")
+        // A case list without the label: the section's own form and person, after its number,
+        // never the previous section's, a line above (the 2026-11-25 review).
+        let list = ["Case Status", "WAC2412345678", "Form I-129", "Beneficiary ERIKSSON, ANNA",
+                    "WAC2412349999", "Form I-539", "Applicant ERIKSSON, BJORN"]
+        let bare = VaultFixtures.read(list)
+        #expect(bare.first { $0.value == "WAC2412349999" }?.holder == "Bjorn Eriksson")
+        #expect(bare.first { $0.value == "WAC2412349999" }?.facts.form == "I-539")
+        #expect(bare.first { $0.value == "WAC2412345678" }?.holder == "Anna Eriksson")
+        // One number read twice, once with a look-alike: one case, which takes the page's first.
+        let twice = ["Case Status", "Receipt Number WAC2412345678", "Form I-129", "Beneficiary ERIKSSON, ANNA",
+                     "Receipt Number WAC24123456T8"]
+        #expect(VaultFixtures.read(twice).allSatisfy { $0.facts.form == "I-129" })
+        // A notice's own kind is never the case's form.
+        #expect(VaultFixtures.read(["Case Status", "I-797E Notice of Action", "Receipt Number WAC2412345678",
+                                    "Form I-129"]).first?.facts.form == "I-129")
     }
 
     /// One or two X's before the digits are a mask as much as four are.

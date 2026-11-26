@@ -793,27 +793,19 @@ public enum VaultCopies {
         }
     }
 
-    /// One number as a page's text layer and its picture both read it (``VaultPageOrigin``): the
-    /// layer speaks, as typed, and the picture adds only what the layer is silent on (VT88). A
-    /// scan's picture misreads a name the layer has exactly ("Anma" for "Anna"); ordered as two
-    /// documents (``merged(_:speaking:)``), the picture spoke whenever it read a date or a detail
-    /// more, and its misread name with it. A name the picture reads fuller, starting alike, is
-    /// still taken (``fuller(_:_:)``).
+    /// One number as a page's text layer and its picture both read it (``VaultPageOrigin``):
+    /// merged as two documents are (``merged(_:speaking:)``), with whose it is, its holder and
+    /// birth date, as typed (VT88). A scan's picture misreads a name the layer has exactly
+    /// ("Anma" for "Anna"), and spoke whenever it read a date or a detail more. A name the
+    /// picture reads fuller, starting alike, is still taken (``fuller(_:_:)``).
     static func filled(_ typed: VaultFind, from picture: VaultFind) -> VaultFind {
-        var out = typed
-        let (own, seen) = (typed.facts, picture.facts)
-        for source in seen.sources { out.facts.add(source) }
-        out.facts.holder = fuller(own.holder, seen.holder)
-        out.facts.born = own.born ?? seen.born
-        out.facts.issuer = own.issuer ?? seen.issuer
-        out.facts.form = own.form ?? seen.form
-        out.facts.dated = own.dated ?? seen.dated
-        out.facts.validUntil = own.validUntil ?? seen.validUntil
-        out.facts.inPassport = own.inPassport ?? seen.inPassport
-        out.facts.printedForSubscriber = own.printedForSubscriber ?? seen.printedForSubscriber
-        out.facts.pending = own.pending && seen.pending
-        lend(seen.details, to: &out.facts.details)
-        out.facts.spokenBy = typed.sourcePath
+        // Merged as any two readings are, so what each prints (a notice date, a status, a form)
+        // is weighed as ever; only whose it is comes from the typed layer, which no misread
+        // spoils. The typed reading had spoken for every field, and its stand-ins (a date from
+        // the file's name, a "Notice" status) beat what the picture printed (the 2026-11-25 review).
+        guard var out = merged([typed, picture]) else { return typed }
+        if typed.facts.holder != nil { out.facts.holder = fuller(typed.facts.holder, picture.facts.holder) }
+        if let born = typed.facts.born { out.facts.born = born }
         return out
     }
 

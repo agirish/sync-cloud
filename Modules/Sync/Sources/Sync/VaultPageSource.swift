@@ -155,7 +155,9 @@ public enum VaultPageSource {
                 // a number is kept. One that says nothing is no reading of the page: the page
                 // is left out, as one with no layer is, and a file with no page read at all is
                 // tried again on the next read rather than marked read.
-                guard typed.any.isEmpty else { return Reading(lines: layer, pictureUnread: true) }
+                // A full page of text is the page whatever its picture says: read, not left for
+                // its picture, or every read while Vision refuses opens it again (the review).
+                guard typed.any.isEmpty else { return Reading(lines: layer, pictureUnread: !trusted) }
                 Logger.shared.debug("Vault: a scan under a text layer could not be read from its picture")
                 return nil
             }
@@ -184,8 +186,23 @@ public enum VaultPageSource {
                 let both = text.more || typedOtherwise
                 Logger.shared.debug("Vault: a scan under a text layer was read from its picture"
                                     + (both || trusted ? "; the two readings are kept as two pages" : ""))
-                // A full page of text is never dropped for its picture: kept beside it.
-                guard !trusted else { return Reading(lines: layer, also: seen.lines, notes: fromPicture) }
+                // A full page of text is never dropped for its picture: kept beside it, unless all
+                // the picture adds is a number one character off one the text gives, which is the
+                // picture misreading the text it drew (the 2026-11-25 review).
+                if trusted {
+                    let added = pictured.numbers.subtracting(typed.numbers)
+                    let misreads = !added.isEmpty && added.allSatisfy { one in typed.numbers.contains { Self.oneOff(one, $0) } }
+                    let sharedMore = pictured.finds.contains { find in
+                        typed.numbers.contains(VaultReading.normalized(find.value))
+                            && !keepsEverything([find], typed.finds)
+                    }
+                    if misreads, !sharedMore, pictured.any.subtracting(pictured.numbers).isSubset(of: typed.any) {
+                        Logger.shared.debug("Vault: a scan under a full text layer gave only a misreading of its number")
+                        notes.sharper = fromPicture.sharper
+                        return Reading(lines: layer, notes: notes)
+                    }
+                    return Reading(lines: layer, also: seen.lines, notes: fromPicture)
+                }
                 guard both else { return Reading(lines: seen.lines, notes: fromPicture) }
                 // The one with a number of its own is the page; with neither, what was typed.
                 return picture.new ? Reading(lines: seen.lines, also: layer, alsoIsLayer: true, notes: fromPicture)
@@ -206,6 +223,12 @@ public enum VaultPageSource {
                                 + (decoded.isEmpty ? "none decoded" : "decoded"))
         }
         return Reading(lines: layer, notes: notes)
+    }
+
+    /// Whether two numbers differ in one character alone, same length: one read for the other.
+    static func oneOff(_ a: String, _ b: String) -> Bool {
+        let (x, y) = (Array(a), Array(b))
+        return x.count == y.count && zip(x, y).filter { $0 != $1 }.count == 1
     }
 
     /// The picture as Vision reads it: what a page with no text layer, or a photo or scan
