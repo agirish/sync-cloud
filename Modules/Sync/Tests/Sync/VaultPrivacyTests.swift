@@ -158,7 +158,8 @@ import Testing
         dump(phone, to: &dumped)
         dump(home, to: &dumped)
         for line in printed + [dumped] {
-            for secret in ["2841", "Larkspur", "Testville", "00001", "555-0142", "anna@", "123456789", "38291647"] {
+            // The address's own street and unit (the final review: the list named another's).
+            for secret in ["Example Street", "Apt 6", "Testville", "00001", "555-0142", "anna@", "123456789", "38291647"] {
                 #expect(!line.contains(secret), "\(line) shows \(secret)")
             }
         }
@@ -178,5 +179,45 @@ import Testing
             #expect(!line.contains("ERIKSSON") && !line.contains("Eriksson"), "\(line) shows a name")
             #expect(!line.contains("1974") && !line.contains("Aug"), "\(line) shows a date of birth")
         }
+    }
+
+    /// The editor draws a number in full whatever the lock says: Add while the Vault is locked,
+    /// and Edit "For every number" once the list selects another row, keep the window out of
+    /// capture (the final review).
+    @Test @MainActor func theEditorKeepsTheWindowOutOfCaptureLockedOrNot() async throws {
+        let rig = try VaultRig(); defer { rig.cleanUp() }
+        let entry = VaultEntry(title: "Passport", value: "Z0000009", addedAt: VaultRig.t0)
+        try rig.seed([entry])
+        let locked = rig.model()
+        #expect(locked.contents != .loaded)
+        #expect(locked.drawsAnIDInFull(layout: .cards, editing: true), "Add beside the lock")
+        #expect(!locked.drawsAnIDInFull(layout: .cards, editing: false))
+
+        rig.defaults.set(VaultLockSettings.Ask.everyNumber.rawValue, forKey: VaultLockSettings.askKey)
+        let each = rig.model()
+        await each.opened()
+        try #require(each.contents == .loaded && !each.isOpen)
+        each.selection = nil
+        #expect(each.drawsAnIDInFull(layout: .cards, editing: true), "Edit with no row selected")
+        #expect(!each.drawsAnIDInFull(layout: .cards, editing: false))
+    }
+
+    /// Every end of access takes a number copied from the Vault off the clipboard: a close as
+    /// much as Lock Now or the Mac locking (the final review: a close left it until its timer).
+    @Test @MainActor func everyEndOfAccessClearsACopiedNumber() async throws {
+        let rig = try VaultRig(); defer { rig.cleanUp() }
+        try rig.seed([VaultEntry(title: "Passport", value: "Z0000009", addedAt: VaultRig.t0)])
+        let model = rig.model()
+        await model.opened()
+        #expect(await model.unlock())
+        let before = rig.box.cleared
+        model.closed()
+        #expect(rig.box.cleared == before + 1, "closing the Vault")
+        await model.opened()
+        #expect(await model.unlock())
+        model.lockNow()
+        #expect(rig.box.cleared == before + 2, "Lock Now")
+        model.systemLocked()
+        #expect(rig.box.cleared == before + 3, "the Mac locking")
     }
 }

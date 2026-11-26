@@ -97,7 +97,8 @@ extension VaultModel {
                           authenticator: VaultDeviceOwnerProof(),
                           activity: store.map { VaultActivityStore.beside($0) },
                           backup: store.map { VaultBackup(store: $0) },
-                          copyToPasteboard: { VaultPasteboard.copyConcealed($0) })
+                          copyToPasteboard: { VaultPasteboard.copyConcealed($0) },
+                          clearCopied: { VaultPasteboard.clearPending() })
     }
 }
 
@@ -188,8 +189,8 @@ enum VaultPasteboard {
         pasteboard.clearContents()
     }
 
-    /// What quitting, a lock and closing the Vault do: clears the copy still waiting, unless
-    /// something else was copied since.
+    /// What quitting, a lock and closing the Vault do (the model calls it at every end of access):
+    /// clears the copy still waiting, unless something else was copied since.
     @MainActor static func clearPending() {
         if let pending = pendingClear { clear(ifStill: pending.stamp, on: pending.pasteboard) }
     }

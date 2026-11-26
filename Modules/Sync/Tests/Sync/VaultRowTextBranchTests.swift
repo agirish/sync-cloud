@@ -26,7 +26,7 @@ import Testing
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let lines = model.rows.sorted { $0.value < $1.value }.map { row in
             [row.value, row.idLabel, row.kindTitle, row.listTitle, row.listSubtitle(now: now), row.spoken(title: "T"),
-             row.kindNote ?? "nil"].joined(separator: " | ")
+             row.kindNote(shown: true) ?? "nil"].joined(separator: " | ")
         }
         #expect(lines == [
             // A Social Security card: its ending is itself a secret, so not spoken; dated by the card.

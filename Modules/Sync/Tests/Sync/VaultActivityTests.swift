@@ -36,6 +36,19 @@ import Testing
                                                 "Copied Passport · Anna", "Unlocked"])
     }
 
+    /// Events older than ninety days are not shown, though only the next addition takes them off
+    /// the disk: a Vault left alone keeps none of them on view (the final review).
+    @Test func eventsPastNinetyDaysAreNotShownBeforeTheNextOneIsAdded() throws {
+        let (rig, activity, _) = try Self.rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.passport])   // the Vault's key, which the list is sealed under
+        let t0 = VaultLockTests.t0
+        activity.append([VaultActivityEvent(at: t0, kind: .copied, what: "Passport")], now: t0)
+        let later = t0.addingTimeInterval(VaultActivityStore.keptFor + 60)
+        #expect(activity.load(now: later).isEmpty)
+        #expect(activity.load(now: t0.addingTimeInterval(60)).count == 1)
+        #expect(activity.load().count == 1, "still on disk until the next one is added")
+    }
+
     /// VT34: a number written into a title is cut to its ending, but a Social Security number's
     /// ending is itself a secret, so it is hidden whole, as its row hides it.
     @Test func aSocialSecurityNumbersEndingIsNeverListed() async throws {

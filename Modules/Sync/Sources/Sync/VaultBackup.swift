@@ -725,16 +725,12 @@ public struct VaultBackup {
                 document.setAside = .init()
             }
         }
-        var moved: [VaultStore.Aside] = []
-        if mode == .replace {
-            store.keepBackupOfCurrent()
-            guard let aside = store.moveAsideForReplace(at: now) else { return .failure(.notWritten) }
-            moved = aside
-        }
+        if mode == .replace { store.keepBackupOfCurrent() }
         do {
-            try store.saveDocument(document, expecting: mode == .replace ? .absent : current?.onDisk ?? .absent)
+            // Replace sets the Vault's files aside and puts them back, if refused, under the lock.
+            try store.saveDocument(document, expecting: mode == .replace ? .absent : current?.onDisk ?? .absent,
+                                   replacingAt: mode == .replace ? now : nil)
         } catch {
-            store.putBack(moved)
             return .failure(.notWritten)
         }
         let count = document.records.filter { $0.state == .saved }.count

@@ -385,6 +385,9 @@ extension CodingUserInfoKey {
 
 /// A document of this build's format holds only the keys this build writes: one it does not know
 /// means a later build wrote it without raising the format, and it is not read as this build's.
+/// Checked on the document's own keys and a record's; what is nested deeper (a reading's facts, a
+/// person's contacts) reads leniently, so a key added there must raise the format:
+/// `VaultRecordTests.everyKeyADocumentHoldsIsListedForTheFormat` fails until that is decided.
 enum VaultStrictKeys {
     static func check(_ decoder: Decoder, known: Set<String>) throws {
         guard decoder.userInfo[.vaultTolerant] as? Bool != true else { return }

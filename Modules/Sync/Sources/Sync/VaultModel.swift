@@ -198,7 +198,11 @@ public final class VaultModel: ObservableObject {
         get { sessionState }
         set {
             if clockface(newValue.lock, at: now) != clockface(sessionState.lock, at: now) { objectWillChange.send() }
+            let ended = newValue.epoch != sessionState.epoch
             sessionState = newValue
+            // Access ended (a close, Lock Now, the Mac locking or asleep, a restore, new settings):
+            // a number copied from the Vault leaves the clipboard with it (the final review).
+            if ended { clearCopied() }
         }
     }
     private var sessionState: VaultSession
@@ -369,6 +373,9 @@ public final class VaultModel: ObservableObject {
     let clock: @Sendable () -> Date
     /// Puts a number on the pasteboard. The app's version marks it concealed and clears it later.
     private let copyToPasteboard: @MainActor (String) -> Void
+    /// Takes a number copied from the Vault off the pasteboard, unless something else was copied
+    /// since: at every end of access, which moves the session's epoch.
+    private let clearCopied: @MainActor () -> Void
     /// The weekly backup (``backUpIfDue()``): the app's, of the sealed file in Application Support.
     /// None in a test, so a panel drawn there never writes into the owner's backup folder (VT74).
     private let backup: VaultBackup?
@@ -378,7 +385,8 @@ public final class VaultModel: ObservableObject {
                 clock: @escaping @Sendable () -> Date = { Date() },
                 activity: VaultActivityStore? = nil,
                 backup: VaultBackup? = nil,
-                copyToPasteboard: @escaping @MainActor (String) -> Void) {
+                copyToPasteboard: @escaping @MainActor (String) -> Void,
+                clearCopied: @escaping @MainActor () -> Void = {}) {
         self.activity = activity
         self.backup = backup
         self.store = store
@@ -386,6 +394,7 @@ public final class VaultModel: ObservableObject {
         self.defaults = defaults
         self.clock = clock
         self.copyToPasteboard = copyToPasteboard
+        self.clearCopied = clearCopied
         sessionState = VaultSession(lock: VaultLock(settings: VaultLockSettings(defaults: defaults)))
         now = clock()
         // Read, not chosen: set past the observer, which would save it.
@@ -743,7 +752,8 @@ public final class VaultModel: ObservableObject {
         var new = new
         // Only against kinds this model knows: a document's own kinds are unknown until it opens,
         // and pruning against none would drop every custom kind's color from the preferences.
-        if !(documentMode && contents != .loaded) { new.prune(keeping: kinds) }
+        // Read-only, the kinds may be a newer build's, read leniently: nothing is pruned.
+        if !(documentMode && contents != .loaded), readOnly == nil { new.prune(keeping: kinds) }
         colors = new
         new.save(to: defaults)
     }
@@ -1026,6 +1036,7 @@ public final class VaultModel: ObservableObject {
     /// Nil, or the kind it was read as, is As Read: this number alone goes back, and stays there
     /// whatever its folder taught or later teaches. The folder keeps its lesson.
     public func setKind(_ id: UUID, to card: VaultCardID?) {
+        if refusedReadOnly() { return }
         guard let row = rows.first(where: { $0.id == id }), VaultKinds.canChange(from: row.readAs) else { return }
         if let card, !kinds.canHold(card) { return }
         let asRead = card == nil || card == .builtIn(row.readAs)
@@ -1036,9 +1047,14 @@ public final class VaultModel: ObservableObject {
         // Kept as a choice of its own even As Read, so no lesson moves it: not its folder's now,
         // nor another's should a later read find it first elsewhere.
         let chosen: VaultCardID = card ?? .builtIn(row.readAs)
-        // The reading file is sealed below, with the lesson, for a saved ID and a waiting one alike.
-        guard choose(.card(chosen), for: id, sealingWaiting: false) else { return }
+        // The lesson is held before the choice, so a saved ID's one write carries both (the final
+        // review); a waiting ID's is sealed below, with the lesson. Let go if the choice is refused.
+        let lessonBefore = folder.map { lessons[$0] }
         if let folder, !asRead { lessons[folder] = chosen }
+        guard choose(.card(chosen), for: id, sealingWaiting: false) else {
+            if let folder, let lessonBefore { lessons[folder] = lessonBefore }
+            return
+        }
         readingChanged = true
         saveReading()
         rowsRevision &+= 1
@@ -1082,6 +1098,7 @@ public final class VaultModel: ObservableObject {
     func correction(of key: String) -> String? { names[key] }
 
     func correctEverywhere(_ key: String, to name: String?) {
+        if refusedReadOnly() { return }
         guard !key.isEmpty else { return }
         names[key] = name
         resplitWaiting()
@@ -1166,6 +1183,7 @@ public final class VaultModel: ObservableObject {
     /// Forgets what one folder taught: its numbers go back to their own kinds, but for those
     /// given one of their own.
     public func forgetLesson(_ folder: String) {
+        if refusedReadOnly() { return }
         guard lessons[folder] != nil else { return }
         // The lessons are not published: the row leaves the card it learned at once.
         objectWillChange.send()
@@ -1248,6 +1266,7 @@ public final class VaultModel: ObservableObject {
     /// (``VaultHolders/split(_:owner:)``). False when no ID has `id`, or a saved one's write failed.
     @discardableResult
     private func choose(_ change: VaultChoiceChange, for id: UUID, sealingWaiting: Bool = true) -> Bool {
+        if refusedReadOnly() { return false }
         if let index = entries.firstIndex(where: { $0.id == id }) {
             var changed = entries
             changed[index].apply(change)
@@ -2304,7 +2323,7 @@ public final class VaultModel: ObservableObject {
                        fingerprint: String? = nil, naming: NameCorrection? = nil) -> Bool {
         guard let store else { notice = Self.message(for: .notWritten); return false }
         // Only over what was loaded: a list held while the Vault was let go is not the Vault.
-        guard contents == .loaded, readOnly == nil else { return false }
+        guard contents == .loaded, !refusedReadOnly() else { return false }
         if keepsDocument {
             return writeDocument(changed, quietly: quietly, droppingFind: droppingFind, fingerprint: fingerprint, naming: naming)
         }
@@ -2729,7 +2748,7 @@ public final class VaultModel: ObservableObject {
             // A saved ID whose own document was opened and no longer gives its number, but
             // gives one other of its kind: the saved one stands, and the panel asks.
             for entry in entries {
-                guard let path = entry.savedFrom ?? entry.facts?.primary?.path, let found = readNow[path],
+                guard let path = Self.ownDocument(of: entry), let found = readNow[path],
                       !incomplete.contains(path) else { continue }
                 let own = VaultReading.normalized(entry.value)
                 guard !found.contains(where: { VaultReading.normalized($0.value) == own }) else { continue }
@@ -3167,7 +3186,7 @@ public final class VaultModel: ObservableObject {
         func byID(_ kinds: [VaultCustomKind]) -> [String: VaultCustomKind] {
             Dictionary(kinds.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         }
-        let merged = Self.merged(byID(base), byID(ours), byID(theirs)) { _, ours, _ in ours }
+        let merged = Self.merged(byID(base), byID(ours), byID(theirs)) { _, ours, theirs in theirs == nil ? nil : ours }
         var order: [String] = []
         for kind in ours + theirs where merged[kind.id] != nil && !order.contains(kind.id) { order.append(kind.id) }
         return order.compactMap { merged[$0] }
@@ -3208,6 +3227,7 @@ public final class VaultModel: ObservableObject {
     }
 
     private func confirming(_ findID: UUID, as draft: Draft) -> UUID? {
+        if refusedReadOnly() { return nil }
         guard var find = find(id: findID) else { return nil }
         var draft = draft
         // Whose the editor says it is, when that is not what it waited as: worked out again for
@@ -3245,6 +3265,7 @@ public final class VaultModel: ObservableObject {
     /// Not This: takes a find out of To Confirm and keeps it out of later reads, across launches,
     /// until Settings ▸ Vault forgets the numbers set aside.
     public func setAside(_ findID: UUID) {
+        if refusedReadOnly() { return }
         guard let find = find(id: findID) else { return }
         record(.setAside, find.title, whose: rows.first { $0.id == findID }?.whose, hidesEnding: find.category.hidesEnding)
         remember(find.value)
@@ -3442,6 +3463,7 @@ public final class VaultModel: ObservableObject {
     /// nothing is let out again.
     @discardableResult
     public func undoCorrection() -> Bool {
+        if refusedReadOnly() { return false }
         guard let undo = correctionUndo, contents == .loaded,
               let index = entries.firstIndex(where: { $0.id == undo.id }) else { return false }
         guard correctionUndoable(undo) else {
@@ -3453,14 +3475,24 @@ public final class VaultModel: ObservableObject {
         let secretEnding = entries[index].category.hidesEnding
         var changed = entries
         if let before = undo.before { changed[index] = before } else { changed.remove(at: index) }
-        guard write(changed) else { return false }
+        // What comes back to To Confirm is held before the write, so the saved IDs and the waiting
+        // ones change in one write (the final review); let go again if it is refused.
+        let copiesBefore = undo.kept.copies.keys.map { ($0, copies[$0]) }
+        let mentionsBefore = undo.kept.mentions.keys.map { ($0, mentions[$0]) }
         for (key, value) in undo.kept.copies { copies[key] = value }
         for (key, value) in undo.kept.mentions { mentions[key] = value }
-        if let find = undo.find {
+        var returned: Set<UUID> = []
+        for find in [undo.find].compactMap({ $0 }) + undo.dropped where !finds.contains(where: { $0.id == find.id }) {
             finds.append(find)
-            selection = find.id
+            returned.insert(find.id)
         }
-        for find in undo.dropped where !finds.contains(where: { $0.id == find.id }) { finds.append(find) }
+        guard write(changed) else {
+            finds.removeAll { returned.contains($0.id) }
+            for (key, value) in copiesBefore { copies[key] = value }
+            for (key, value) in mentionsBefore { mentions[key] = value }
+            return false
+        }
+        if let find = undo.find { selection = find.id }
         readingChanged = true
         saveReading()
         record(.other, (lastCorrection?.merged == true ? "Undid the merge into " : "Undid the correction of ") + title,
@@ -3548,6 +3580,7 @@ public final class VaultModel: ObservableObject {
     }
 
     private func merging(_ findID: UUID, into entryID: UUID, keepingReading: Bool) -> Bool {
+        if refusedReadOnly() { return false }
         guard contents == .loaded, let find = find(id: findID),
               let index = entries.firstIndex(where: { $0.id == entryID }) else { return false }
         let before = entries[index]
@@ -3642,6 +3675,7 @@ public final class VaultModel: ObservableObject {
     /// changes that.
     @discardableResult
     public func notForThisID(_ id: UUID, path: String) async -> Bool {
+        if refusedReadOnly() { return false }
         guard let row = rows.first(where: { $0.id == id }), row.isSaved,
               row.documents.first?.path != path, row.documents.contains(where: { $0.path == path }) else { return false }
         guard let bytes = await fileContents(URL(fileURLWithPath: path)) else {
@@ -3869,8 +3903,27 @@ public final class VaultModel: ObservableObject {
         case anotherCopyRunning
     }
 
-    /// Set while the Vault is open read-only; nil otherwise.
-    @Published public private(set) var readOnly: ReadOnly?
+    /// Set while the Vault is open read-only; nil otherwise. The panel's notice says why.
+    @Published public private(set) var readOnly: ReadOnly? {
+        didSet { if let readOnly, readOnly != oldValue { notice = Self.message(for: readOnly) } }
+    }
+
+    /// Whether a change is refused because the Vault is open read-only: the notice then says why,
+    /// before anything is changed in memory that could not be saved.
+    private func refusedReadOnly() -> Bool {
+        guard let readOnly else { return false }
+        notice = Self.message(for: readOnly)
+        return true
+    }
+
+    public static func message(for readOnly: ReadOnly) -> String {
+        switch readOnly {
+        case .newerFormat:
+            return "A newer version of SyncCloud saved this Vault, so it opens here to read only. Changes aren’t saved."
+        case .anotherCopyRunning:
+            return "Another SyncCloud on this Mac is running, so the Vault opens to read only. Quit it to make changes."
+        }
+    }
 
     public var isReadOnly: Bool { readOnly != nil }
 
@@ -3909,6 +3962,7 @@ public final class VaultModel: ObservableObject {
     /// again, every file read again. In the document, only while it is loaded and may be written.
     @discardableResult
     public func forgetSetAside() -> Bool {
+        if refusedReadOnly() { return false }
         guard documentMode else {
             VaultSetAside.forget(in: defaults)
             return true
@@ -4062,7 +4116,14 @@ public final class VaultModel: ObservableObject {
     /// the user's own data), the cache when what reading finds again did. Another copy's document
     /// since is merged with this one's and written again, once (VT111).
     private func sealDocument(in store: VaultStore) {
-        let document = currentDocument()
+        var document = currentDocument()
+        // Only the cache changed, but another copy saved since: its cache is the one on disk, so
+        // its save is merged first rather than its read marks written over (the final review).
+        if let base = documentBase, document.sameContents(as: base), VaultCache(sealedReading) != cacheWritten,
+           store.documentState() != onDisk {
+            guard mergeOtherCopysDocument() else { return }
+            document = currentDocument()
+        }
         if documentBase.map({ !document.sameContents(as: $0) }) ?? true {
             do {
                 try seal(document, in: store)

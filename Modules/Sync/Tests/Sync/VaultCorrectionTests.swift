@@ -41,7 +41,10 @@ import Testing
         let rig = try Rig(); defer { rig.cleanUp() }
         let (model, find) = try await Self.waiting(rig)
         let id = try Self.corrected(model, find, to: "D1234568")
+        let writes = model.documentWrites
         #expect(model.undoCorrection())
+        #expect(model.documentWrites == writes + 1, "the saved ID goes and the waiting one comes back in one write")
+        #expect(try rig.store.loadDocument()?.document.finds().map(\.value) == ["D1234567"], "back in To Confirm on disk")
         await model.notesWritten()
         #expect(!model.entries.contains { $0.id == id }, "the added ID stayed")
         #expect(model.finds.map(\.value) == ["D1234567"])

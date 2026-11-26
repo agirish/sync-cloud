@@ -128,10 +128,14 @@ public struct VaultActivityStore {
     }
 
     /// Every kept event this build can read, newest first; none when there is no file, no key,
-    /// or a file that does not open.
-    public func load() -> [VaultActivityEvent] {
+    /// or a file that does not open. Given `now`, without the events older than ``keptFor``, which
+    /// only the next ``append(_:now:)`` takes off the disk: a Vault left alone for months shows
+    /// none of them meanwhile (the final review).
+    public func load(now: Date? = nil) -> [VaultActivityEvent] {
         guard let data = fileManager.contents(atPath: fileURL.path), let key else { return [] }
-        return (try? Self.open(data, with: key))?.compactMap(\.event) ?? []
+        let events = (try? Self.open(data, with: key))?.compactMap(\.event) ?? []
+        guard let now else { return events }
+        return events.filter { now.timeIntervalSince($0.at) < Self.keptFor }
     }
 
     /// One stored event: this build's, read; a later build's, kept as its JSON, with its date when

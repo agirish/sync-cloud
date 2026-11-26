@@ -52,14 +52,22 @@ extension VaultModel.Row {
         return row.isTypedIn ? row.title : row.title.replacingOccurrences(of: " case", with: "")
     }
 
-    /// Why an ID is on the card it is, when not as read: never lost from sight.
-    public var kindNote: String? {
+    /// Why an ID is on the card it is, when not as read: never lost from sight. The folder's
+    /// name is masked unless its ID is `shown`, as the documents list masks it (the final review).
+    public func kindNote(shown: Bool) -> String? {
         let row = self
         if let folder = row.learnedFrom {
-            return "Learned from your choice for “\((folder as NSString).lastPathComponent)”"
+            return "Learned from your choice for “\(lessonFolderName(folder, shown: shown))”"
         }
         guard row.card != .builtIn(row.readAs) else { return nil }
         return "\(row.isTypedIn ? "Typed in" : "Read") as \(row.readAs.title)"
+    }
+
+    /// A lesson folder's own name, masked unless its ID is `shown`: a folder may be named after
+    /// the number.
+    public func lessonFolderName(_ folder: String, shown: Bool) -> String {
+        let name = (folder as NSString).lastPathComponent
+        return shown ? name : VaultMask.folder(name, keep: VaultMask.keep(for: category))
     }
 
     /// What the ID in Large Type is called, as its document calls it; the heading above already
@@ -109,10 +117,14 @@ extension VaultModel {
     /// panel's rule, apart from the view so a test can ask it.
     public func drawsAnIDInFull(layout: VaultLayout, editing: Bool) -> Bool {
         let model = self
+        // The editor draws a number in full whatever the lock says: one typed into Add while the
+        // Vault is locked, or an ID being edited "For every number" whose row the list no longer
+        // selects (the final review).
+        if editing { return true }
         guard model.contents == .loaded else { return false }
         if layout == .people,
            model.peopleSections.contains(where: { !$0.births.isEmpty && model.canShowBirth(in: $0) }) { return true }
-        if model.isOpen { return model.selectedRow != nil || editing }
+        if model.isOpen { return model.selectedRow != nil }
         return model.selection.map { model.lock.canShow($0, at: model.now) } ?? false
     }
 }

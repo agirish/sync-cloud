@@ -305,6 +305,42 @@ import Testing
         #expect(try opened.document.readingState(cache: cacheBack) == state)
     }
 
+    /// Every key a document of this format can hold, as a path ("*" a map's key, "[]" a list's
+    /// items). The document's strict reading (``VaultStrictKeys``) covers its own keys and a
+    /// record's, not what is nested deeper (a reading's facts, a person's contacts), which read
+    /// leniently: a field added there without raising ``VaultDocument/format`` is dropped by the
+    /// build before it at its next save. This list fails at any new key, to have it decided: raise
+    /// the format if an older build must not write over it, then list it here (the final review).
+    @Test func everyKeyADocumentHoldsIsListedForTheFormat() throws {
+        let entries = [Self.fullEntry()] + (try VaultFormatTests.formatEntries6())
+        let document = VaultDocument(entries: entries, state: try Self.fullState(),
+                                     setAside: .init(generation: 3, keyID: "0123456789abcdef", fingerprints: ["aa"]),
+                                     kinds: [VaultCustomKind(id: "kind-1", name: "Memberships", group: "home")],
+                                     savedAt: Self.day)
+        let object = try JSONSerialization.jsonObject(with: Self.encoder().encode(document))
+        let maps: Set<String> = Self.documentMaps
+        var paths: Set<String> = []
+        func walk(_ value: Any, _ path: String) {
+            switch value {
+            case let dictionary as [String: Any]:
+                for (key, inner) in dictionary {
+                    let next = maps.contains(path) ? path + ".*" : (path.isEmpty ? key : path + "." + key)
+                    paths.insert(next)
+                    walk(inner, next)
+                }
+            case let list as [Any]:
+                for inner in list { walk(inner, path + "[]") }
+            default:
+                break
+            }
+        }
+        walk(object, "")
+        #expect(VaultDocument.format == 1, "a new format: list its keys anew")
+        let listed = Self.documentKeys
+        #expect(paths.subtracting(listed).sorted() == [], "a key the document holds now: decide the format, then list it")
+        #expect(listed.subtracting(paths).sorted() == [], "a listed key the full document no longer holds")
+    }
+
     @Test func aCacheFromOtherRulesOrNoneLeavesWhatReadingFindsAgainEmpty() throws {
         let state = try Self.fullState()
         let document = VaultDocument(entries: [], state: state, setAside: .init(generation: 5), kinds: [], savedAt: Self.day)
@@ -385,4 +421,49 @@ import Testing
                                      savedAt: Self.day)
         #expect(!String(describing: document).contains("Z0000001"))
     }
+}
+
+extension VaultRecordTests {
+    /// The document's keys whose own keys are data (an id, a path, a spelling), not its shape.
+    static let documentMaps: Set<String> = ["choices", "contacts", "lessons", "nameRoles", "names"]
+    /// Every key path a document of format 1 holds (``everyKeyADocumentHoldsIsListedForTheFormat()``).
+    static let documentKeys: Set<String> = [
+        "choices", "choices.*", "choices.*.assignment", "choices.*.assignment.household", "choices.*.card",
+        "choices.*.geo", "choices.*.id", "choices.*.pin", "contacts", "contacts.*", "contacts.*.addresses",
+        "contacts.*.emails", "contacts.*.notTheirPhones", "contacts.*.notTheirs", "contacts.*.phones",
+        "contacts.*.phones[].added", "contacts.*.phones[].label", "contacts.*.phones[].value", "format",
+        "kinds", "kinds[].group", "kinds[].id", "kinds[].name", "lessons", "lessons.*", "nameRoles",
+        "nameRoles.*", "nameRoles.*.goesBy", "nameRoles.*.kept", "nameRoles.*.legal", "names", "names.*",
+        "reading", "reading.needsReadAgain", "reading.readerVersion", "reading.staleSources", "records",
+        "records[].addedAt", "records[].category", "records[].choices", "records[].choices.card",
+        "records[].choices.geo", "records[].choices.pin", "records[].choices.source", "records[].fields",
+        "records[].fields[].from", "records[].fields[].hidesEnding", "records[].fields[].isMain",
+        "records[].fields[].kind", "records[].fields[].label", "records[].fields[].value",
+        "records[].fields[].value.date", "records[].fields[].value.text", "records[].holderName",
+        "records[].id", "records[].notFields", "records[].notOn", "records[].note", "records[].origin",
+        "records[].origin.read", "records[].origin.read.facts", "records[].origin.read.facts.born",
+        "records[].origin.read.facts.category", "records[].origin.read.facts.dated",
+        "records[].origin.read.facts.details", "records[].origin.read.facts.form",
+        "records[].origin.read.facts.holder", "records[].origin.read.facts.inPassport",
+        "records[].origin.read.facts.issuer", "records[].origin.read.facts.pending",
+        "records[].origin.read.facts.printedForSubscriber", "records[].origin.read.facts.sources",
+        "records[].origin.read.facts.sources[].address",
+        "records[].origin.read.facts.sources[].address.address",
+        "records[].origin.read.facts.sources[].address.address.city",
+        "records[].origin.read.facts.sources[].address.address.state",
+        "records[].origin.read.facts.sources[].address.address.street",
+        "records[].origin.read.facts.sources[].address.address.zip",
+        "records[].origin.read.facts.sources[].address.dated", "records[].origin.read.facts.sources[].path",
+        "records[].origin.read.facts.sources[].phones",
+        "records[].origin.read.facts.sources[].phones[].dated",
+        "records[].origin.read.facts.sources[].phones[].number",
+        "records[].origin.read.facts.sources[].phones[].person",
+        "records[].origin.read.facts.sources[].rank", "records[].origin.read.facts.sources[].role",
+        "records[].origin.read.facts.spokenBy", "records[].origin.read.facts.validUntil",
+        "records[].origin.read.savedFrom", "records[].origin.typed", "records[].owner",
+        "records[].owner.household", "records[].owner.person", "records[].readAs",
+        "records[].readAs[].contents", "records[].readAs[].reads", "records[].state", "records[].title",
+        "records[].updatedAt", "savedAt", "savedBy", "setAside", "setAside.fingerprints",
+        "setAside.generation", "setAside.keyID"
+    ]
 }

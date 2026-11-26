@@ -117,7 +117,7 @@ public enum VaultReading {
 
     /// Raised whenever a rule changes what is read, so the next Read Documents reads every file
     /// again rather than trusting what an older build made of it.
-    public static let version = 27
+    public static let version = 28
 
     /// Every number on a document, once each, and the numbers it only names.
     /// `roots` are the read folders and `people` the household's, for account numbers: which area
@@ -349,17 +349,28 @@ public enum VaultReading {
             return (match.range, center + fixedDigits(read))
         }
         // A page of one case names its form and its person anywhere on it: the first is taken. A
-        // page of several (a case list, a family's notices) prints each with its own, after it in
-        // its section: each number takes the first printed between it and the next number, else
-        // the last before it (VT93; the 2026-11-25 review: counted in characters, the previous
-        // section's person, ending a line above, was nearer than the receipt's own below it).
+        // page of several (a case list, a family's notices) prints each with its own, in its
+        // section: after its number as a rule, each number taking the first printed between it and
+        // the next number, else the last before it (VT93; the 2026-11-25 review: counted in
+        // characters, the previous section's person, ending a line above, was nearer than the
+        // receipt's own below it). A page that prints one above every number and none after the
+        // last prints them before: each number takes the last above it. A number with none of its
+        // own, before or after, takes the page's first, as every number did before VT93 (the final
+        // review: a linked petition's number took a notice's only applicant from the one above).
         let several = Set(receipts.map(\.value)).count > 1
         func own(_ found: [(range: NSRange, value: String)], for index: Int) -> String? {
-            guard several else { return found.first?.value }
+            guard several, let last = receipts.last else { return found.first?.value }
+            let printedAbove = receipts.indices.allSatisfy { receipt in
+                let from = receipt == 0 ? 0 : NSMaxRange(receipts[receipt - 1].range)
+                let to = receipts[receipt].range.location
+                return found.contains { $0.range.location >= from && NSMaxRange($0.range) <= to }
+            } && !found.contains { $0.range.location >= NSMaxRange(last.range) }
+            let before = found.last { NSMaxRange($0.range) <= receipts[index].range.location }
+            if printedAbove { return before?.value }
             let start = NSMaxRange(receipts[index].range)
             let end = index + 1 < receipts.count ? receipts[index + 1].range.location : ns.length
             if let after = found.first(where: { $0.range.location >= start && $0.range.location < end }) { return after.value }
-            return found.last { NSMaxRange($0.range) <= receipts[index].range.location }?.value
+            return (before ?? found.first)?.value
         }
         return receipts.indices.map { index in
             let form = own(forms, for: index), holder = own(holders, for: index)

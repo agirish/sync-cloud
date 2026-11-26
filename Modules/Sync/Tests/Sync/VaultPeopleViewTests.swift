@@ -28,7 +28,7 @@ import Testing
             dental: ["Delta Dental", "Member Name: ANNA ERIKSSON", "Member ID: XZB123456789"],
             water: ["Account Number: 58210 44719 00"],
         ]))
-        _ = model.add(VaultModel.Draft(title: "Car loan", value: "0044918857", personID: "erik", category: .loans))
+        _ = model.add(VaultModel.Draft(title: "Car loan", value: "0044918853", personID: "erik", category: .loans))
         return model
     }
 

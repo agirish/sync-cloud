@@ -110,6 +110,12 @@ import Testing
         let other = try #require(Self.row(model, "5555 6666 7777"))
         #expect(other.card == card && other.chosenCard == nil)
         #expect(other.learnedFrom == Self.tesla)
+        #expect(other.kindNote(shown: true) == "Learned from your choice for “Supercharging”")
+        // A folder named after a number is masked while its ID is hidden (the final review).
+        let named = "/Users/anna/Documents/Health/Aetna W123456789"
+        #expect(other.lessonFolderName(named, shown: true) == "Aetna W123456789")
+        #expect(other.lessonFolderName(named, shown: false).contains("12345") == false)
+        #expect(other.lessonFolderName(named, shown: false).hasSuffix("6789"))
 
         // A new paper read there later goes on the same card.
         var pages = Self.pages

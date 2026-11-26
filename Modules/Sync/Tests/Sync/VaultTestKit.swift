@@ -144,7 +144,7 @@ struct VaultRig {
     let defaults: UserDefaults
     let suite: String
     var copied: [String] { box.copied }
-    final class Box: @unchecked Sendable { var copied: [String] = [] }
+    final class Box: @unchecked Sendable { var copied: [String] = []; var cleared = 0 }
     let box = Box()
 
     /// Kept in the v1 files, the migration off: for a test of the v1 files themselves.
@@ -161,7 +161,8 @@ struct VaultRig {
     @MainActor func model(backup: VaultBackup? = nil) -> VaultModel {
         let clock = clock, box = box
         return VaultModel(store: store, authenticator: auth, defaults: defaults,
-                          clock: { clock.now }, backup: backup, copyToPasteboard: { box.copied.append($0) })
+                          clock: { clock.now }, backup: backup, copyToPasteboard: { box.copied.append($0) },
+                          clearCopied: { box.cleared += 1 })
     }
 
     func seed(_ entries: [VaultEntry]) throws { try store.writeSavedOnDisk(entries) }

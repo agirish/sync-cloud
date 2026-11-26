@@ -1213,64 +1213,87 @@ extension VaultStore {
     ///
     /// The document is stamped as this build's, now, under this key (``VaultDocument/keyID(for:)``).
     /// Answers the file as it now is, and the document as written.
+    ///
+    /// `replacingAt`, for Restore ▸ Replace: the Vault's files are set aside (``moveAsideForReplace(at:)``)
+    /// under the same lock, and put back if the save is refused, so another copy's save cannot land
+    /// between the two and be taken for this one's (the final review).
     @discardableResult
-    public func saveDocument(_ document: VaultDocument, expecting: VaultFileState?) throws
+    public func saveDocument(_ document: VaultDocument, expecting: VaultFileState?, replacingAt: Date? = nil) throws
         -> (onDisk: VaultFileState, document: VaultDocument) {
         if let expecting, expecting != .absent, !hasFile { throw changedElsewhere() }
-        let (key, made) = try keyMadeForWriting()
-        do {
-            return try withVaultLock {
-                var stamped = document
-                stamped.format = VaultDocument.format
-                stamped.savedBy = VaultDocument.thisBuild
-                stamped.savedAt = clock()
-                stamped.setAside.keyID = VaultDocument.keyID(for: key)
-                var previous: Data?
-                var backup = false
-                if hasFile {
-                    guard let data = fileManager.contents(atPath: fileURL.path) else {
-                        Logger.shared.warning("Vault: the sealed file is there but could not be read from disk — nothing was written")
-                        throw VaultError.unreadableFile
-                    }
-                    if let expecting, expecting != .of(data) { throw changedElsewhere() }
-                    let onDisk: VaultDocumentOpened
-                    do {
-                        onDisk = try VaultDocument.open(plain: VaultFile.openPlain(data, marker: VaultDocument.marker, with: key))
-                    } catch let error as VaultError {
-                        Logger.shared.warning("Vault: the Vault document did not open (\(error), \(VaultFile.summary(of: data))) — nothing was written over it")
-                        throw error
-                    }
-                    guard !onDisk.readOnly else {
-                        Logger.shared.warning("Vault: the Vault was saved by a newer SyncCloud — nothing was written over it")
-                        throw VaultError.unreadableFile
-                    }
-                    let dropped = onDisk.document.savedIDs.subtracting(stamped.savedIDs).count
-                    if dropped > 1 {
-                        Logger.shared.warning("Vault: a save would have removed \(dropped) records at once (\(onDisk.document.savedIDs.count) → \(stamped.savedIDs.count)) — refused, nothing was written")
-                        throw VaultError.wouldDrop(dropped)
-                    }
-                    previous = data
-                    backup = !onDisk.document.sameSavedData(as: stamped)
+        /// The check and the swap, under the lock.
+        func swap(_ key: SymmetricKey) throws -> (onDisk: VaultFileState, document: VaultDocument) {
+            var stamped = document
+            stamped.format = VaultDocument.format
+            stamped.savedBy = VaultDocument.thisBuild
+            stamped.savedAt = clock()
+            stamped.setAside.keyID = VaultDocument.keyID(for: key)
+            var previous: Data?
+            var backup = false
+            if hasFile {
+                guard let data = fileManager.contents(atPath: fileURL.path) else {
+                    Logger.shared.warning("Vault: the sealed file is there but could not be read from disk — nothing was written")
+                    throw VaultError.unreadableFile
                 }
-                let sealed = try VaultFile.sealPlain(VaultFile.jsonEncoder().encode(stamped), marker: VaultDocument.marker, with: key)
+                if let expecting, expecting != .of(data) { throw changedElsewhere() }
+                let onDisk: VaultDocumentOpened
                 do {
-                    if backup, let previous { try keepBackup(of: previous) }
-                    try SealedFile.write(sealed, to: fileURL, fileManager: fileManager)
-                } catch {
-                    Logger.shared.warning("Vault: the Vault document could not be written — \(error.localizedDescription)")
-                    throw VaultError.notWritten
+                    onDisk = try VaultDocument.open(plain: VaultFile.openPlain(data, marker: VaultDocument.marker, with: key))
+                } catch let error as VaultError {
+                    Logger.shared.warning("Vault: the Vault document did not open (\(error), \(VaultFile.summary(of: data))) — nothing was written over it")
+                    throw error
                 }
-                if backup { pruneBackups() }
-                return (.of(sealed), stamped)
+                guard !onDisk.readOnly else {
+                    Logger.shared.warning("Vault: the Vault was saved by a newer SyncCloud — nothing was written over it")
+                    throw VaultError.unreadableFile
+                }
+                let dropped = onDisk.document.savedIDs.subtracting(stamped.savedIDs).count
+                if dropped > 1 {
+                    Logger.shared.warning("Vault: a save would have removed \(dropped) records at once (\(onDisk.document.savedIDs.count) → \(stamped.savedIDs.count)) — refused, nothing was written")
+                    throw VaultError.wouldDrop(dropped)
+                }
+                previous = data
+                backup = !onDisk.document.sameSavedData(as: stamped)
             }
-        } catch {
-            // As a v1 save: a key made for this save, with nothing sealed under it, goes again.
-            if let made {
-                VaultKeychain.delete(from: keychain)
-                if case .notCreated = VaultKeychain.read(from: keychain) { putBack(made) }
+            let sealed = try VaultFile.sealPlain(VaultFile.jsonEncoder().encode(stamped), marker: VaultDocument.marker, with: key)
+            do {
+                if backup, let previous { try keepBackup(of: previous) }
+                try SealedFile.write(sealed, to: fileURL, fileManager: fileManager)
+            } catch {
+                Logger.shared.warning("Vault: the Vault document could not be written — \(error.localizedDescription)")
+                throw VaultError.notWritten
             }
-            throw error
+            if backup { pruneBackups() }
+            return (.of(sealed), stamped)
         }
+
+        return try withVaultLock {
+            // Set aside first, so a Vault this Mac cannot open is replaced under a key made anew.
+            var moved: [Aside] = []
+            if let replacingAt {
+                guard let aside = moveAsideForReplace(at: replacingAt) else { throw VaultError.notWritten }
+                moved = aside
+            }
+            do {
+                let (key, made) = try keyMadeForWriting()
+                do { return try swap(key) } catch {
+                    // As a v1 save: a key made for this save, with nothing sealed under it, goes again.
+                    if let made {
+                        VaultKeychain.delete(from: keychain)
+                        if case .notCreated = VaultKeychain.read(from: keychain) { putBack(made) }
+                    }
+                    throw error
+                }
+            } catch {
+                putBack(moved)
+                throw error
+            }
+        }
+    }
+
+    /// The Vault's file as it is on disk now, to compare with what a model last read or wrote.
+    func documentState() -> VaultFileState {
+        .of(try? Data(contentsOf: fileURL))
     }
 
     /// Seals what reading can find again. Never makes a key, and expects nothing: the cache is
@@ -1368,10 +1391,15 @@ extension VaultStore {
                     return refused(refusal)
                 }
                 let stamp = Int(now.timeIntervalSince1970)
-                // 1. A copy of its own, and the newest backup.
+                // 1. A copy of its own, and the newest backup. Refused after it, the copy goes
+                // again: the v1 file it copies is as it was, and a migration refused at every open
+                // would otherwise leave one more full copy each time (the final review).
+                let premigration = unusedURL("vault.sealed.v1-premigration-\(stamp)")
+                var written = false
+                defer { if !written, vaultData != nil { try? fileManager.removeItem(at: premigration) } }
                 if let vaultData {
                     do {
-                        try SealedFile.write(vaultData, to: unusedURL("vault.sealed.v1-premigration-\(stamp)"),
+                        try SealedFile.write(vaultData, to: premigration,
                                              fileManager: fileManager, replacing: false)
                         try keepBackup(of: vaultData)
                     } catch {
@@ -1393,6 +1421,7 @@ extension VaultStore {
                     Logger.shared.warning("Vault: the migrated Vault could not be written — \(error.localizedDescription); the v1 Vault is as it was")
                     return .refused(.unopened("the write"))
                 }
+                written = true
                 // 3. What reading finds again.
                 try? saveCache(migrated.cache)
                 // 4 and 5.

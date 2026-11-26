@@ -1004,7 +1004,7 @@ struct VaultCard: View {
                 .accessibilityHidden(true)
             Text("The Vault is locked")
                 .scaledFont(.title3.weight(.semibold))
-            Text("Nothing in it is shown, or read from disk, until you prove it is you.")
+            Text("Nothing in it is shown until you prove it is you.")
                 .scaledFont(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -3087,7 +3087,10 @@ struct VaultCard: View {
                 Button("\(row.isTypedIn ? "As Typed" : "As Read"): \(row.readAs.title)") { model.setKind(row.id, to: nil) }
             }
             if let folder = row.learnedFrom {
-                Button("Forget What “\((folder as NSString).lastPathComponent)” Taught") { model.forgetLesson(folder) }
+                // Masked even while shown: a menu is a window of its own, which screen sharing sees.
+                Button("Forget What “\(row.lessonFolderName(folder, shown: false))” Taught") {
+                    model.forgetLesson(folder)
+                }
             }
         } label: {
             Text(model.kinds.title(of: row.card))
@@ -3127,7 +3130,7 @@ struct VaultCard: View {
                     }
                     .help(help)
                 }
-                if let note = row.kindNote {
+                if let note = row.kindNote(shown: model.lock.canShow(row.id, at: model.now)) {
                     Text(note)
                         .scaledFont(.caption)
                         .foregroundStyle(.secondary)

@@ -337,6 +337,24 @@ import Testing
         }
     }
 
+    /// Refused at its write, after step 1: the copy it made goes again, so a migration refused at
+    /// every open does not leave one more full copy each time (the final review).
+    @Test func aMigrationRefusedAtItsWriteTakesItsCopyBack() throws {
+        let setup = try Setup(); defer { setup.scratch.remove() }
+        let (vault, _) = try Self.v1(setup)
+        let disk = VaultChoosingTests.Disk(vault: setup.scratch.fileURL.lastPathComponent)
+        disk.refusing = true
+        let clock = setup.clock
+        let store = VaultStore(fileURL: setup.scratch.fileURL, keychain: setup.keychain, fileManager: disk,
+                               clock: { clock.now }, migrating: true, anotherCopyRunning: { false })
+        #expect(store.migrate(defaults: setup.defaults) == .refused(.unopened("the write")))
+        #expect(!setup.names().contains { $0.contains("premigration") }, "the copy was left behind")
+        #expect(setup.bytes("vault.sealed") == vault)
+        disk.refusing = false
+        guard case .migrated = store.migrate(defaults: setup.defaults) else { Issue.record("not migrated"); return }
+        #expect(setup.names().filter { $0.contains("premigration") }.count == 1, "kept once it migrated")
+    }
+
     @Test func aMissingVaultWithAReadingFileOrMovedKeysMigrates() throws {
         let setup = try Setup(); defer { setup.scratch.remove() }
         _ = try Self.v1(setup)

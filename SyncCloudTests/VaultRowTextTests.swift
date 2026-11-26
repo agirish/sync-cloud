@@ -35,7 +35,7 @@ import Testing
         defer { rig.cleanUp() }
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         func line(_ row: VaultModel.Row) -> String {
-            [row.value, row.idLabel, row.kindTitle, row.kindNote ?? "nil",
+            [row.value, row.idLabel, row.kindTitle, row.kindNote(shown: true) ?? "nil",
              row.spoken(title: "T"), VaultAssignment.tag(row.assignment),
              row.listTitle, row.listSubtitle(now: now), row.detailLede].joined(separator: " | ")
         }
@@ -56,7 +56,7 @@ import Testing
         let library = try #require(rows.first { $0.value == "LIB7702913" })
         model.setKind(library.id, to: .builtIn(.health))
         let moved = try #require(model.rows.first { $0.value == "LIB7702913" })
-        let note = moved.kindNote ?? "nil"
+        let note = moved.kindNote(shown: true) ?? "nil"
         #expect(note == "Typed in as Other")
     }
 }

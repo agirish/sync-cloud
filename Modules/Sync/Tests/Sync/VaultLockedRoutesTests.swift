@@ -70,7 +70,41 @@ import Testing
         }
     }
 
-    /// A proof answered after the Vault locked opens nothing: each route looks again after it.
+    /// Answers yes, but locks the Vault while it is asked and opens it again, so the numbers are
+    /// back in memory when the answer comes: only the route's own look at the epoch stops it.
+    final class LocksAndReopensWhileAsked: VaultAuthenticating, @unchecked Sendable {
+        weak var model: VaultModel?
+        func prove(reason: String) async -> VaultProof {
+            await MainActor.run { model?.systemLocked() }
+            await model?.opened()
+            return .allowed
+        }
+    }
+
+    /// "For every number" loads without a proof; each route's proof is answered after a lock and
+    /// a reopen, and does nothing (the final review: the test above ends with nothing loaded, so
+    /// a route that forgot its own look still passed it).
+    @Test func aRoutesProofAnsweredAfterALockAndReopenDoesNothing() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let entry = VaultEntry(title: "Passport", value: "Z0000009", personID: "divit", addedAt: VaultLockTests.t0)
+        try rig.seed([entry])
+        rig.defaults.set(VaultLockSettings.Ask.everyNumber.rawValue, forKey: VaultLockSettings.askKey)
+        let auth = LocksAndReopensWhileAsked()
+        let model = VaultModel(store: rig.store, authenticator: auth, defaults: rig.defaults,
+                               clock: { VaultLockTests.t0 }, copyToPasteboard: { _ in Issue.record("a number was copied") })
+        auth.model = model
+        model.people = [Person(id: "divit", displayName: "Divit")]
+        await model.opened()
+        try #require(model.contents == .loaded && model.entries.count == 1, "loaded with no proof")
+        #expect(await model.copy(entry.id) == false, "Copy")
+        try #require(model.contents == .loaded, "open again when the answer came")
+        let section = try #require(model.peopleSections.first)
+        #expect(await model.copyPerson(section.id, numbers: true) == false, "Copy a person's IDs")
+        #expect(!model.lock.canShow(entry.id, at: VaultLockTests.t0), "a late proof showed the number")
+    }
+
+    /// A proof answered after the Vault locked opens nothing, and nothing is loaded after it (the
+    /// numbers stay let go); a route's own look is tested with the numbers back, below.
     @Test func aProofAnsweredAfterALockDoesNothing() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let entry = VaultEntry(title: "Passport", value: "Z0000009", personID: "divit", addedAt: VaultLockTests.t0)
@@ -89,10 +123,6 @@ import Testing
         var draft = VaultModel.Draft(entry)
         draft.note = "changed"
         #expect(await model.update(entry.id, to: draft) == false, "Edit")
-        await model.opened()
-        if let section = model.peopleSections.first {
-            #expect(await model.copyPerson(section.id, numbers: true) == false, "Copy a person's IDs")
-        }
         #expect(try Data(contentsOf: rig.store.fileURL) == vault)
     }
 }

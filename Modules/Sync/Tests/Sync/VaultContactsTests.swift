@@ -38,7 +38,7 @@ import Testing
         pages.merge(extra) { $1 }
         await model.readDocuments(with: VaultAccountModelTests.PlannedDocuments(pages: pages))
         // Erik's only ID is typed: he has a section, and no paper of his prints an address.
-        _ = model.add(VaultModel.Draft(title: "Car loan", value: "0044918857", personID: "erik", category: .loans))
+        _ = model.add(VaultModel.Draft(title: "Car loan", value: "0044918853", personID: "erik", category: .loans))
         return model
     }
 

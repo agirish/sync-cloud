@@ -326,8 +326,10 @@ struct VaultFakeDocuments: VaultDocumentReading {
         let find = try #require(model.finds.first { $0.title == "Passport" })
         rig.keychain.forcedCopyStatus = errSecInteractionNotAllowed
         model.setAside(find.id)
-        #expect(rig.store.setAsideOnDisk(rig.defaults).isEmpty)
         rig.keychain.forcedCopyStatus = nil
+        // Read once the Keychain answers again: read while it refused, the document never opened,
+        // and nothing could be seen in it (the final review).
+        #expect(rig.store.setAsideOnDisk(rig.defaults).isEmpty)
         await model.readDocuments(with: Self.documents)
         #expect(!model.finds.contains { $0.value == "L898902C3" })
     }

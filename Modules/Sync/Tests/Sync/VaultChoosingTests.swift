@@ -78,8 +78,18 @@ import Testing
         let card = model.rows.first { $0.id == saved }?.card
         disk.refusing = true
         before = disk.seals
+        let lessons = model.sealedReading.lessons
         model.setKind(saved, to: .builtIn(.loans))
         #expect(model.rows.first { $0.id == saved }?.card == card)
         #expect(disk.seals == before)
+        #expect(model.sealedReading.lessons == lessons, "a refused choice leaves no lesson behind")
+
+        // Allowed, a saved ID's Kind and its folder's lesson are one write (the final review).
+        disk.refusing = false
+        before = disk.seals
+        model.setKind(saved, to: .builtIn(.loans))
+        #expect(model.rows.first { $0.id == saved }?.card == .builtIn(.loans))
+        #expect(disk.seals - before == 1)
+        #expect(try rig.store.loadDocument()?.document.readingState(cache: nil).lessons != lessons, "the lesson is on disk")
     }
 }

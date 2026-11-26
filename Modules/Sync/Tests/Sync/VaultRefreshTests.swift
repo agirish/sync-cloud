@@ -122,6 +122,35 @@ import Testing
         #expect(shelf.opened == [copy])
     }
 
+    /// A saved ID read from a chosen copy is asked about when that copy now reads another number:
+    /// Refresh opens the chosen copy alone, so the question looks there, not at the document it
+    /// was first saved from (the final review, 2026-11-26).
+    @Test func aChosenCopyThatNowReadsAnotherNumberIsAskedAbout() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add(Self.root, in: rig.defaults)
+        let copy = Self.root + "/Immigration/H-1B/Petition/passport.pdf"
+        func page(_ number: String) -> [String] {
+            ["PASSPORT"] + VaultReadingTests.zone("P", number: number, born: "740812", expires: "320415")
+        }
+        let shelf = Shelf([Self.passport: page("X1234567"), copy: page("X1234567")])
+        let model = rig.model()
+        await model.opened()
+        await model.readDocuments(with: shelf)
+        let find = try #require(model.finds.first { $0.value == "X1234567" })
+        let saved = try #require(model.confirm(find.id, as: model.confirmationDraft(find)))
+        let chosen = try #require(model.rows.first { $0.id == saved }?.sourceChoices.first, "a copy it can be read from")
+        model.readFrom(saved, copy: chosen)
+        let entry = try #require(model.entries.first { $0.id == saved })
+        try #require(entry.chosenSource == chosen && entry.savedFrom != chosen, "read from a copy it was not saved from")
+        shelf.write(chosen, page("X1234568"))
+        shelf.forgetOpened()
+        await model.readDocuments(with: shelf, scope: .refresh())
+        #expect(shelf.opened == [chosen])
+        #expect(model.entries.first { $0.id == saved }?.value == "X1234567", "the saved ID stands")
+        let waiting = try #require(model.finds.first { $0.value == "X1234568" })
+        #expect(model.rereads[saved] == waiting.id, "the chosen copy's new reading is asked about")
+    }
+
     /// After a Forget nothing is marked read: the next Refresh opens each ID's own document, and
     /// says nothing of copies, which are unread, not changed (the 2026-11-25 review).
     @Test func afterAForgetRefreshSaysNothingOfCopies() async throws {

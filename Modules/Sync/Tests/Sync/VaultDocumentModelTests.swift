@@ -244,13 +244,23 @@ import Testing
         let sealed = try VaultFile.sealPlain(JSONSerialization.data(withJSONObject: object), marker: VaultDocument.marker, with: Self.key)
         try sealed.write(to: rig.scratch.fileURL)
         let names = Self.names(rig)
+        // A color of a kind this build cannot see: the newer build's, kept in the shared defaults.
+        var shared = VaultColors()
+        shared.cards[VaultCardID.custom("later").key] = .tint(.clay)
+        shared.save(to: rig.defaults)
 
         for model in [Self.model(rig), Self.model(rig, migrating: false)] {
             await model.opened()
             #expect(model.contents == .loaded && model.readOnly == .newerFormat && model.isReadOnly)
+            #expect(model.notice == VaultModel.message(for: .newerFormat), "the panel says why")
             #expect(model.entries.map(\.id) == [VaultModelTests.passport.id] && model.finds.count == 1)
+            model.notice = nil
             #expect(model.add(VaultModel.Draft(title: "Library card", value: "LIB0000001")) == nil)
+            #expect(model.notice == VaultModel.message(for: .newerFormat), "a refused save says why")
             model.setAside(try #require(model.finds.first).id)
+            #expect(model.finds.count == 1, "Not an ID is refused, not held until the next open")
+            model.setColors(model.colors)
+            #expect(VaultColors.load(from: rig.defaults).own(.custom("later")) == .tint(.clay), "nothing pruned")
             _ = model.addKind(named: "Memberships")
             #expect(model.kinds.custom.isEmpty, "a kind is kept in the document, which is not written")
             model.closed()
@@ -269,9 +279,13 @@ import Testing
         #expect(model.contents == .loaded && model.readOnly == .anotherCopyRunning && !model.keepsDocument)
         #expect(model.entries.count == 4)
         #expect(model.add(VaultModel.Draft(title: "Library card", value: "LIB0000001")) == nil)
+        #expect(model.notice == VaultModel.message(for: .anotherCopyRunning), "the panel says why")
         _ = model.addKind(named: "School")
         await model.readDocuments(with: VaultFakeDocuments(pages: ["/docs/notice.pdf": VaultToConfirmTests.noticePage]))
+        let waiting = model.finds.count
         model.setAside(try #require(model.finds.first).id)
+        #expect(model.finds.count == waiting, "Not an ID is refused, not held until the next open")
+        #expect(!model.forgetSetAside(), "Settings' Forget writes nothing either")
         model.closed()
         #expect(try Data(contentsOf: rig.scratch.fileURL) == before)
         #expect(rig.store.readingOnDisk()?.version == 17, "the reading file as it was, under its older rules")
@@ -392,6 +406,36 @@ import Testing
         #expect(again.opened.all.isEmpty, "what the other copy read was read again: its read marks were not taken in")
     }
 
+    /// A seal that changes only the cache, after another copy saved: the other's read marks and
+    /// waiting IDs are merged in, not written over by this copy's cache (the final review).
+    @Test func aCacheOnlySealAfterAnotherCopysSaveKeepsItsReadMarks() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        try rig.seed([VaultModelTests.passport])
+        let warm = Self.model(rig)
+        await warm.opened()
+        await warm.readDocuments(with: VaultFakeDocuments(pages: ["/docs/letter.pdf": ["Nothing to see here"]]))
+        warm.closed()
+        let first = Self.model(rig), second = Self.model(rig)
+        await first.opened()
+        await second.opened()
+        let notice = ["/docs/notice.pdf": VaultToConfirmTests.noticePage]
+        let blank = ["/docs/blank.pdf": ["Nothing here either"]]
+        await first.readDocuments(with: VaultFakeDocuments(pages: notice, stamps: ["/docs/notice.pdf": "1"]))
+        let found = Set(first.finds.map(\.value))
+        #expect(!found.isEmpty)
+        await second.readDocuments(with: VaultFakeDocuments(pages: blank, stamps: ["/docs/blank.pdf": "1"]))
+        #expect(Set(second.finds.map(\.value)) == found, "the other copy's waiting IDs were not taken in")
+        first.closed()
+        second.closed()
+        let third = Self.model(rig)
+        await third.opened()
+        let again = VaultFakeDocuments(pages: notice.merging(blank) { a, _ in a },
+                                       stamps: ["/docs/notice.pdf": "1", "/docs/blank.pdf": "1"])
+        await third.readDocuments(with: again)
+        #expect(again.opened.all.isEmpty, "a copy's read marks were written over by the other's cache")
+        #expect(Set(third.finds.map(\.value)) == found)
+    }
+
     /// A Forget made in one copy stands when the other, still holding what it read before, seals.
     @Test func aForgetInTheOtherCopyIsNotUndoneByThisCopysSeal() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
@@ -437,6 +481,10 @@ import Testing
         let merged = VaultModel.mergedKinds([a, gone], [ours, gone, added], [theirs])
         #expect(merged.map(\.id) == ["k1", "k3"])
         #expect(merged.first?.name == "Kids’ School")
+        // Removed by one and renamed by the other, it goes, whichever copy merges (the final review).
+        var renamed = gone; renamed.name = "Fitness"
+        #expect(VaultModel.mergedKinds([a, gone], [a, renamed], [a]).map(\.id) == ["k1"])
+        #expect(VaultModel.mergedKinds([a, gone], [a], [a, renamed]).map(\.id) == ["k1"])
     }
 
 }

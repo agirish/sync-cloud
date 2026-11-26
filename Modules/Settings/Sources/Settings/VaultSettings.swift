@@ -336,7 +336,7 @@ struct VaultSettingsTab: View {
             let proof = await VaultDeviceOwnerProof().prove(reason: "show the Vault’s activity")
             isAsking = false
             guard case .allowed = proof else { return }
-            activityShown = activityStore?.load() ?? []
+            activityShown = activityStore?.load(now: Date()) ?? []
         }
     }
 

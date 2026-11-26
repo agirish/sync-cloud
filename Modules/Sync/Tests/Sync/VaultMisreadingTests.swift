@@ -457,10 +457,27 @@ import Testing
         #expect(bare.first { $0.value == "WAC2412349999" }?.holder == "Bjorn Eriksson")
         #expect(bare.first { $0.value == "WAC2412349999" }?.facts.form == "I-539")
         #expect(bare.first { $0.value == "WAC2412345678" }?.holder == "Anna Eriksson")
-        // One number read twice, once with a look-alike: one case, which takes the page's first.
-        let twice = ["Case Status", "Receipt Number WAC2412345678", "Form I-129", "Beneficiary ERIKSSON, ANNA",
-                     "Receipt Number WAC24123456T8"]
-        #expect(VaultFixtures.read(twice).allSatisfy { $0.facts.form == "I-129" })
+        // One number read twice, once with a look-alike ("S" for 5): one case, which takes the
+        // page's first.
+        let twice = VaultFixtures.read(["Case Status", "Receipt Number WAC2412345678", "Form I-129",
+                                        "Beneficiary ERIKSSON, ANNA", "Receipt Number WAC241234S678", "Form I-539"])
+        #expect(twice.map(\.value) == ["WAC2412345678"])
+        #expect(twice.first?.facts.form == "I-129")
+        // A number printed after a notice's form, with no person of its own before or after it,
+        // takes the page's (the final review: it was left with none).
+        let linked = VaultFixtures.read(["Receipt Number WAC2412345678", "Form I-539",
+                                         "Linked petition WAC2412349999", "Applicant ERIKSSON, ANNA"])
+        #expect(linked.first { $0.value == "WAC2412345678" }?.holder == "Anna Eriksson")
+        #expect(linked.first { $0.value == "WAC2412349999" }?.holder == "Anna Eriksson")
+        // A list that prints each case's form and person above its number: each takes those above
+        // it, never the next case's below.
+        let above = VaultFixtures.read(["Case Status", "Form I-129", "Beneficiary ERIKSSON, ANNA",
+                                        "Receipt Number WAC2412345678", "Form I-539", "Applicant ERIKSSON, BJORN",
+                                        "Receipt Number WAC2412349999"])
+        #expect(above.first { $0.value == "WAC2412345678" }?.facts.form == "I-129")
+        #expect(above.first { $0.value == "WAC2412345678" }?.holder == "Anna Eriksson")
+        #expect(above.first { $0.value == "WAC2412349999" }?.facts.form == "I-539")
+        #expect(above.first { $0.value == "WAC2412349999" }?.holder == "Bjorn Eriksson")
         // A notice's own kind is never the case's form.
         #expect(VaultFixtures.read(["Case Status", "I-797E Notice of Action", "Receipt Number WAC2412345678",
                                     "Form I-129"]).first?.facts.form == "I-129")
