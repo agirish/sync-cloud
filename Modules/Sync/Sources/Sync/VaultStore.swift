@@ -214,7 +214,7 @@ public struct VaultRecords: Equatable, Sendable {
     /// changed; written back after ``entries``.
     public var newer: [Data]
     /// For a record this build reads, the fields a later build added that it does not
-    /// (``VaultEntry/storedKeys``), by id, as a JSON object: merged back in when it is sealed, so
+    /// (``VaultLegacyFormat/Entry/storedKeys``), by id, as a JSON object: merged back in when it is sealed, so
     /// an older build's save never drops them.
     public var laterFields: [UUID: Data]
     /// For a record holding something this build does not write (a later field at any depth),
@@ -258,7 +258,7 @@ public enum VaultFile {
     /// with any newer records after them, each as it was read.
     public static func seal(_ records: VaultRecords, with key: SymmetricKey) throws -> Data {
         guard !records.newer.isEmpty || !records.laterFields.isEmpty || !records.stored.isEmpty else {
-            return try seal(records.entries, marker: marker, with: key)
+            return try seal(records.entries.map(VaultLegacyFormat.Entry.init), marker: marker, with: key)
         }
         let elements = try elements(of: records)
         var plain = Data("[".utf8)
@@ -279,7 +279,7 @@ public enum VaultFile {
             // Matched by the whole record, not the id alone: two records can share one (Add
             // Missing made them until 5e33b3c47).
             if let stored = records.stored[entry.id]?.first(where: { $0.entry == entry }) { return stored.json }
-            return try merging(encoder.encode(entry), records.laterFields[entry.id])
+            return try merging(encoder.encode(VaultLegacyFormat.Entry(entry)), records.laterFields[entry.id])
         } + records.newer
     }
 
@@ -296,13 +296,13 @@ public enum VaultFile {
         let encoder = jsonEncoder()
         /// Notes what `entry`, read from `element`, holds that this build would not write back.
         func keep(_ entry: VaultEntry, from element: Any) {
-            records.laterFields[entry.id] = laterFields(of: element, known: VaultEntry.storedKeys)
+            records.laterFields[entry.id] = laterFields(of: element, known: VaultLegacyFormat.Entry.storedKeys)
             guard let json = try? JSONSerialization.data(withJSONObject: element, options: [.sortedKeys]),
-                  let ours = try? JSONSerialization.jsonObject(with: encoder.encode(entry)) as? NSDictionary,
+                  let ours = try? JSONSerialization.jsonObject(with: encoder.encode(VaultLegacyFormat.Entry(entry))) as? NSDictionary,
                   let theirs = element as? NSDictionary, ours != theirs else { return }
-            records.stored[entry.id, default: []].append(VaultRecords.StoredRecord(entry: entry, json: json))
+            records.stored[entry.id, default: []].append(VaultRecords.StoredRecord(entry: entry, json: inEncoderOrder(json)))
         }
-        if let entries = try? decoder.decode([VaultEntry].self, from: plain) {
+        if let entries = try? decoder.decode([VaultLegacyFormat.Entry].self, from: plain).map(\.entry) {
             records.entries = entries
             for (entry, element) in zip(entries, list) { keep(entry, from: element) }
             return records
@@ -312,7 +312,7 @@ public enum VaultFile {
                                                          options: [.sortedKeys, .fragmentsAllowed]) else {
                 throw VaultError.unreadableFile
             }
-            if let entry = try? decoder.decode(VaultEntry.self, from: json) {
+            if let entry = try? decoder.decode(VaultLegacyFormat.Entry.self, from: json).entry {
                 records.entries.append(entry)
                 keep(entry, from: element)
             } else {
@@ -329,15 +329,57 @@ public enum VaultFile {
         let decoder = jsonDecoder(), encoder = jsonEncoder()
         for element in list {
             guard let json = try? JSONSerialization.data(withJSONObject: element, options: [.sortedKeys, .fragmentsAllowed]) else { continue }
-            guard let entry = try? decoder.decode(VaultEntry.self, from: json) else { records.newer.append(json); continue }
+            guard let entry = try? decoder.decode(VaultLegacyFormat.Entry.self, from: json).entry else {
+                records.newer.append(json)
+                continue
+            }
             records.entries.append(entry)
-            records.laterFields[entry.id] = laterFields(of: element, known: VaultEntry.storedKeys)
-            if let ours = try? JSONSerialization.jsonObject(with: encoder.encode(entry)) as? NSDictionary,
+            records.laterFields[entry.id] = laterFields(of: element, known: VaultLegacyFormat.Entry.storedKeys)
+            if let ours = try? JSONSerialization.jsonObject(with: encoder.encode(VaultLegacyFormat.Entry(entry))) as? NSDictionary,
                let theirs = element as? NSDictionary, ours != theirs {
-                records.stored[entry.id, default: []].append(VaultRecords.StoredRecord(entry: entry, json: json))
+                records.stored[entry.id, default: []].append(VaultRecords.StoredRecord(entry: entry, json: inEncoderOrder(json)))
             }
         }
         return records
+    }
+
+    /// `json` with its keys in the order this app's encoder writes them (``jsonEncoder()``), so a
+    /// record kept as stored goes back in the bytes it was written in: `JSONSerialization` sorts
+    /// `notFields` after `note`, the encoder before it. As it is when it holds what the encoder
+    /// would write otherwise.
+    static func inEncoderOrder(_ json: Data) -> Data {
+        guard let value = try? jsonDecoder().decode(StoredJSON.self, from: json),
+              let encoded = try? jsonEncoder().encode(value) else { return json }
+        return encoded
+    }
+
+    /// Any JSON value, read and written again as it was.
+    private enum StoredJSON: Codable {
+        case null, bool(Bool), integer(Int64), number(Double), string(String), array([StoredJSON]), object([String: StoredJSON])
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.singleValueContainer()
+            if c.decodeNil() { self = .null }
+            else if let value = try? c.decode(Bool.self) { self = .bool(value) }
+            else if let value = try? c.decode(Int64.self) { self = .integer(value) }
+            else if let value = try? c.decode(Double.self) { self = .number(value) }
+            else if let value = try? c.decode(String.self) { self = .string(value) }
+            else if let value = try? c.decode([StoredJSON].self) { self = .array(value) }
+            else { self = .object(try c.decode([String: StoredJSON].self)) }
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.singleValueContainer()
+            switch self {
+            case .null: try c.encodeNil()
+            case .bool(let value): try c.encode(value)
+            case .integer(let value): try c.encode(value)
+            case .number(let value): try c.encode(value)
+            case .string(let value): try c.encode(value)
+            case .array(let value): try c.encode(value)
+            case .object(let value): try c.encode(value)
+            }
+        }
     }
 
     /// The fields of a stored object outside `known`, as a JSON object; nil when there are none.
@@ -440,6 +482,13 @@ public struct VaultStore {
     private let fileManager: FileManager
     /// When a backup is made, for its name.
     private let clock: () -> Date
+    /// Whether a load may migrate the v1 files to the v7.2 document (``VaultMigration``): the gate,
+    /// ``VaultMigration/enabled``, unless a test says otherwise. Off, nothing new is ever written:
+    /// the v1 files open and save as before, and a Vault begun here is a v1 Vault.
+    public let migrating: Bool
+    /// Whether another copy of the app is running, which a migration waits for
+    /// (``VaultMigration/anotherCopyRunning()``).
+    let anotherCopyRunning: @Sendable () -> Bool
 
     /// How many sealed files from before a save are kept beside the Vault's, newest first (VT20).
     public static let backupsKept = 10
@@ -448,11 +497,17 @@ public struct VaultStore {
     public static let dailyBackupDays = 30
 
     public init(fileURL: URL, keychain: KeychainStore = SecItemKeychainStore(),
-                fileManager: FileManager = .default, clock: @escaping () -> Date = Date.init) {
+                fileManager: FileManager = .default, clock: @escaping () -> Date = Date.init,
+                migrating: Bool? = nil,
+                anotherCopyRunning: @escaping @Sendable () -> Bool = VaultMigration.anotherCopyRunning) {
         self.fileURL = fileURL
         self.keychain = keychain
         self.fileManager = fileManager
         self.clock = clock
+        // Resolved here, not as the default argument: a default is evaluated in the caller, whose
+        // cached build would keep the gate's old value (docs/flaky-tests.md, "a stale default").
+        self.migrating = migrating ?? VaultMigration.enabled
+        self.anotherCopyRunning = anotherCopyRunning
     }
 
     /// `~/Library/Application Support/SyncCloud/vault.sealed`. Not under a filing profile: the
@@ -662,7 +717,8 @@ public struct VaultStore {
     func keepBackupOfCurrent() {
         guard let data = fileManager.contents(atPath: fileURL.path),
               case .found(let key) = VaultKeychain.read(from: keychain),
-              (try? VaultFile.openRecords(data, with: key)) != nil else { return }
+              (try? VaultFile.openRecords(data, with: key)) != nil
+                || (try? VaultFile.openPlain(data, marker: VaultDocument.marker, with: key)) != nil else { return }
         // Not pruned here: a Replace that then fails puts the Vault back, and must not have cost
         // the oldest backup. The save that follows prunes, once it is in.
         do {
@@ -890,7 +946,7 @@ public struct VaultStore {
         case .unreadable(let status): throw VaultError.keyUnreadable(status)
         case .notCreated:
             guard !hasFile else { throw VaultError.keyMissing }
-            let leftovers = [readingURL, activityURL] + backups
+            let leftovers = [readingURL, activityURL, cacheURL] + backups
             var moved: [Aside] = []
             if leftovers.contains(where: { fileManager.fileExists(atPath: $0.path) }) {
                 guard let aside = moveAside(leftovers, at: clock()) else { throw VaultError.notWritten }
@@ -922,23 +978,23 @@ public struct VaultStore {
     }
 
     /// Set It Aside and Start New, for a Vault this Mac cannot open: renames the Vault's file,
-    /// what was read, and the backups kept before each save aside
+    /// what was read, the reading cache, and the backups kept before each save aside
     /// (`vault.sealed.set-aside-<stamp>`). Nothing is deleted, so it is all kept, history and all,
     /// for the day it can be opened; the backups may be the only readable copies of a damaged
     /// file, and the new Vault's saves would prune them. The activity list stays: one this Mac
     /// cannot open is set aside by its next entry. True when no sealed file is left in the way.
     @discardableResult
     public func setAside(at date: Date = Date()) -> Bool {
-        moveAside([fileURL, readingURL] + backups, at: date) != nil
+        moveAside([fileURL, readingURL, cacheURL] + backups, at: date) != nil
     }
 
-    /// What Restore ▸ Replace moves: the Vault's file and what was read. The backups and the
+    /// What Restore ▸ Replace moves: the Vault's file, what was read and its cache. The backups and the
     /// activity list stay, still this Mac's under the same key, and Go Back reaches past the
     /// Replace (``keepBackupOfCurrent()`` keeps the Vault as it was just before); under a lost
     /// key, ``keyForWriting()`` sets them aside before it makes a new one. Nil when a file could
     /// not be moved; what did move is put back first.
     func moveAsideForReplace(at date: Date) -> [Aside]? {
-        moveAside([fileURL, readingURL], at: date)
+        moveAside([fileURL, readingURL, cacheURL], at: date)
     }
 
     /// Renames each of `urls` that is there to `<name>.set-aside-<stamp>`; all or none.
@@ -995,5 +1051,414 @@ public struct VaultStore {
         }
         let mac = HMAC<SHA256>.authenticationCode(for: Data(VaultReading.normalized(value).utf8), using: key)
         return mac.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+// MARK: - The v7.2 document (VT6)
+
+extension VaultStore {
+    /// `vault-cache.sealed`, beside the Vault's file: what reading can find again (``VaultCache``).
+    public var cacheURL: URL {
+        fileURL.deletingLastPathComponent().appendingPathComponent("vault-cache.sealed")
+    }
+
+    /// `vault.lock`, beside the Vault's file: the advisory lock a document save takes around its
+    /// check of the file and its swap, so two copies of the app cannot both pass the check.
+    public var lockURL: URL {
+        fileURL.deletingLastPathComponent().appendingPathComponent("vault.lock")
+    }
+
+    /// Which Vault file is on disk, by its marker, asked without the key.
+    public enum FileFormat: Equatable, Sendable {
+        case none
+        /// `SCVAULT1`: the array of entries every build before 7.2 wrote.
+        case v1
+        /// `SCVAULT2`: the v7.2 document.
+        case document
+        /// Neither: damaged, or not a Vault file. Opened as v1 is, which says it does not open.
+        case unknown
+    }
+
+    public var fileFormat: FileFormat {
+        guard let handle = FileHandle(forReadingAtPath: fileURL.path) else { return hasFile ? .unknown : .none }
+        defer { try? handle.close() }
+        let head = (try? handle.read(upToCount: 8)) ?? Data()
+        if head == VaultLegacyFormat.vaultMarker { return .v1 }
+        if head == VaultDocument.marker { return .document }
+        return .unknown
+    }
+
+    /// Whether this store keeps the Vault as a document: one is on disk, or, with the migration
+    /// on, nothing is yet. With it off, a Vault begun here is a v1 Vault, as before 7.2.
+    /// Whether the moved keys in `defaults` (``VaultMigration/movedKeys``) are this Vault's to take
+    /// in and remove. The app's own preferences belong to the Vault in Application Support alone: a
+    /// store over any other file, such as a test's inside the app's test host, which runs with the
+    /// owner's preferences, never reads them for a migration and never removes them.
+    public func ownsMovedKeys(in defaults: UserDefaults) -> Bool {
+        guard defaults === UserDefaults.standard else { return true }
+        guard let real = Self.defaultURL(fileManager: fileManager) else { return false }
+        return fileURL.standardizedFileURL.path == real.standardizedFileURL.path
+    }
+
+    public var keepsDocument: Bool {
+        switch fileFormat {
+        case .document: return true
+        // A v1 reading file and no Vault file is still a v1 Vault: one the migration refused
+        // opens as one, never as an empty document that would leave the file behind.
+        case .none: return migrating && !hasReadingFile
+        case .v1, .unknown: return false
+        }
+    }
+
+    /// Whether a load should migrate (``migrate(defaults:people:folders:)``): the migration is on,
+    /// and the Vault's file is v1, or it is missing while the reading file or a moved UserDefaults
+    /// key is there.
+    public func needsMigration(defaults: UserDefaults) -> Bool {
+        guard migrating, ownsMovedKeys(in: defaults) else { return false }
+        switch fileFormat {
+        case .v1: return true
+        case .none: return hasReadingFile || VaultMigration.movedKeys.contains { defaults.object(forKey: $0) != nil }
+        case .document, .unknown: return false
+        }
+    }
+
+    // MARK: Reading
+
+    /// What opening the document gave: it, what reading can find again (nil when there is none, or
+    /// it did not open and was set aside), and the file as read, for a save to expect.
+    public struct DocumentLoad: Equatable, Sendable {
+        public var document: VaultDocument
+        public var cache: VaultCache?
+        public var onDisk: VaultFileState
+        /// A later build's format: nothing may be written (``VaultDocumentOpened/readOnly``).
+        public var readOnly: Bool
+        /// Records a later build wrote that this one cannot read.
+        public var unread: Int
+    }
+
+    /// The document, or nil when there is no Vault file. Throws as ``loadRecords()`` does for a file
+    /// that does not open, and ``VaultError/unreadableFile`` for one that is not a document.
+    ///
+    /// `settingCacheAside` off (a backup or restore, which reads the document only) leaves a cache
+    /// that does not open where it is, for the panel's next open to deal with.
+    public func loadDocument(settingCacheAside: Bool = true) throws -> DocumentLoad? {
+        guard hasFile else { return nil }
+        guard let data = fileManager.contents(atPath: fileURL.path) else {
+            Logger.shared.warning("Vault: the sealed file is there but could not be read from disk")
+            throw VaultError.unreadableFile
+        }
+        let key = try readKey(for: data)
+        let opened: VaultDocumentOpened
+        do {
+            opened = try VaultDocument.open(plain: VaultFile.openPlain(data, marker: VaultDocument.marker, with: key))
+        } catch let error as VaultError {
+            Logger.shared.warning("Vault: the Vault document did not open (\(error), \(VaultFile.summary(of: data))) — it is left as it is")
+            throw error
+        }
+        if opened.document.setAside.keyID != VaultDocument.keyID(for: key) {
+            Logger.shared.warning("Vault: the Vault document's set-aside numbers were made under another key; they are kept as they are")
+        }
+        return DocumentLoad(document: opened.document, cache: openCache(with: key, settingAside: settingCacheAside && !opened.readOnly),
+                            onDisk: .of(data), readOnly: opened.readOnly, unread: opened.unread)
+    }
+
+    /// Which key this Mac's Vault is sealed under (``VaultDocument/keyID(for:)``), without the key:
+    /// nil when the Keychain has none or withholds it. Never makes one.
+    public var keyID: String? {
+        guard case .found(let key) = VaultKeychain.read(from: keychain) else { return nil }
+        return VaultDocument.keyID(for: key)
+    }
+
+    /// The key, for a file on disk: one this Mac does not have is ``VaultError/keyMissing``.
+    private func readKey(for data: Data) throws -> SymmetricKey {
+        switch VaultKeychain.read(from: keychain) {
+        case .found(let found): return found
+        case .notCreated:
+            Logger.shared.warning("Vault: the sealed file (\(VaultFile.summary(of: data))) has no key in this Mac's Keychain — it is left as it is")
+            throw VaultError.keyMissing
+        case .unreadable(let status): throw VaultError.keyUnreadable(status)
+        }
+    }
+
+    /// The cache, when it opens with `key` and is this build's. One that does not is set aside
+    /// (`vault-cache.sealed.unreadable-<stamp>`) and started fresh, unless `settingAside` is off
+    /// (a later build's Vault, over which nothing is written).
+    func openCache(with key: SymmetricKey, settingAside: Bool) -> VaultCache? {
+        guard let data = fileManager.contents(atPath: cacheURL.path) else { return nil }
+        if let plain = try? VaultFile.openPlain(data, marker: VaultCache.marker, with: key),
+           let cache = try? VaultFile.jsonDecoder().decode(VaultCache.self, from: plain), cache.format == VaultCache.format {
+            return cache
+        }
+        Logger.shared.warning("Vault: the reading cache did not open (\(VaultFile.summary(of: data))); it starts fresh")
+        if settingAside {
+            let aside = UnreadableSetAside.destination(for: cacheURL, at: clock(), fileManager: fileManager)
+            do { try fileManager.moveItem(at: cacheURL, to: aside) } catch {
+                // Not in the way of anything: the next cache write replaces it.
+                Logger.shared.warning("Vault: the reading cache that did not open could not be set aside — \(error.localizedDescription)")
+            }
+        }
+        return nil
+    }
+
+    // MARK: Writing
+
+    /// Seals `document` and swaps it in whole, after keeping the file it replaces as a backup when
+    /// its saved records or the user's own data changed (``VaultDocument/sameSavedData(as:)``).
+    ///
+    /// As ``save(_:newer:carrying:expecting:)``: a key is made only when there is neither key nor
+    /// file; a file this Mac cannot open, or a later build's document, is never written over; a save
+    /// that would remove more than one saved record throws ``VaultError/wouldDrop(_:)``;
+    /// `expecting` refuses a file another copy saved meanwhile (``VaultError/changedElsewhere``).
+    /// The check and the swap happen under the advisory lock on ``lockURL``.
+    ///
+    /// The document is stamped as this build's, now, under this key (``VaultDocument/keyID(for:)``).
+    /// Answers the file as it now is, and the document as written.
+    @discardableResult
+    public func saveDocument(_ document: VaultDocument, expecting: VaultFileState?) throws
+        -> (onDisk: VaultFileState, document: VaultDocument) {
+        if let expecting, expecting != .absent, !hasFile { throw changedElsewhere() }
+        let (key, made) = try keyMadeForWriting()
+        do {
+            return try withVaultLock {
+                var stamped = document
+                stamped.format = VaultDocument.format
+                stamped.savedBy = VaultDocument.thisBuild
+                stamped.savedAt = clock()
+                stamped.setAside.keyID = VaultDocument.keyID(for: key)
+                var previous: Data?
+                var backup = false
+                if hasFile {
+                    guard let data = fileManager.contents(atPath: fileURL.path) else {
+                        Logger.shared.warning("Vault: the sealed file is there but could not be read from disk — nothing was written")
+                        throw VaultError.unreadableFile
+                    }
+                    if let expecting, expecting != .of(data) { throw changedElsewhere() }
+                    let onDisk: VaultDocumentOpened
+                    do {
+                        onDisk = try VaultDocument.open(plain: VaultFile.openPlain(data, marker: VaultDocument.marker, with: key))
+                    } catch let error as VaultError {
+                        Logger.shared.warning("Vault: the Vault document did not open (\(error), \(VaultFile.summary(of: data))) — nothing was written over it")
+                        throw error
+                    }
+                    guard !onDisk.readOnly else {
+                        Logger.shared.warning("Vault: the Vault was saved by a newer SyncCloud — nothing was written over it")
+                        throw VaultError.unreadableFile
+                    }
+                    let dropped = onDisk.document.savedIDs.subtracting(stamped.savedIDs).count
+                    if dropped > 1 {
+                        Logger.shared.warning("Vault: a save would have removed \(dropped) records at once (\(onDisk.document.savedIDs.count) → \(stamped.savedIDs.count)) — refused, nothing was written")
+                        throw VaultError.wouldDrop(dropped)
+                    }
+                    previous = data
+                    backup = !onDisk.document.sameSavedData(as: stamped)
+                }
+                let sealed = try VaultFile.sealPlain(VaultFile.jsonEncoder().encode(stamped), marker: VaultDocument.marker, with: key)
+                do {
+                    if backup, let previous { try keepBackup(of: previous) }
+                    try SealedFile.write(sealed, to: fileURL, fileManager: fileManager)
+                } catch {
+                    Logger.shared.warning("Vault: the Vault document could not be written — \(error.localizedDescription)")
+                    throw VaultError.notWritten
+                }
+                if backup { pruneBackups() }
+                return (.of(sealed), stamped)
+            }
+        } catch {
+            // As a v1 save: a key made for this save, with nothing sealed under it, goes again.
+            if let made {
+                VaultKeychain.delete(from: keychain)
+                if case .notCreated = VaultKeychain.read(from: keychain) { putBack(made) }
+            }
+            throw error
+        }
+    }
+
+    /// Seals what reading can find again. Never makes a key, and expects nothing: the cache is
+    /// rebuilt by reading, so a copy's write over another's costs a read, never the user's data.
+    public func saveCache(_ cache: VaultCache) throws {
+        guard case .found(let key) = VaultKeychain.read(from: keychain) else { throw VaultError.notWritten }
+        let sealed = try VaultFile.sealPlain(VaultFile.jsonEncoder().encode(cache), marker: VaultCache.marker, with: key)
+        do {
+            try SealedFile.write(sealed, to: cacheURL, fileManager: fileManager)
+        } catch {
+            Logger.shared.warning("Vault: the reading cache could not be written — \(error.localizedDescription)")
+            throw VaultError.notWritten
+        }
+    }
+
+    /// Runs `body` holding the advisory lock on ``lockURL``: another copy's document save waits
+    /// for it, up to five seconds, then this one is refused as not written.
+    func withVaultLock<T>(_ body: () throws -> T) throws -> T {
+        try fileManager.createDirectory(at: lockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let descriptor = open(lockURL.path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else {
+            Logger.shared.warning("Vault: the Vault's lock file could not be opened — nothing was written")
+            throw VaultError.notWritten
+        }
+        defer { close(descriptor) }
+        let deadline = Date().addingTimeInterval(5)
+        while flock(descriptor, LOCK_EX | LOCK_NB) != 0 {
+            guard errno == EWOULDBLOCK || errno == EINTR, Date() < deadline else {
+                Logger.shared.warning("Vault: another SyncCloud held the Vault's lock too long — nothing was written")
+                throw VaultError.notWritten
+            }
+            usleep(10_000)
+        }
+        defer { flock(descriptor, LOCK_UN) }
+        return try body()
+    }
+
+    // MARK: Migrating (gated)
+
+    /// What a migration came to.
+    public enum MigrationOutcome: Equatable, Sendable {
+        /// Off, or nothing to migrate.
+        case notNeeded
+        case migrated(VaultMigration.Report)
+        /// Stopped with nothing changed: the v1 files are as they were.
+        case refused(VaultMigration.Refusal)
+    }
+
+    /// The v1 files and the moved UserDefaults keys become the document, in the spec's order, each
+    /// step safe to stop after:
+    ///
+    /// 1. the v1 Vault file is copied to `vault.sealed.v1-premigration-<stamp>`, a name outside the
+    ///    backups' rotation that is never pruned, and kept as the newest backup;
+    /// 2. the document is written over it, expecting its very bytes, under the Vault's lock;
+    /// 3. the cache is written (a failure costs a read, nothing more);
+    /// 4. the reading file is renamed `vault-reading.sealed.migrated-<stamp>`;
+    /// 5. the moved keys are removed from `defaults`.
+    ///
+    /// Only with the migration on (``migrating``) and the key in the Keychain, and never while
+    /// another copy of the app runs: it would go on writing the v1 files. Anything that does not
+    /// decode, or does not check, stops it before step 1 (``VaultMigration/Refusal``). Counts are
+    /// logged; never a number or a name.
+    public func migrate(defaults: UserDefaults, people: [Person] = [], folders: [String] = []) -> MigrationOutcome {
+        guard needsMigration(defaults: defaults) else { return .notNeeded }
+        guard case .found(let key) = VaultKeychain.read(from: keychain) else { return refused(.unopened("the Vault’s key")) }
+        guard !anotherCopyRunning() else { return refused(.anotherCopyRunning) }
+        do {
+            return try withVaultLock { () -> MigrationOutcome in
+                // Read again under the lock: what is migrated is what is written over.
+                guard needsMigration(defaults: defaults) else { return .notNeeded }
+                let vaultData = fileFormat == .v1 ? fileManager.contents(atPath: fileURL.path) : nil
+                if fileFormat == .v1, vaultData == nil { return refused(.unopened("the Vault’s file")) }
+                let readingData = fileManager.contents(atPath: readingURL.path)
+                if hasReadingFile, readingData == nil { return refused(.unopened("the reading file")) }
+                var legacy = VaultMigration.Legacy()
+                if let vaultData {
+                    guard let plain = try? VaultFile.openPlain(vaultData, marker: VaultLegacyFormat.vaultMarker, with: key) else {
+                        return refused(.unopened("the Vault’s file"))
+                    }
+                    (legacy.vaultPlain, legacy.vaultDigest) = (plain, VaultMigration.digest(vaultData))
+                }
+                if let readingData {
+                    guard let plain = try? VaultFile.openPlain(readingData, marker: VaultLegacyFormat.readingMarker, with: key) else {
+                        return refused(.unopened("the reading file"))
+                    }
+                    (legacy.readingPlain, legacy.readingDigest) = (plain, VaultMigration.digest(readingData))
+                }
+                (legacy.setAside, legacy.generation, legacy.customKinds) = VaultMigration.Legacy.values(in: defaults)
+                let now = clock()
+                let migrated: (document: VaultDocument, cache: VaultCache, report: VaultMigration.Report)
+                do {
+                    migrated = try VaultMigration.migrate(legacy, keyID: VaultDocument.keyID(for: key), people: people,
+                                                          folders: folders, at: now)
+                } catch let refusal as VaultMigration.Refusal {
+                    return refused(refusal)
+                }
+                let stamp = Int(now.timeIntervalSince1970)
+                // 1. A copy of its own, and the newest backup.
+                if let vaultData {
+                    do {
+                        try SealedFile.write(vaultData, to: unusedURL("vault.sealed.v1-premigration-\(stamp)"),
+                                             fileManager: fileManager, replacing: false)
+                        try keepBackup(of: vaultData)
+                    } catch {
+                        Logger.shared.warning("Vault: the v1 Vault could not be copied before migrating — \(error.localizedDescription); nothing was migrated")
+                        return .refused(.unopened("the copy before migrating"))
+                    }
+                }
+                // 2. The document, over the very bytes read.
+                var document = migrated.document
+                document.setAside.keyID = VaultDocument.keyID(for: key)
+                document.savedBy = VaultDocument.thisBuild
+                let sealed = try VaultFile.sealPlain(VaultFile.jsonEncoder().encode(document), marker: VaultDocument.marker, with: key)
+                guard VaultFileState.of(fileManager.contents(atPath: fileURL.path)) == VaultFileState.of(vaultData) else {
+                    return refused(.unopened("the Vault’s file, which changed while it was read"))
+                }
+                do {
+                    try SealedFile.write(sealed, to: fileURL, fileManager: fileManager)
+                } catch {
+                    Logger.shared.warning("Vault: the migrated Vault could not be written — \(error.localizedDescription); the v1 Vault is as it was")
+                    return .refused(.unopened("the write"))
+                }
+                // 3. What reading finds again.
+                try? saveCache(migrated.cache)
+                // 4 and 5.
+                finishMigration(of: document, defaults: defaults)
+                Logger.shared.info("Vault: migrated to the v7.2 document: \(migrated.report)")
+                return .migrated(migrated.report)
+            }
+        } catch {
+            return refused(.unopened("the Vault’s lock, or sealing the document"))
+        }
+    }
+
+    private func refused(_ refusal: VaultMigration.Refusal) -> MigrationOutcome {
+        Logger.shared.warning("Vault: the v1 Vault was not migrated, \(refusal); the v1 files are as they were")
+        return .refused(refusal)
+    }
+
+    /// Steps 4 and 5, which each open of a migrated document finishes: the reading file the
+    /// document was made from is renamed `.migrated-<stamp>`, one that is not (it appeared since)
+    /// is set aside unmerged, and the moved keys that hold only what the document already does are
+    /// removed. Fingerprints in `defaults` the document lacks are left for the caller to take in
+    /// (``setAsideLeftInDefaults(by:defaults:)``), then remove.
+    public func finishMigration(of document: VaultDocument, defaults: UserDefaults) {
+        guard migrating, ownsMovedKeys(in: defaults), let from = document.migratedFrom else { return }
+        let stamp = Int(clock().timeIntervalSince1970)
+        if let data = fileManager.contents(atPath: readingURL.path) {
+            if VaultMigration.digest(data) == from.reading {
+                do { try fileManager.moveItem(at: readingURL, to: unusedURL("vault-reading.sealed.migrated-\(stamp)")) } catch {
+                    Logger.shared.warning("Vault: the migrated reading file could not be renamed — \(error.localizedDescription); the next open tries again")
+                }
+            } else if moveAside([readingURL], at: clock()) != nil {
+                Logger.shared.warning("Vault: a reading file the document was not made from was set aside unmerged")
+            }
+        }
+        // The kinds and the generation the document holds; fingerprints only once all are in it.
+        if let stored = defaults.object(forKey: VaultKinds.key) as? Data,
+           let kinds = try? JSONDecoder().decode([VaultCustomKind].self, from: stored),
+           kinds.filter({ !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }) == document.kinds {
+            defaults.removeObject(forKey: VaultKinds.key)
+        }
+        if let generation = defaults.object(forKey: VaultSetAside.generationKey) as? Int, generation == document.setAside.generation {
+            defaults.removeObject(forKey: VaultSetAside.generationKey)
+        }
+        if setAsideLeftInDefaults(by: document, defaults: defaults).isEmpty, defaults.object(forKey: VaultSetAside.key) != nil {
+            defaults.removeObject(forKey: VaultSetAside.key)
+        }
+    }
+
+    /// Set-aside fingerprints in `defaults` the document does not hold yet: left by a migration
+    /// stopped before step 5, or added by an older path since. The caller takes them into the
+    /// document and, once it is written, removes the key.
+    public func setAsideLeftInDefaults(by document: VaultDocument, defaults: UserDefaults) -> [String] {
+        guard migrating, ownsMovedKeys(in: defaults) else { return [] }
+        let held = Set(document.setAside.fingerprints)
+        return (defaults.stringArray(forKey: VaultSetAside.key) ?? []).filter { !held.contains($0) }
+    }
+
+    /// `name` beside the Vault's file, or `name-2`, `name-3`… when it is taken.
+    private func unusedURL(_ name: String) -> URL {
+        let folder = fileURL.deletingLastPathComponent()
+        var url = folder.appendingPathComponent(name)
+        var copy = 1
+        while (try? fileManager.attributesOfItem(atPath: url.path)) != nil {
+            copy += 1
+            url = folder.appendingPathComponent("\(name)-\(copy)")
+        }
+        return url
     }
 }

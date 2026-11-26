@@ -21,16 +21,16 @@ import Testing
         #expect(second.add(VaultModel.Draft(title: "Gym card", value: "GYM0000002")) == nil)
         #expect(second.notice == VaultModel.message(for: .changedElsewhere))
         #expect(Set(second.entries.map(\.id)) == [VaultModelTests.passport.id, library], "it reads the Vault again")
-        #expect(try rig.store.load().map(\.title).sorted() == ["Library card", "Passport"])
+        #expect(try rig.store.savedOnDisk().map(\.title).sorted() == ["Library card", "Passport"])
 
         // Made again, it lands beside the first copy's.
         #expect(second.add(VaultModel.Draft(title: "Gym card", value: "GYM0000002")) != nil)
         #expect(second.notice == nil)
-        #expect(try rig.store.load().map(\.title).sorted() == ["Gym card", "Library card", "Passport"])
+        #expect(try rig.store.savedOnDisk().map(\.title).sorted() == ["Gym card", "Library card", "Passport"])
 
         // And the first, now behind, is refused in turn rather than dropping the gym card.
         #expect(await first.delete(library) == false)
-        #expect(try rig.store.load().count == 3)
+        #expect(try rig.store.savedOnDisk().count == 3)
         #expect(first.entries.count == 3)
     }
 
@@ -63,7 +63,7 @@ import Testing
         #expect(second.notice == VaultModel.message(for: .changedElsewhere))
         #expect(second.entries.contains { $0.value == one.value })
         #expect(!second.finds.contains { $0.value == one.value }, "saved by the first, it no longer waits here")
-        #expect(try rig.store.load().filter { $0.value == one.value }.count == 1)
+        #expect(try rig.store.savedOnDisk().filter { $0.value == one.value }.count == 1)
     }
 
     /// Changed into a file this copy cannot read: what it cannot read is said, not that it shows
@@ -99,10 +99,10 @@ import Testing
         mine.title = "Home loan"
         #expect(await second.update(id, to: mine, editedFrom: opened) == false)
         #expect(second.notice == VaultModel.editedElsewhere, "said once, and why")
-        #expect(try rig.store.load().first?.note == "Refinanced in 2026", "the first's edit stands")
+        #expect(try rig.store.savedOnDisk().first?.note == "Refinanced in 2026", "the first's edit stands")
 
         #expect(await second.update(id, to: mine, editedFrom: try #require(second.entry(id: id))))
-        #expect(try rig.store.load().first?.title == "Home loan")
+        #expect(try rig.store.savedOnDisk().first?.title == "Home loan")
     }
 
     /// Another copy's change to a different ID, or to what the editor does not show: refused by the
@@ -144,9 +144,9 @@ import Testing
         let after = try rig.store.save([VaultModelTests.passport, VaultModelTests.mortgage], expecting: made)
         #expect(throws: VaultError.changedElsewhere) { try rig.store.save([VaultModelTests.passport], expecting: made) }
         #expect(throws: VaultError.changedElsewhere) { try rig.store.save([], expecting: .absent) }
-        #expect(try rig.store.load().count == 2, "nothing was written over it")
+        #expect(try rig.store.savedOnDisk().count == 2, "nothing was written over it")
         #expect(try rig.store.loadRecordsAndState().onDisk == after)
         // A restore expects nothing, and writes what it was asked to.
-        try rig.store.save([VaultModelTests.passport, VaultModelTests.mortgage, VaultModelTests.memberID])
+        try rig.store.writeSavedOnDisk([VaultModelTests.passport, VaultModelTests.mortgage, VaultModelTests.memberID])
     }
 }

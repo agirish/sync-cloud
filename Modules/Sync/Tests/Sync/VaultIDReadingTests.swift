@@ -276,13 +276,15 @@ import Testing
     @Test func theNewKindsAreCardsOnTheMainView() {
         for category in [VaultCategory.ssn, .pan, .aadhaar, .voterID] {
             #expect(VaultCategory.mainView.contains(category))
-            #expect(category.kind == .identity)
+            #expect(VaultLegacyFormat.Entry.Kind(category) == .identity)
         }
-        #expect(VaultCategory.from(kind: .identity, title: "Social Security") == .ssn)
-        #expect(VaultCategory.from(kind: .identity, title: "PAN card") == .pan)
-        #expect(VaultCategory.from(kind: .identity, title: "Aadhaar") == .aadhaar)
-        #expect(VaultCategory.from(kind: .identity, title: "Voter ID") == .voterID)
-        #expect(VaultCategory.from(kind: .identity, title: "Company card") == .other)
+        // A v1 entry stored by kind alone goes on the card its title names.
+        let identity = VaultLegacyFormat.Entry.Kind.identity
+        #expect(identity.category(title: "Social Security") == .ssn)
+        #expect(identity.category(title: "PAN card") == .pan)
+        #expect(identity.category(title: "Aadhaar") == .aadhaar)
+        #expect(identity.category(title: "Voter ID") == .voterID)
+        #expect(identity.category(title: "Company card") == .other)
     }
 
     @Test func aCardIsReadFromItsOwnFolderFirst() {

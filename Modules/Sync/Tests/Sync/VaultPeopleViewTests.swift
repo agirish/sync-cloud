@@ -333,17 +333,17 @@ import Testing
         let model = await Self.spellings(rig)
         model.setRole(.goesBy, of: "Anna Eriksson", for: "anna")
         model.closed()
-        var state = try #require(rig.store.loadReading())
+        var state = try #require(rig.store.readingOnDisk())
         #expect(state.nameRoles?["anna"]?.goesBy != nil)
         state.version -= 1                                     // as an older build's rules sealed it
-        try rig.store.saveReading(state)
+        try rig.store.writeReadingOnDisk(state)
         let again = rig.model()
         again.people = Self.people
         await again.opened()
         #expect(again.needsReadAgain, "the rules did not change")
         #expect(again.nameRoles["anna"] == state.nameRoles?["anna"], "a change of rules let the roles go")
         again.closed()
-        #expect(try rig.store.loadReading()?.nameRoles?["anna"] == state.nameRoles?["anna"], "the reseal dropped the roles")
+        #expect(try rig.store.readingOnDisk()?.nameRoles?["anna"] == state.nameRoles?["anna"], "the reseal dropped the roles")
     }
 
     @Test func theSummaryLeadsWithTheNameTheyGoByThenTheLegalOne() async throws {

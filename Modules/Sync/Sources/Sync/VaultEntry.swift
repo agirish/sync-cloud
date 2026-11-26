@@ -6,35 +6,7 @@ import Foundation
 /// saves is an ending or a salted hash (``FilingCorpus``, the learned accounts), and that rule
 /// stands for them: an entry is written only inside ``VaultFile``'s sealed bytes, and never to a
 /// log, to UserDefaults or to Claude.
-public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
-    /// What the number belongs to, which groups the list.
-    public enum Kind: String, Sendable, Codable, CaseIterable {
-        case identity, health, phone, home, money, other
-
-        /// The list's group heading.
-        public var title: String {
-            switch self {
-            case .identity: return "Identity and Travel"
-            case .health: return "Health"
-            case .phone: return "Phone and Utilities"
-            case .home: return "Home and Auto"
-            case .money: return "Money"
-            case .other: return "Other"
-            }
-        }
-
-        public var symbol: String {
-            switch self {
-            case .identity: return "globe"
-            case .health: return "heart"
-            case .phone: return "phone"
-            case .home: return "house"
-            case .money: return "banknote"
-            case .other: return "number"
-            }
-        }
-    }
-
+public struct VaultEntry: Sendable, Equatable, Identifiable {
     /// Its identity for as long as it is kept; only ``reissued()`` gives a copy another.
     public private(set) var id: UUID
     /// What it is, in the user's words: "Mortgage loan number".
@@ -45,26 +17,24 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
     public var personID: String?
     /// The issuer, or anything else worth a line: "Home loan servicer".
     public var note: String
-    public var kind: Kind
-    /// The document it came from, when it was read rather than typed.
-    public var sourcePath: String?
+    /// The document it was saved from, when it was read rather than typed. It can differ from the
+    /// one its ``facts`` now put first; nil for a number typed in.
+    public var savedFrom: String?
     public var addedAt: Date
     public var updatedAt: Date
-    /// The document's own date, when it was read: a passport's expiry, an I-94's date of entry.
-    public var dated: Date?
-    /// Marked older by a build before pins (``pin``). Stored only when set.
-    private var older: Bool?
-    /// The card it shows on, chosen in the editor. Nil for an entry from before categories, which
-    /// goes by its kind (``VaultCategory/from(kind:)``) or by what was read.
-    private var chosenCategory: VaultCategory?
+    /// The card it shows on: what was read, else what the editor chose. Kept equal to
+    /// ``facts``' category while there are facts.
+    private var chosenCategory: VaultCategory
     /// What the documents said, when it was read rather than typed: kept so it is weighed against
     /// later reads (a newer passport makes this one older) and its details stay copyable.
-    public var facts: VaultReadFacts?
+    public var facts: VaultReadFacts? {
+        didSet { if let category = facts?.category { chosenCategory = category } }
+    }
     /// Current or older, as the user chose.
-    private var pinned: VaultPin?
+    public var pin: VaultPin?
     /// Set when the user put it in the household: a number read with someone's name on it, which
     /// ``personID`` nil alone would leave to that name.
-    private var household: Bool?
+    var household: Bool?
     /// Where it is used, as the user chose (Used In). Nil goes by the document, or Anywhere.
     public var geo: VaultGeo?
     /// The card it goes on when moved from its own (Kind): another account kind or one the
@@ -84,8 +54,11 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
     /// (``VaultFileContents``): the reader takes nothing for it from them, wherever they move.
     public var notOn: [String]?
     /// Fields added by hand from its card, or typed (More fields): drawn with its details wherever
-    /// they go, and kept apart from ``facts`` so they never decide which paper speaks for it.
-    public var fields: [VaultDetail]?
+    /// they go, and kept apart from ``facts`` so they never decide which paper speaks for it. None
+    /// is nil, never empty.
+    public var fields: [VaultDetail]? {
+        didSet { if fields?.isEmpty == true { fields = nil } }
+    }
     /// Values read off its card that the user said are not fields (the X beside one in More
     /// fields), normalized (``VaultReading/normalized(_:)``): never offered for it again.
     public var notFields: [String]?
@@ -107,26 +80,18 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
     }
 
     public var category: VaultCategory {
-        get { facts?.category ?? chosenCategory ?? VaultCategory.from(kind: kind, title: title) }
+        get { chosenCategory }
         set {
             chosenCategory = newValue
             facts?.category = newValue
-            kind = newValue.kind
         }
     }
 
-    public var pin: VaultPin? {
-        get { pinned ?? (older == true ? .older : nil) }
-        set { pinned = newValue; older = nil }
-    }
-
-    /// What the user chose about it (``VaultChoices``), over the fields each has always been
-    /// stored in. Only a choice that changed is set: one left as it was keeps how an older build
-    /// stored it (``older``, a person with ``household``).
+    /// What the user chose about it (``VaultChoices``).
     public var choices: VaultChoices {
         get { VaultChoices(pin: pin, assignment: assignment, geo: geo, card: card, source: chosenSource) }
         set {
-            if pin != newValue.pin { pin = newValue.pin }
+            pin = newValue.pin
             if assignment != newValue.assignment { assignment = newValue.assignment }
             geo = newValue.geo
             card = newValue.card
@@ -134,30 +99,19 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
         }
     }
 
-    private enum CodingKeys: String, CodingKey, CaseIterable {
-        case id, title, value, personID, note, kind, sourcePath, addedAt, updatedAt, dated, older
-        case chosenCategory = "category", facts, pinned = "pin", household, geo, card, holderName, chosenSource, readAs, notOn, fields, notFields
-    }
-
-    /// Every key this build reads from a stored record, old ones included. A key outside it is a
-    /// later build's, kept as it came (``VaultRecords/laterFields``).
-    static let storedKeys = Set(CodingKeys.allCases.map(\.stringValue))
-
+    /// `category` is what the editor chose; what was read (`facts`) says it for a number read.
     public init(id: UUID = UUID(), title: String, value: String, personID: String? = nil,
-                note: String = "", kind: Kind = .other, sourcePath: String? = nil,
-                addedAt: Date, updatedAt: Date? = nil, dated: Date? = nil,
-                category: VaultCategory? = nil, facts: VaultReadFacts? = nil) {
+                note: String = "", savedFrom: String? = nil, addedAt: Date, updatedAt: Date? = nil,
+                category: VaultCategory = .other, facts: VaultReadFacts? = nil) {
         self.id = id
         self.title = title
         self.value = value
         self.personID = personID
         self.note = note
-        self.kind = category?.kind ?? facts?.category.kind ?? kind
-        self.sourcePath = sourcePath ?? facts?.primary?.path
+        self.savedFrom = savedFrom
         self.addedAt = addedAt
         self.updatedAt = updatedAt ?? addedAt
-        self.dated = dated ?? facts?.dated
-        self.chosenCategory = category
+        self.chosenCategory = facts?.category ?? category
         self.facts = facts
     }
 }

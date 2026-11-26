@@ -28,6 +28,8 @@ import Testing
         "vault-reading-format-2": "d9d2f4c085a4949f0aa6f911897b9602d7ab1132afd5e1e964dc118b349a5aba",
         "vault-backup-format-1": "e8804f03ce79d39910a34e70e60fedb212c86ce50019c09aaa9ddbd36633735b",
         "vault-activity-format-1": "f71977411a8302757bc866c370ae41786dbc1d76ec1d818f525d1bd445eb1232",
+        "vault-document-format-1": "54747d5f9c74d3bfd12ad4409d22f7a2b818b316cbd1df75b34a6909f6f3a574",
+        "vault-cache-format-1": "1aa44b8e93806ce9d71ff0bacc8ca88657611e40c5550cd7bb821cba0546e860",
     ]
 
     static func fixture(_ name: String) throws -> Data {
@@ -44,7 +46,7 @@ import Testing
     static func formatEntries() throws -> [VaultEntry] {
         var loan = VaultEntry(id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
                               title: "Mortgage loan number", value: "0000-1111-22", personID: "pat",
-                              note: "Home loan servicer", kind: .home, addedAt: day,
+                              note: "Home loan servicer", addedAt: day,
                               updatedAt: day.addingTimeInterval(60), category: .loans)
         loan.pin = .current
         loan.geo = .us
@@ -60,7 +62,8 @@ import Testing
             sources: [VaultSource(path: "Immigration/Passport/Pat/Passport 2030.pdf", role: "Passport photo page", rank: 50),
                       VaultSource(path: "Immigration/Copies/Passport.pdf", role: "Copy", rank: 10)])
         var passport = VaultEntry(id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
-                                  title: "Passport", value: "Z0000001", addedAt: day, facts: facts)
+                                  title: "Passport", value: "Z0000001", savedFrom: "Immigration/Passport/Pat/Passport 2030.pdf",
+                                  addedAt: day, facts: facts)
         passport.assignment = .household
         passport.pin = .older
         passport.geo = .india
@@ -70,11 +73,12 @@ import Testing
         plan.assignment = .person("sam")
         plan.card = .builtIn(.utilities)
 
-        // `older` and a bare `kind`, as a build before pins and categories stored them (VT3).
-        let legacy = try JSONDecoder.vault.decode(VaultEntry.self, from: Data("""
+        // `older` and a bare `kind`, as a build before pins and categories stored them, read as
+        // every v1 file is (``VaultLegacyFormat/Entry``).
+        let legacy = try JSONDecoder.vault.decode(VaultLegacyFormat.Entry.self, from: Data("""
             {"addedAt":"2027-01-15T08:00:00Z","id":"00000000-0000-0000-0000-000000000004","kind":"identity",\
             "note":"","older":true,"title":"Passport (old)","updatedAt":"2027-01-15T08:00:00Z","value":"Z0000002"}
-            """.utf8))
+            """.utf8)).entry
         return [loan, passport, plan, legacy]
     }
 
@@ -128,42 +132,55 @@ import Testing
         try write("vault-activity-format-1") {
             try VaultFile.sealPlain(Self.formatActivity(), marker: VaultActivityStore.marker, with: Self.key)
         }
+        try write("vault-document-format-1") {
+            try VaultFile.sealPlain(VaultFile.jsonEncoder().encode(Self.formatDocument()), marker: VaultDocument.marker, with: Self.key)
+        }
+        try write("vault-cache-format-1") {
+            try VaultFile.sealPlain(VaultFile.jsonEncoder().encode(Self.formatCache()), marker: VaultCache.marker, with: Self.key)
+        }
     }
 
-    @Test func theFirstVaultFormatStillOpensAndSealsBackToTheSameJSON() throws {
+    @Test func theFirstVaultFormatStillOpensAndMigrates() throws {
         let sealed = try Self.fixture("vault-format-1")
         let plain = try VaultFile.openPlain(sealed, marker: VaultFile.marker, with: Self.key)
         let records = try VaultFile.openRecords(sealed, with: Self.key)
 
         #expect(records.newer.isEmpty, "a record this build wrote reads as a later build's")
         #expect(records.entries == (try Self.formatEntries()))
+        // While the migration is off, a v1 Vault still saves: what was opened seals back the same.
         let resealed = try VaultFile.seal(records, with: Self.key)
         #expect(try VaultFile.openPlain(resealed, marker: VaultFile.marker, with: Self.key) == plain,
                 "sealing what was opened changed the stored JSON")
 
-        // What the shims make of the oldest shape (VT3 removes them, with a migration and a new file).
+        // What the oldest shape means: an old pin from `older`, the card from its kind and title.
         let legacy = try #require(records.entries.last)
         #expect(legacy.pin == .older)
-        #expect(legacy.kind == .identity)
+        #expect(legacy.category == .passport)
         #expect(records.entries[1].assignment == .household)
         #expect(records.entries[1].facts?.details.count == 3)
         #expect(records.entries[0].card == .custom("kind-1"))
+
+        // Migrated, the document holds what each meant, and keeps it.
+        let entries = try Self.migrated("vault-format-1").entries()
+        #expect(entries == records.entries)
+        #expect(entries[3].pin == .older && entries[3].category == .passport)
+        #expect(entries[1].assignment == .household && entries[1].facts?.details.count == 3)
+        #expect(entries[0].card == .custom("kind-1"))
     }
 
-    @Test func theFirstReadingFormatStillOpensAndSealsBackToTheSameJSON() throws {
+    @Test func theFirstReadingFormatStillOpensAndMigrates() throws {
         let sealed = try Self.fixture("vault-reading-format-1")
-        let plain = try VaultFile.openPlain(sealed, marker: VaultFile.readingMarker, with: Self.key)
         let state = try VaultFile.open(VaultReadingState.self, sealed, marker: VaultFile.readingMarker, with: Self.key)
-
         #expect(state == (try Self.formatReading()))
-        // Sealed again, it differs only by what this build always writes and the first did not:
-        // an empty `names`.
-        let resealed = try VaultFile.seal(state, marker: VaultFile.readingMarker, with: Self.key)
-        var first = try #require(JSONSerialization.jsonObject(with: plain) as? [String: Any])
+        // It holds no `names`, which every later build writes.
+        let first = try #require(JSONSerialization.jsonObject(
+            with: VaultFile.openPlain(sealed, marker: VaultFile.readingMarker, with: Self.key)) as? [String: Any])
         #expect(first["names"] == nil)
-        first["names"] = [String: String]()
-        let again = try VaultFile.openPlain(resealed, marker: VaultFile.readingMarker, with: Self.key)
-        #expect(again == (try JSONSerialization.data(withJSONObject: first, options: [.sortedKeys])))
+
+        let document = try Self.migrated("vault-format-1", reading: "vault-reading-format-1")
+        #expect(try document.finds() == state.finds)
+        #expect(document.names.isEmpty && document.lessons == state.lessons && document.choices == state.choices)
+        #expect(document.reading == .init(readerVersion: 13, needsReadAgain: true, staleSources: []))
     }
 
     /// Format 2 (2026-11-21): what Read from This Copy, name corrections, name roles and Refresh
@@ -235,7 +252,125 @@ import Testing
         ].joined(separator: ",") + "]").utf8)
     }
 
-    @Test func theSecondFormatsStillOpenAndSealBackToTheSameJSON() throws {
+    // MARK: The v7.2 document (VT6)
+
+    /// The committed v1 Vault `vault` (and reading file `reading`) migrated: the migration checks
+    /// the document against them itself (``VaultMigration/migrate(_:keyID:people:folders:at:)``
+    /// throws when it does not give them back), and the document and cache seal and open again
+    /// byte for byte.
+    static func migrated(_ vault: String?, reading: String? = nil) throws -> VaultDocument {
+        let vaultSealed = try vault.map { try fixture($0) }
+        let readingSealed = try reading.map { try fixture($0) }
+        let legacy = VaultMigration.Legacy(
+            vaultPlain: try vaultSealed.map { try VaultFile.openPlain($0, marker: VaultFile.marker, with: key) },
+            vaultDigest: vaultSealed.map(VaultMigration.digest),
+            readingPlain: try readingSealed.map { try VaultFile.openPlain($0, marker: VaultFile.readingMarker, with: key) },
+            readingDigest: readingSealed.map(VaultMigration.digest))
+        let (document, cache, report) = try VaultMigration.migrate(legacy, keyID: VaultDocument.keyID(for: key), at: day)
+        #expect(report.files == [vault, reading].compactMap { $0 }.count)
+        #expect(document.migratedFrom == .init(vault: legacy.vaultDigest, reading: legacy.readingDigest, fingerprints: 0))
+
+        let plain = try VaultFile.jsonEncoder().encode(document)
+        let sealed = try VaultFile.sealPlain(plain, marker: VaultDocument.marker, with: key)
+        let reopened = try VaultDocument.open(plain: VaultFile.openPlain(sealed, marker: VaultDocument.marker, with: key))
+        #expect(!reopened.readOnly && reopened.unread == 0 && reopened.document == document)
+        #expect(try VaultFile.jsonEncoder().encode(reopened.document) == plain, "the document did not seal back to the same JSON")
+
+        let cachePlain = try VaultFile.jsonEncoder().encode(cache)
+        let cacheAgain = try VaultFile.jsonDecoder().decode(VaultCache.self, from: cachePlain)
+        #expect(cacheAgain == cache)
+        #expect(try VaultFile.jsonEncoder().encode(cacheAgain) == cachePlain, "the cache did not seal back to the same JSON")
+        return document
+    }
+
+    /// The document's first format (2026-11-25): the sixth Vault format's saved IDs and the second
+    /// reading format's waiting one, with every part of the user's own data set, as a migration
+    /// from both would leave it.
+    static func formatDocument() throws -> VaultDocument {
+        var state = try formatReading2()
+        state.contacts = ["pat": VaultContacts(
+            phones: [.init("+1 555 0100", label: "Mobile", added: day)],
+            emails: [.init("pat@example.com", added: day.addingTimeInterval(60))],
+            addresses: [.init(VaultAddress(street: "1 Example Way", unit: "Apt 2", city: "Springfield", state: "CA", zip: "90000"),
+                              added: day)],
+            notTheirs: ["9 Other Road|Springfield|CA|90001"], notTheirPhones: ["5550199"])]
+        var document = VaultDocument(
+            entries: try formatEntries6(), state: state,
+            setAside: .init(generation: 2, keyID: VaultDocument.keyID(for: key), fingerprints: ["aa11", "ff00"]),
+            kinds: [VaultCustomKind(id: "kind-1", name: "Memberships", group: "home")], savedAt: day,
+            migratedFrom: .init(vault: String(repeating: "a", count: 64), reading: String(repeating: "b", count: 64),
+                                fingerprints: 2))
+        document.savedBy = "7.2 (702)"
+        return document
+    }
+
+    /// The cache's first format (2026-11-25): what the second reading format can find again, with
+    /// a copy's numbers and a changed copy set.
+    static func formatCache() throws -> VaultCache {
+        var state = try formatReading2()
+        state.copyNumbers = ["Immigration/Copies/Packet.pdf": VaultCopyNumbers(stamp: "4096 1800000000", numbers: ["Z0000001"])]
+        state.copiesChanged = true
+        return VaultCache(state)
+    }
+
+    @Test func theFirstDocumentFormatOpensAsThisBuildsAndSealsBackToTheSameJSON() throws {
+        let sealed = try Self.fixture("vault-document-format-1")
+        let plain = try VaultFile.openPlain(sealed, marker: VaultDocument.marker, with: Self.key)
+        let opened = try VaultDocument.open(plain: plain)
+        #expect(!opened.readOnly && opened.unread == 0)
+        #expect(opened.document == (try Self.formatDocument()))
+        #expect(try VaultFile.jsonEncoder().encode(opened.document) == plain, "sealing what was opened changed the stored JSON")
+
+        let document = opened.document
+        #expect(document.format == 1 && document.savedBy == "7.2 (702)" && document.savedAt == Self.day)
+        #expect(try document.entries() == Self.formatEntries6())
+        #expect(try document.finds() == Self.formatReading2().finds)
+        #expect(document.records.map(\.state) == [.saved, .saved, .saved, .saved, .toConfirm])
+        #expect(document.setAside == .init(generation: 2, keyID: VaultDocument.keyID(for: Self.key), fingerprints: ["aa11", "ff00"]))
+        #expect(document.contacts["pat"]?.addresses.first?.address.unit == "Apt 2")
+        #expect(document.nameRoles["pat"]?.goesBy == "Pat")
+        #expect(document.kinds.map(\.name) == ["Memberships"])
+        // Under any other key, it does not open.
+        #expect(throws: VaultError.wrongKeyOrDamaged) {
+            try VaultFile.openPlain(sealed, marker: VaultDocument.marker, with: SymmetricKey(size: .bits256))
+        }
+    }
+
+    @Test func theFirstCacheFormatOpensAndFitsItsDocument() throws {
+        let sealed = try Self.fixture("vault-cache-format-1")
+        let plain = try VaultFile.openPlain(sealed, marker: VaultCache.marker, with: Self.key)
+        let cache = try VaultFile.jsonDecoder().decode(VaultCache.self, from: plain)
+        #expect(cache == (try Self.formatCache()))
+        #expect(try VaultFile.jsonEncoder().encode(cache) == plain, "sealing what was opened changed the stored JSON")
+
+        // With its document, the reading state the v1 reading file held, the copy's numbers added.
+        let document = try VaultDocument.open(plain: VaultFile.openPlain(
+            Self.fixture("vault-document-format-1"), marker: VaultDocument.marker, with: Self.key)).document
+        var expected = try Self.formatReading2()
+        expected.copyNumbers = cache.copyNumbers
+        expected.copiesChanged = true
+        expected.contacts = document.contacts
+        #expect(VaultMigration.normalized(try document.readingState(cache: cache)) == VaultMigration.normalized(expected))
+    }
+
+    @Test func theFirstDocumentAndCacheFormatsOpenThroughTheStore() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let folder = scratch.fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Self.fixture("vault-document-format-1").write(to: scratch.fileURL)
+        try Self.fixture("vault-cache-format-1").write(to: folder.appendingPathComponent("vault-cache.sealed"))
+        let keychain = VaultFakeKeychain()
+        keychain.itemData = Self.key.withUnsafeBytes { Data($0) }
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: keychain, migrating: true, anotherCopyRunning: { false })
+        #expect(store.fileFormat == .document && store.keepsDocument)
+        let loaded = try #require(try store.loadDocument())
+        #expect(loaded.document == (try Self.formatDocument()) && !loaded.readOnly)
+        #expect(loaded.cache == (try Self.formatCache()))
+        #expect(loaded.onDisk == .of(try Self.fixture("vault-document-format-1")))
+        #expect(keychain.adds == 0)
+    }
+
+    @Test func theSecondFormatsStillOpenAndMigrate() throws {
         let vault = try Self.fixture("vault-format-2")
         let records = try VaultFile.openRecords(vault, with: Self.key)
         #expect(records.newer.isEmpty)
@@ -246,50 +381,67 @@ import Testing
         let reading = try Self.fixture("vault-reading-format-2")
         let state = try VaultFile.open(VaultReadingState.self, reading, marker: VaultFile.readingMarker, with: Self.key)
         #expect(state == (try Self.formatReading2()))
-        let resealed = try VaultFile.seal(state, marker: VaultFile.readingMarker, with: Self.key)
-        #expect(try VaultFile.openPlain(resealed, marker: VaultFile.readingMarker, with: Self.key)
-                == VaultFile.openPlain(reading, marker: VaultFile.readingMarker, with: Self.key))
+
+        let document = try Self.migrated("vault-format-2", reading: "vault-reading-format-2")
+        #expect(try document.entries() == records.entries)
+        #expect(try document.entries()[1].chosenSource == "Immigration/Copies/Passport.pdf")
+        #expect(try document.entries()[1].facts?.spokenBy == "Immigration/Passport/Pat/Passport 2030.pdf")
+        #expect(try document.finds() == state.finds)
+        #expect(document.names == state.names && document.nameRoles == state.nameRoles)
+        #expect(document.reading == .init(readerVersion: 17, needsReadAgain: true, staleSources: ["Health/Plan/Old card.pdf"]))
     }
 
-    @Test func theThirdFormatStillOpensAndSealsBackToTheSameJSON() throws {
+    @Test func theThirdFormatStillOpensAndMigrates() throws {
         let vault = try Self.fixture("vault-format-3")
         let records = try VaultFile.openRecords(vault, with: Self.key)
         #expect(records.newer.isEmpty && records.laterFields.isEmpty)
         #expect(records.entries == (try Self.formatEntries3()))
-        #expect(records.entries[1].readAs?.map(\.reads) == ["Z0000007", "Z000000I"])
-        #expect(records.entries[1].readAs?.first?.size == 2048)
         #expect(try VaultFile.openPlain(VaultFile.seal(records, with: Self.key), marker: VaultFile.marker, with: Self.key)
                 == VaultFile.openPlain(vault, marker: VaultFile.marker, with: Self.key))
+
+        let entries = try Self.migrated("vault-format-3", reading: "vault-reading-format-2").entries()
+        #expect(entries == records.entries)
+        #expect(entries[1].readAs?.map(\.reads) == ["Z0000007", "Z000000I"])
+        #expect(entries[1].readAs?.first?.size == 2048)
     }
 
-    @Test func theFourthFormatStillOpensAndSealsBackToTheSameJSON() throws {
+    @Test func theFourthFormatStillOpensAndMigrates() throws {
         let vault = try Self.fixture("vault-format-4")
         let records = try VaultFile.openRecords(vault, with: Self.key)
         #expect(records.newer.isEmpty && records.laterFields.isEmpty)
         #expect(records.entries == (try Self.formatEntries4()))
-        #expect(records.entries[2].notOn?.count == 1)
         #expect(try VaultFile.openPlain(VaultFile.seal(records, with: Self.key), marker: VaultFile.marker, with: Self.key)
                 == VaultFile.openPlain(vault, marker: VaultFile.marker, with: Self.key))
+
+        let entries = try Self.migrated("vault-format-4", reading: "vault-reading-format-2").entries()
+        #expect(entries == records.entries)
+        #expect(entries[2].notOn?.count == 1)
     }
 
-    @Test func theSixthFormatStillOpensAndSealsBackToTheSameJSON() throws {
+    @Test func theSixthFormatStillOpensAndMigrates() throws {
         let vault = try Self.fixture("vault-format-6")
         let records = try VaultFile.openRecords(vault, with: Self.key)
         #expect(records.newer.isEmpty && records.laterFields.isEmpty)
         #expect(records.entries == (try Self.formatEntries6()))
-        #expect(records.entries[1].notFields == ["111111111", "9416925"])
         #expect(try VaultFile.openPlain(VaultFile.seal(records, with: Self.key), marker: VaultFile.marker, with: Self.key)
                 == VaultFile.openPlain(vault, marker: VaultFile.marker, with: Self.key))
+
+        let entries = try Self.migrated("vault-format-6", reading: "vault-reading-format-2").entries()
+        #expect(entries == records.entries)
+        #expect(entries[1].notFields == ["111111111", "9416925"])
     }
 
-    @Test func theFifthFormatStillOpensAndSealsBackToTheSameJSON() throws {
+    @Test func theFifthFormatStillOpensAndMigrates() throws {
         let vault = try Self.fixture("vault-format-5")
         let records = try VaultFile.openRecords(vault, with: Self.key)
         #expect(records.newer.isEmpty && records.laterFields.isEmpty)
         #expect(records.entries == (try Self.formatEntries5()))
-        #expect(records.entries[1].fields?.map(\.label) == ["RxBIN", "Payer ID"])
         #expect(try VaultFile.openPlain(VaultFile.seal(records, with: Self.key), marker: VaultFile.marker, with: Self.key)
                 == VaultFile.openPlain(vault, marker: VaultFile.marker, with: Self.key))
+
+        let entries = try Self.migrated("vault-format-5", reading: "vault-reading-format-2").entries()
+        #expect(entries == records.entries)
+        #expect(entries[1].fields?.map(\.label) == ["RxBIN", "Payer ID"])
     }
 
     @Test func theFirstBackupFormatOpensWithItsPassphraseOnly() throws {
@@ -327,7 +479,7 @@ import Testing
 
     @Test func aBackupWithALaterBuildsRecordRestoresTheRest() throws {
         let entries = try Self.formatEntries2()
-        var list = try entries.map { try JSONSerialization.jsonObject(with: JSONEncoder.vault.encode($0)) }
+        var list = try entries.map { try JSONSerialization.jsonObject(with: JSONEncoder.vault.encode(VaultLegacyFormat.Entry($0))) }
         var later = try #require(list[0] as? [String: Any])
         later["category"] = "bankAccount"
         list.insert(later, at: 1)
@@ -352,7 +504,7 @@ import Testing
     static func sealed(_ entries: [VaultEntry], plus changes: [[String: Any]],
                        laterOnFirst: [String: Any] = [:]) throws -> Data {
         let encoder = JSONEncoder.vault
-        var list = try entries.map { try JSONSerialization.jsonObject(with: encoder.encode($0)) }
+        var list = try entries.map { try JSONSerialization.jsonObject(with: encoder.encode(VaultLegacyFormat.Entry($0))) }
         if !laterOnFirst.isEmpty, var first = list.first as? [String: Any] {
             first.merge(laterOnFirst) { _, new in new }
             list[0] = first
@@ -407,7 +559,7 @@ import Testing
         #expect(model.newerRecords == 1)
         #expect(model.entries == entries)
 
-        #expect(model.add(.init(title: "Library card", value: "LIB0000001", note: "", kind: .other)) != nil)
+        #expect(model.add(.init(title: "Library card", value: "LIB0000001", note: "", category: .other)) != nil)
 
         let after = try VaultFile.openRecords(Data(contentsOf: rig.scratch.fileURL), with: Self.key)
         #expect(after.entries.count == 3)
@@ -850,7 +1002,7 @@ import Testing
         keychain.itemData = Self.key.withUnsafeBytes { Data($0) }
         let store = VaultStore(fileURL: scratch.fileURL, keychain: keychain)
         let entries = Array(try Self.formatEntries())
-        var list = try entries.map { try #require(JSONSerialization.jsonObject(with: JSONEncoder.vault.encode($0)) as? [String: Any]) }
+        var list = try entries.map { try #require(JSONSerialization.jsonObject(with: JSONEncoder.vault.encode(VaultLegacyFormat.Entry($0))) as? [String: Any]) }
         list[1]["expiresReminder"] = ["days": 30]
         try FileManager.default.createDirectory(at: scratch.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try VaultFile.sealPlain(JSONSerialization.data(withJSONObject: list, options: [.sortedKeys]),
@@ -878,7 +1030,7 @@ import Testing
         keychain.itemData = Self.key.withUnsafeBytes { Data($0) }
         let store = VaultStore(fileURL: scratch.fileURL, keychain: keychain)
         let entries = Array(try Self.formatEntries())
-        var list = try entries.map { try #require(JSONSerialization.jsonObject(with: JSONEncoder.vault.encode($0)) as? [String: Any]) }
+        var list = try entries.map { try #require(JSONSerialization.jsonObject(with: JSONEncoder.vault.encode(VaultLegacyFormat.Entry($0))) as? [String: Any]) }
         var facts = try #require(list[1]["facts"] as? [String: Any])
         facts["machineReadable"] = "P<USA"
         list[1]["facts"] = facts
@@ -1008,7 +1160,7 @@ import Testing
 
     /// The same for the reading file: a field a later build wrote there survives this build's seal.
     @Test @MainActor func aLaterBuildsFieldInTheReadingFileSurvivesASeal() async throws {
-        let rig = try VaultModelTests.Rig(); defer { rig.cleanUp() }
+        let rig = try VaultModelTests.Rig(v1: true); defer { rig.cleanUp() }
         try rig.seed([Self.entry(1)])
         try rig.store.saveReading(VaultReadingState(names: ["AB": "A B"]))
         let key = SymmetricKey(data: try #require(rig.keychain.itemData))
@@ -1023,7 +1175,7 @@ import Testing
                 "a key this build reads was taken for a later one")
         let model = rig.model()
         await model.opened()
-        #expect(model.add(.init(title: "Library card", value: "LIB0000001", note: "", kind: .other)) != nil)
+        #expect(model.add(.init(title: "Library card", value: "LIB0000001", note: "", category: .other)) != nil)
         model.setRole(.alsoUsed, of: "Anna", for: "anna")   // any change to what was read: a seal
         let after = try #require(JSONSerialization.jsonObject(with: VaultFile.openPlain(
             Data(contentsOf: rig.store.readingURL), marker: VaultFile.readingMarker, with: key)) as? [String: Any])
@@ -1221,7 +1373,7 @@ import Testing
     /// A reading file that does not open is set aside, never written over, and the panel starts
     /// fresh as it always did: no banner, and the next Refresh or Read finds what was waiting.
     @Test @MainActor func aReadingFileThatDoesNotOpenIsSetAsideAndThePanelStartsFresh() async throws {
-        let rig = try VaultModelTests.Rig(); defer { rig.cleanUp() }
+        let rig = try VaultModelTests.Rig(v1: true); defer { rig.cleanUp() }
         try rig.seed([Self.entry(1)])
         let reading = rig.store.readingURL
         try Data("SCVREAD1 not a sealed box".utf8).write(to: reading)
@@ -1267,7 +1419,7 @@ import Testing
                                clock: { VaultFormatTests.day }, copyToPasteboard: { _ in })
         await model.opened()
         #expect(model.contents == .loaded)
-        #expect(model.add(.init(title: "Library card", value: "LIB0000001", note: "", kind: .other)) != nil)
+        #expect(model.add(.init(title: "Library card", value: "LIB0000001", note: "", category: .other)) != nil)
         await model.readDocuments(with: VaultAccountModelTests.PlannedDocuments(pages: [
             "/Users/anna/Documents/Health/Dental/ID Cards/card.pdf": ["Member Name: ANNA", "Member ID: XZB123456789"],
         ]))
@@ -1285,7 +1437,7 @@ import Testing
         let model = rig.model()
         await model.opened()
         rig.keychain.forcedCopyStatus = nil              // and gives it a moment later
-        #expect(model.add(.init(title: "Library card", value: "LIB0000001", note: "", kind: .other)) != nil)
+        #expect(model.add(.init(title: "Library card", value: "LIB0000001", note: "", category: .other)) != nil)
         model.setRole(.alsoUsed, of: "Anna", for: "anna")
         #expect(try Data(contentsOf: rig.store.readingURL) == sealed, "an empty state was sealed over it")
     }
@@ -1293,10 +1445,10 @@ import Testing
     /// While the reading file is held, Everywhere cannot be sealed, so the name typed is kept on
     /// the ID itself rather than lost at the next launch.
     @Test @MainActor func whileHeldAnEverywhereNameIsKeptOnTheID() async throws {
-        let rig = try VaultModelTests.Rig(); defer { rig.cleanUp() }
+        let rig = try VaultModelTests.Rig(v1: true); defer { rig.cleanUp() }
         try rig.seed([Self.entry(1)])
         try Data("SCVREAD1 held, not a sealed box".utf8).write(to: rig.store.readingURL)
-        let store = VaultStore(fileURL: rig.scratch.fileURL, keychain: rig.keychain, fileManager: NoMove(refusing: rig.store.readingURL))
+        let store = VaultStore(fileURL: rig.scratch.fileURL, keychain: rig.keychain, fileManager: NoMove(refusing: rig.store.readingURL), migrating: false)
         VaultReadFolders.add("/Users/anna/Documents", in: rig.defaults)
         let model = VaultModel(store: store, authenticator: rig.auth, defaults: rig.defaults,
                                clock: { VaultFormatTests.day }, copyToPasteboard: { _ in })
@@ -1324,7 +1476,7 @@ import Testing
         rig.keychain.itemData = nil   // the key is gone; there is no Vault file
 
         #expect(rig.store.openReading() == .damaged)
-        #expect(rig.model().add(.init(title: "Library card", value: "LIB0000001", note: "", kind: .other)) != nil)
+        #expect(rig.model().add(.init(title: "Library card", value: "LIB0000001", note: "", category: .other)) != nil)
         let folder = rig.store.readingURL.deletingLastPathComponent()
         let aside = try FileManager.default.contentsOfDirectory(atPath: folder.path)
             .filter { $0.hasPrefix("vault-reading.sealed.unreadable-") }

@@ -147,12 +147,16 @@ struct VaultRig {
     final class Box: @unchecked Sendable { var copied: [String] = [] }
     let box = Box()
 
-    init() throws {
+    /// Kept in the v1 files, the migration off: for a test of the v1 files themselves.
+    let v1: Bool
+
+    init(v1: Bool = false) throws {
         scratch = try VaultScratch()
         (suite, defaults) = vaultScratchSuite("vault-model-tests")
+        self.v1 = v1
     }
 
-    var store: VaultStore { VaultStore(fileURL: scratch.fileURL, keychain: keychain) }
+    var store: VaultStore { VaultStore(fileURL: scratch.fileURL, keychain: keychain, migrating: v1 ? false : nil) }
 
     @MainActor func model(backup: VaultBackup? = nil) -> VaultModel {
         let clock = clock, box = box
@@ -160,8 +164,18 @@ struct VaultRig {
                           clock: { clock.now }, backup: backup, copyToPasteboard: { box.copied.append($0) })
     }
 
-    func seed(_ entries: [VaultEntry]) throws { try store.save(entries) }
+    func seed(_ entries: [VaultEntry]) throws { try store.writeSavedOnDisk(entries) }
     func cleanUp() { scratch.remove() }
+
+    /// Settings' Forget: through an opened model when the Vault is the document, which holds the
+    /// set-aside numbers; in the v1 Vault's defaults otherwise.
+    @MainActor func forgetSetAside() async {
+        guard store.keepsDocument else { VaultSetAside.forget(in: defaults); return }
+        let model = model()
+        await model.opened()
+        _ = model.forgetSetAside()
+        model.closed()
+    }
 }
 
 /// Documents the test can change, move away and count the opening of.
@@ -191,3 +205,53 @@ final class VaultShelf: VaultDocumentReading, @unchecked Sendable {
     func modified(of file: URL) -> Date? { nil }
     func exists(_ file: URL) -> Bool { lock.withLock { pages[file.path] != nil } }
 }
+
+/// The Vault as it is on disk, whichever format holds it: the v1 files, or the v7.2 document and
+/// its cache. A test seeds and inspects through these, so it tests the format the app keeps.
+extension VaultStore {
+    /// The saved IDs on disk.
+    func savedOnDisk() throws -> [VaultEntry] {
+        guard fileFormat == .document else { return try load() }
+        return try loadDocument()?.document.entries() ?? []
+    }
+
+    /// What reading kept: the document's waiting IDs and user data with the cache's finds.
+    func readingOnDisk() -> VaultReadingState? {
+        guard fileFormat == .document else { return loadReading() }
+        guard let loaded = try? loadDocument() else { return nil }
+        return try? loaded.document.readingState(cache: loaded.cache)
+    }
+
+    /// Seals `state` as another copy of the app would, beside the saved IDs on disk.
+    @discardableResult
+    func writeReadingOnDisk(_ state: VaultReadingState) throws -> VaultFileState {
+        guard fileFormat == .document, let loaded = try loadDocument() else { return try saveReading(state) }
+        let document = VaultDocument(entries: try loaded.document.entries(), state: state, setAside: loaded.document.setAside,
+                                     kinds: loaded.document.kinds, savedAt: VaultRig.t0, migratedFrom: loaded.document.migratedFrom)
+        let written = try saveDocument(document, expecting: loaded.onDisk)
+        try saveCache(VaultCache(state))
+        return written.onDisk
+    }
+
+    /// The sealed file that holds what reading kept: the document, or the v1 reading file.
+    var readingFileOnDisk: URL { fileFormat == .document ? fileURL : readingURL }
+
+    /// The set-aside fingerprints: the document's, or the v1 Vault's in `defaults`.
+    func setAsideOnDisk(_ defaults: UserDefaults) -> Set<String> {
+        guard fileFormat == .document else { return VaultSetAside.fingerprints(in: defaults) }
+        return Set(((try? loadDocument()) ?? nil)?.document.setAside.fingerprints ?? [])
+    }
+
+    /// Saves `entries` as another copy of the app would, keeping what else the Vault holds.
+    @discardableResult
+    func writeSavedOnDisk(_ entries: [VaultEntry]) throws -> VaultFileState {
+        guard keepsDocument else { return try save(entries) }
+        let loaded = try loadDocument()
+        let state = try loaded.map { try $0.document.readingState(cache: $0.cache) } ?? VaultReadingState()
+        let document = VaultDocument(entries: entries, state: state, setAside: loaded?.document.setAside ?? .init(),
+                                     kinds: loaded?.document.kinds ?? [], savedAt: VaultRig.t0,
+                                     migratedFrom: loaded?.document.migratedFrom)
+        return try saveDocument(document, expecting: loaded?.onDisk ?? .absent).onDisk
+    }
+}
+

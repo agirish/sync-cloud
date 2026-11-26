@@ -100,13 +100,13 @@ import Testing
     final class CountsSeals: FileManager, @unchecked Sendable {
         nonisolated(unsafe) var seals = 0
         override func moveItem(at srcURL: URL, to dstURL: URL) throws {
-            if dstURL.lastPathComponent == "vault-reading.sealed" { seals += 1 }
+            if dstURL.lastPathComponent == "vault.sealed" { seals += 1 }   // the document: one write per action
             try super.moveItem(at: srcURL, to: dstURL)
         }
         override func replaceItem(at originalItemURL: URL, withItemAt newItemURL: URL, backupItemName: String?,
                                   options: FileManager.ItemReplacementOptions = [],
                                   resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-            if originalItemURL.lastPathComponent == "vault-reading.sealed" { seals += 1 }
+            if originalItemURL.lastPathComponent == "vault.sealed" { seals += 1 }   // the document: one write per action
             try super.replaceItem(at: originalItemURL, withItemAt: newItemURL, backupItemName: backupItemName,
                                   options: options, resultingItemURL: resultingItemURL)
         }
@@ -133,7 +133,7 @@ import Testing
         #expect(disk.seals - before == 1, "\(disk.seals - before) seals for one Confirm")
         #expect(Self.holder(model, "VSP99887766") == "Divit Girish")
         // What it sealed is all of it, read from the file as it now stands.
-        let sealed = try #require(store.loadReading())
+        let sealed = try #require(store.readingOnDisk())
         #expect(sealed.names.values.contains("Divit Girish"), "the correction was not in the one seal")
         #expect(!sealed.finds.contains { $0.value == "XZB123456789" }, "the confirmed find was not taken out in it")
 
@@ -147,7 +147,7 @@ import Testing
         #expect(await model.update(saved, to: edit))
         #expect(disk.seals - beforeEdit == 1, "\(disk.seals - beforeEdit) seals for one Edit")
         let waiting = try #require(model.finds.first { $0.value == "KP12345678" })
-        var typed = VaultModel.Draft(title: "Medical card", value: waiting.value, note: "", kind: .other)
+        var typed = VaultModel.Draft(title: "Medical card", value: waiting.value, note: "", category: .other)
         typed.category = .health
         let beforeAdd = disk.seals
         #expect(model.add(typed) != nil)

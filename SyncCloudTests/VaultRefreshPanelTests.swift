@@ -144,7 +144,9 @@ import Testing
         // A refresh that follows a change of rules leaves the folders to be looked at.
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("vault-refresh-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: folder) }
-        let store = VaultStore(fileURL: folder.appendingPathComponent("vault.sealed"), keychain: VaultFakeKeychain())
+        // No other copy: in the app's test host the check would see the owner's SyncCloud running.
+        let store = VaultStore(fileURL: folder.appendingPathComponent("vault.sealed"), keychain: VaultFakeKeychain(),
+                               anotherCopyRunning: { false })
         try store.saveReading(VaultReadingState(needsDiscover: true))
         let scratch = TestDefaults()
         let model = VaultModel(store: store, authenticator: VaultFakeAuthenticator(), defaults: scratch.defaults, copyToPasteboard: { _ in })

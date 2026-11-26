@@ -21,7 +21,7 @@ import Testing
     }
 
     static func emails(_ rig: Rig, _ person: String) -> [String]? {
-        rig.store.loadReading()?.contacts?[person]?.emails.map(\.value)
+        rig.store.readingOnDisk()?.contacts?[person]?.emails.map(\.value)
     }
 
     @Test func eachCopysTypingIsKeptWhenBothSeal() async throws {
@@ -65,7 +65,7 @@ import Testing
         let (first, second) = try await Self.copies(rig)
         #expect(first.setEmail("anna@example.com", label: nil, for: "anna"))
         second.setRole(.legal, of: "Anna Larsen", for: "anna")
-        let reading = try #require(rig.store.loadReading())
+        let reading = try #require(rig.store.readingOnDisk())
         #expect(reading.contacts?["anna"] != nil)
         #expect(reading.nameRoles?["anna"]?.legal != nil, "the second's role is sealed beside the first's contact")
     }
@@ -76,7 +76,7 @@ import Testing
         let (first, second) = try await Self.copies(rig)
         #expect(first.setPhone("+1 415 555 0101", label: nil, for: "anna"))
         #expect(second.setEmail("anna@example.com", label: nil, for: "anna"))
-        let anna = try #require(rig.store.loadReading()?.contacts?["anna"])
+        let anna = try #require(rig.store.readingOnDisk()?.contacts?["anna"])
         #expect(anna.phones.count == 1 && anna.emails.map(\.value) == ["anna@example.com"])
     }
 
@@ -98,7 +98,7 @@ import Testing
         #expect(second.setEmail("erik@example.com", label: nil, for: "erik"))
         #expect(second.finds.first { $0.value == receipt.value }?.choices.pin == .older, "the first's choice stands")
         #expect(!second.finds.contains { $0.value == "123456789A1" }, "set aside by the first, it waits no more")
-        let sealed = try #require(rig.store.loadReading())
+        let sealed = try #require(rig.store.readingOnDisk())
         #expect(sealed.finds.first { $0.value == receipt.value }?.choices.pin == .older)
         #expect(!sealed.finds.contains { $0.value == "123456789A1" })
     }
@@ -106,7 +106,7 @@ import Testing
     /// The file gone (set aside by the other copy, or for a key this one made): nothing typed here
     /// is let go for it.
     @Test func aReadingFileGoneLeavesWhatWasTypedHere() async throws {
-        let rig = try Rig(); defer { rig.cleanUp() }
+        let rig = try Rig(v1: true); defer { rig.cleanUp() }
         let (first, _) = try await Self.copies(rig)
         #expect(first.setEmail("anna@example.com", label: nil, for: "anna"))
         try FileManager.default.removeItem(at: rig.store.readingURL)

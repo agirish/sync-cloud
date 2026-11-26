@@ -30,7 +30,7 @@ import Testing
         #expect(model.contents != .loaded)
         rig.auth.answer = .cancelled        // a proof asked for is refused
         let vault = try Data(contentsOf: rig.store.fileURL)
-        let reading = try Data(contentsOf: rig.store.readingURL)
+        let reading = try Data(contentsOf: rig.store.readingFileOnDisk)
         let copied = rig.copied
         let proofs = rig.auth.reasons.count
 
@@ -55,7 +55,7 @@ import Testing
         #expect(await model.copyBirth(Date(timeIntervalSince1970: 0), in: section) == false, "Copy a date of birth")
 
         #expect(try Data(contentsOf: rig.store.fileURL) == vault, "the Vault's file changed while its numbers were let go")
-        #expect(try Data(contentsOf: rig.store.readingURL) == reading, "the reading file changed while its numbers were let go")
+        #expect(try Data(contentsOf: rig.store.readingFileOnDisk) == reading, "the reading file changed while its numbers were let go")
         #expect(rig.copied == copied, "something reached the clipboard")
         #expect(model.entries.isEmpty && model.finds.isEmpty, "a route brought the numbers back")
         #expect(rig.auth.reasons.count == proofs, "a route asked for a proof: \(rig.auth.reasons.suffix(rig.auth.reasons.count - proofs))")

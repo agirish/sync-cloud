@@ -10,7 +10,7 @@ import Testing
     static let day = Date(timeIntervalSince1970: 1_800_000_000)
 
     static func entry(_ title: String, _ value: String, person: String? = nil) -> VaultEntry {
-        VaultEntry(title: title, value: value, personID: person, note: "A note", kind: .home, addedAt: day)
+        VaultEntry(title: title, value: value, personID: person, note: "A note", addedAt: day, category: .loans)
     }
 
     @Test func whatIsSavedComesBackAndTheFileHoldsNoneOfItInTheClear() throws {

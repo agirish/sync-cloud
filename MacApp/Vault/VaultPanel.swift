@@ -485,7 +485,7 @@ struct VaultCard: View {
         } message: { removal in
             switch removal {
             case .entry(let entry):
-                Text(entry.sourcePath == nil
+                Text(entry.savedFrom == nil
                      ? "The ID is removed for good."
                      : "The ID is removed for good, and it won’t be offered again when documents are read. The document it came from isn’t touched.")
             case .find(let find):

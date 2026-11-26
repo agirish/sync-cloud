@@ -152,9 +152,9 @@ import Testing
     /// Seals what was read as an older build would have, and opens the Vault again.
     static func underNewRules(_ rig: Rig, _ model: VaultModel) async throws -> VaultModel {
         model.systemLocked()
-        var state = try #require(rig.store.loadReading())
+        var state = try #require(rig.store.readingOnDisk())
         state.version = VaultReading.version - 1
-        try rig.store.saveReading(state)
+        try rig.store.writeReadingOnDisk(state)
         let again = rig.model()
         await again.opened()
         #expect(again.finds.isEmpty, "what the older rules read is let go")
@@ -241,7 +241,8 @@ import Testing
     /// A Forget offers everything again: the copies too.
     @Test func afterAForgetTheCopyIsOpened() async throws {
         let (rig, model, shelf) = try await Self.rig(); defer { rig.cleanUp() }
-        VaultSetAside.forget(in: rig.defaults)
+        await model.opened()
+        #expect(model.forgetSetAside())
         await model.readDocuments(with: shelf)
         #expect(Set(shelf.opened) == [Self.home, Self.packet])
     }

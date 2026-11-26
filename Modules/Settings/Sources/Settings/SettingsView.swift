@@ -261,7 +261,8 @@ public struct SettingsView: View {
         availableSize: CGSize? = nil,
         oneWaySync: AnyView? = nil,
         onCustomizePaneBar: (() -> Void)? = nil,
-        savedSignatures: AnyView? = nil
+        savedSignatures: AnyView? = nil,
+        vault: VaultModel? = nil
     ) {
         _selectedTab = selection
         self.onClose = onClose
@@ -276,7 +277,12 @@ public struct SettingsView: View {
         self.oneWaySync = oneWaySync
         self.onCustomizePaneBar = onCustomizePaneBar
         self.savedSignatures = savedSignatures
+        self.vault = vault
     }
+
+    /// The app's Vault, for Vault ▸ Set Aside: the numbers set aside are kept in its document
+    /// from 7.2, so counting and forgetting them go through it. Nil, they are UserDefaults'.
+    private let vault: VaultModel?
 
     /// Compare ▸ One-Way Sync, supplied by the app because its state lives above Settings.
     private let oneWaySync: AnyView?
@@ -417,7 +423,7 @@ public struct SettingsView: View {
         case .intelligence:
             IntelligenceSettingsTab(page: subTab ?? .claudeGeneral)
         case .vault:
-            VaultSettingsTab()
+            VaultSettingsTab(vault: vault)
         case .advanced:
             AdvancedSettingsTab(syncManager: syncManager, onResetAllSettings: onResetAllSettings,
                                 onRunSetup: onRunSetup, onResetSetup: onResetSetup,

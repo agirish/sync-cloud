@@ -106,22 +106,29 @@ import Testing
 
     // MARK: In the model
 
-    @Test func theModelKeepsAColorAcrossOpensAndLetsItGoWithItsKind() throws {
+    @Test func theModelKeepsAColorAcrossOpensAndLetsItGoWithItsKind() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let model = rig.model()
+        await model.opened()
         let school = try #require(model.addKind(named: "Kids’ School"))
         #expect(model.tint(of: school) == .green, "listed under Home & Money, so green")
         model.setColor(.tint(.clay), of: school)
         model.setColor(.tint(.plum), of: .builtIn(.ssn))
         #expect(model.tint(of: school) == .clay)
 
+        model.closed()
         let again = rig.model()
+        await again.opened()
         #expect(again.tint(of: school) == .clay, "read back from the same preferences")
         #expect(again.tint(of: .builtIn(.ssn)) == .plum)
 
         again.setColor(nil, of: .builtIn(.ssn))
         #expect(again.tint(of: .builtIn(.ssn)) == .violet, "nil follows its group again")
 
+        let locked = rig.model()
+        locked.setColor(.tint(.plum), of: .builtIn(.ssn))
+        #expect(VaultColors.load(from: rig.defaults).own(school) == .tint(.clay), "a color set while the Vault is shut keeps a custom kind's")
+        locked.setColor(nil, of: .builtIn(.ssn))
         again.setKinds(VaultKinds())
         #expect(again.colors.own(school) == nil, "a removed kind's color goes with it")
         #expect(VaultColors.load(from: rig.defaults).cards.isEmpty)

@@ -155,8 +155,8 @@ import Testing
         // Every field the model holds set, a later build's among them, so none is left behind.
         state.lastDiscovered = VaultRig.t0.addingTimeInterval(-86_400)
         state.laterFields = Data(#"{"aLaterBuildsField":[1,2]}"#.utf8)
-        try rig.store.saveReading(state)
-        let sealed = try #require(rig.store.loadReading())
+        try rig.store.writeReadingOnDisk(state)
+        let sealed = try #require(rig.store.readingOnDisk())
         let model = rig.model()
         model.people = Self.people
         await model.opened()

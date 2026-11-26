@@ -78,23 +78,7 @@ public struct VaultFind: Sendable, Equatable, Identifiable, Codable {
         try choices.encode(to: encoder, sourceKey: "chosenSource")
     }
 
-    /// The shape the earlier reader built, for tests and simple callers: a category worked out
-    /// from the title, one source, and the dates given.
-    public init(id: UUID = UUID(), title: String, value: String, kind: VaultEntry.Kind = .identity,
-                note: String = "", holder: String? = nil, sourcePath: String,
-                dated: Date? = nil, validUntil: Date? = nil, born: Date? = nil, issuer: String? = nil,
-                form: String? = nil) {
-        let category: VaultCategory = title.hasPrefix("Passport") ? .passport
-            : title.hasPrefix("I-94") ? .i94 : title.contains("visa") ? .usVisa
-            : title.contains("receipt") || title.hasPrefix("I-") ? .uscisCase : VaultCategory.from(kind: kind)
-        self.init(id: id, title: title, value: value, note: note,
-                  facts: VaultReadFacts(category: category, holder: holder, born: born, issuer: issuer, form: form,
-                                        dated: dated ?? VaultReading.fileDate(sourcePath), validUntil: validUntil,
-                                        sources: [VaultSource(path: sourcePath, role: "Document", rank: 1)]))
-    }
-
     public var category: VaultCategory { facts.category }
-    public var kind: VaultEntry.Kind { facts.category.kind }
     public var holder: String? { facts.holder }
     public var dated: Date? { facts.dated }
     public var validUntil: Date? { facts.validUntil }

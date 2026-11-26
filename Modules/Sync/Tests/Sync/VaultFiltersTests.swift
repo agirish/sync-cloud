@@ -84,7 +84,7 @@ import Testing
         let model = rig.model()
         let id = try #require(model.add(VaultModel.Draft(title: "Home loan", value: "4410552233")))
         model.setGeo(id, to: .india)
-        #expect(try rig.store.load().first?.geo == .india)
+        #expect(try rig.store.savedOnDisk().first?.geo == .india)
     }
 
     @Test func kindsFollowTheAppsGroupsAndTheUsersOwn() async throws {

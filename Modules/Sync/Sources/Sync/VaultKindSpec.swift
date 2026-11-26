@@ -127,7 +127,6 @@ public struct VaultKindSpec: Sendable {
         newest: markedExpired)
 
     static let usVisa = VaultKindSpec(
-        // Raw value kept from when it held US visas alone; OCI cards and Indian e-Visas join them.
         category: .usVisa, title: "Visas", singular: "Visa", symbol: "airplane", paper: "visa",
         hidesEnding: false, printed: nil, homes: ["visa", "visas"], group: "travel", isAccount: false, isHouseholdsWhenNameless: false,
         goodUntil: nil, endedWord: "Expired ",

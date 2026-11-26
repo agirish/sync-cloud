@@ -60,7 +60,7 @@ import Testing
     @Test func moreFieldsLeavesOutTheIDAnotherHeldIDAndWhatTheDetailsShow() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let (model, id) = try await Self.saved(rig)
-        try rig.store.save(model.entries + [VaultModelTests.memberID])
+        try rig.store.writeSavedOnDisk(model.entries + [VaultModelTests.memberID])
         let fresh = rig.model()
         await fresh.opened()
         #expect(await fresh.addField(id, label: "RxBIN", value: "610502"))

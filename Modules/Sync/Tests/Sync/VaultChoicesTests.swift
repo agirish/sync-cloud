@@ -28,7 +28,7 @@ import Testing
         var entry = VaultEntry(title: "Passport", value: "Z0000001", addedAt: Date(timeIntervalSince1970: 0))
         entry.choices = Self.all
         #expect(entry.choices == Self.all)
-        #expect(try decoder.decode(VaultEntry.self, from: encoder.encode(entry)).choices == Self.all)
+        #expect(try VaultEntry(record: decoder.decode(VaultRecord.self, from: encoder.encode(VaultRecord(entry)))).choices == Self.all)
         entry.choices = VaultChoices()
         #expect(entry.choices == VaultChoices() && entry.assignment == nil && entry.personID == nil)
         // The editor's draft, and a find being confirmed with the copy it was read from.
@@ -62,17 +62,18 @@ import Testing
         #expect(try JSONDecoder().decode(VaultChoice.self, from: Data(choice.utf8)).choices == Self.all)
     }
 
-    /// Setting the choices sets only those that changed: an older build's `older`, and a person
-    /// stored beside the household, stay as stored.
-    @Test func settingTheChoicesKeepsHowAnOlderBuildStoredTheRest() throws {
+    /// What an older build stored, `older` and a person beside the household, is read for what it
+    /// means, and stored so once a choice changes: a pin, and the household alone.
+    @Test func anOlderBuildsChoicesAreReadForWhatTheyMean() throws {
         let json = #"{"id":"00000000-0000-0000-0000-000000000009","title":"Old","value":"Z9","note":"","kind":"identity","addedAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","older":true,"household":true,"personID":"pat"}"#
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-        var entry = try decoder.decode(VaultEntry.self, from: Data(json.utf8))
-        entry.choices.card = .custom("k1")
-        let stored = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(entry)) as? [String: Any])
-        #expect(stored["older"] as? Bool == true && stored["pin"] == nil)
-        #expect(stored["household"] as? Bool == true && stored["personID"] as? String == "pat")
+        var entry = try decoder.decode(VaultLegacyFormat.Entry.self, from: Data(json.utf8)).entry
         #expect(entry.choices.pin == .older && entry.choices.assignment == .household)
+        entry.choices.card = .custom("k1")
+        let stored = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(VaultLegacyFormat.Entry(entry))) as? [String: Any])
+        #expect(stored["older"] == nil && stored["pin"] as? String == "older")
+        #expect(stored["household"] as? Bool == true && stored["personID"] == nil)
+        #expect(entry.choices.pin == .older && entry.choices.assignment == .household && entry.choices.card == .custom("k1"))
     }
 
     /// Flat, beside the record's own fields, under the keys sealed files already hold: a find's

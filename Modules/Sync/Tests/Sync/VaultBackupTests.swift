@@ -118,7 +118,7 @@ import Testing
         try rig.seed([Self.mortgage, Self.passport])
         var state = VaultReadingState()
         state.contacts = ["anna": VaultContacts(phones: [VaultContacts.Typed("(408) 555-0142", added: VaultLockTests.t0)])]
-        try rig.store.saveReading(state)
+        try rig.store.writeReadingOnDisk(state)
         let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
         let backup = Self.backup(rig, folder: folder)
         try backup.setPassphrase(Self.phrase)
@@ -217,12 +217,12 @@ import Testing
 
         rig.auth.answer = .cancelled
         #expect(await backup.restore(contents, mode: .addMissing) == .failure(.notProved))
-        #expect(try rig.store.load() == [renamed], "a refused proof changes nothing")
+        #expect(try rig.store.savedOnDisk() == [renamed], "a refused proof changes nothing")
 
         rig.auth.answer = .allowed
         #expect(await backup.restore(contents, mode: .addMissing) == .success(2))
         #expect(rig.auth.reasons.last == "restore your Vault from a backup")
-        #expect(try rig.store.load() == [renamed, Self.passport], "the ID it already had keeps this Vault's name for it")
+        #expect(try rig.store.savedOnDisk() == [renamed, Self.passport], "the ID it already had keeps this Vault's name for it")
     }
 
     /// A backup made before a number was corrected holds the old number under the same id.
@@ -238,7 +238,7 @@ import Testing
         #expect(Self.mortgage.id == corrected.id && Self.mortgage.value != corrected.value)
 
         #expect(await backup.restore(contents, mode: .addMissing) == .success(3))
-        let now = try rig.store.load()
+        let now = try rig.store.savedOnDisk()
         #expect(now.first == corrected, "the record here is untouched")
         #expect(Set(now.map(\.id)).count == 3, "three records, three ids: \(now.map(\.id))")
         let old = try #require(now.first { $0.value == Self.mortgage.value })
@@ -261,7 +261,7 @@ import Testing
         #expect(await backup.restore(contents, mode: .replace) == .failure(.notWritten))
         rig.keychain.forcedCopyStatus = nil
         #expect(try Data(contentsOf: rig.store.fileURL) == before, "byte for byte where it was")
-        #expect(try rig.store.load() == [Self.mortgage])
+        #expect(try rig.store.savedOnDisk() == [Self.mortgage])
         let aside = try FileManager.default.contentsOfDirectory(at: rig.store.fileURL.deletingLastPathComponent(), includingPropertiesForKeys: nil)
             .filter { $0.lastPathComponent.contains(".set-aside-") }
         #expect(aside.isEmpty, "nothing is left set aside by a restore that did not happen: \(aside.map(\.lastPathComponent))")
@@ -282,7 +282,7 @@ import Testing
         let contents = VaultBackupContents(madeAt: VaultLockTests.t0, entries: [Self.passport])
 
         #expect(await backup.restore(contents, mode: .replace) == .success(1))
-        #expect(try rig.store.load() == [Self.passport])
+        #expect(try rig.store.savedOnDisk() == [Self.passport])
         let kept = try FileManager.default.contentsOfDirectory(at: rig.store.fileURL.deletingLastPathComponent(), includingPropertiesForKeys: nil)
             .filter { $0.lastPathComponent.hasPrefix("vault.sealed.set-aside-") }
         #expect(kept.count == 1)
@@ -318,7 +318,7 @@ import Testing
         let contents = try await backup.read(url).get()
         #expect(contents.laterRecords == 1)
         #expect(await backup.restore(contents, mode: .addMissing) == .success(2))
-        #expect(try rig.store.load().map(\.title).sorted() == [Self.mortgage.title, Self.passport.title].sorted())
+        #expect(try rig.store.savedOnDisk().map(\.title).sorted() == [Self.mortgage.title, Self.passport.title].sorted())
     }
 
     /// Replace keeps what the activity list held, and the backups kept before each save: under
@@ -340,7 +340,7 @@ import Testing
         #expect(Set(backups).isSubset(of: Set(rig.store.backups)), "the backups went with the Replace")
         let key = SymmetricKey(data: try #require(rig.keychain.itemData))
         let newest = try #require(rig.store.backups.first)
-        #expect(try VaultFile.open(Data(contentsOf: newest), with: key) == [Self.mortgage, Self.passport],
+        #expect(try savedIDs(Data(contentsOf: newest), key: key) == [Self.mortgage, Self.passport],
                 "the Vault as it was just before the Replace is not among the backups")
     }
 
@@ -400,7 +400,7 @@ import Testing
         #expect(try rig.store.loadRecords().laterFields[entries[0].id] != nil, "a later build's field was dropped by a restore")
 
         // The second record is now only a later build's (a kind this build does not know).
-        var list = try entries.map { try #require(JSONSerialization.jsonObject(with: JSONEncoder.vaultBackupTests.encode($0)) as? [String: Any]) }
+        var list = try entries.map { try #require(JSONSerialization.jsonObject(with: JSONEncoder.vaultBackupTests.encode(VaultLegacyFormat.Entry($0))) as? [String: Any]) }
         list[1]["category"] = "bankAccount"
         try VaultFile.sealPlain(JSONSerialization.data(withJSONObject: list, options: [.sortedKeys]),
                                 marker: VaultFile.marker, with: VaultFormatTests.key).write(to: rig.scratch.fileURL)
@@ -451,7 +451,7 @@ import Testing
         #expect(await other.read(url, passphrase: Self.phrase + "?") == .failure(.wrongPassphrase))
         let contents = try await other.read(url, passphrase: Self.phrase).get()
         #expect(await other.restore(contents, mode: .replace) == .success(2))
-        #expect(try there.store.load() == [Self.mortgage, Self.passport])
+        #expect(try there.store.savedOnDisk() == [Self.mortgage, Self.passport])
     }
 
     /// The weekly backup is made once, though the panel asks twice as it opens unlocked.
@@ -487,14 +487,14 @@ import Testing
         let library = VaultEntry(title: "Library card", value: "LIB0000001", addedAt: VaultLockTests.t0)
         let gym = VaultEntry(title: "Gym membership", value: "GYM0000001", addedAt: VaultLockTests.t0)
         try rig.seed([Self.mortgage, library, gym])
-        #expect(throws: VaultError.wouldDrop(3)) { try rig.store.save([Self.passport]) }
+        #expect(throws: VaultError.wouldDrop(3)) { try rig.store.writeSavedOnDisk([Self.passport]) }
         let before = try Data(contentsOf: rig.store.fileURL)
         let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
         let backup = Self.backup(rig, folder: folder)
 
         let contents = VaultBackupContents(madeAt: VaultLockTests.t0, entries: [Self.passport])
         #expect(await backup.restore(contents, mode: .replace) == .success(1))
-        #expect(try rig.store.load() == [Self.passport])
+        #expect(try rig.store.savedOnDisk() == [Self.passport])
         let vaultFolder = rig.store.fileURL.deletingLastPathComponent()
         let aside = try #require(try FileManager.default.contentsOfDirectory(atPath: vaultFolder.path)
             .first { $0.hasPrefix("vault.sealed.set-aside-") }, "the old Vault was not set aside")
@@ -505,7 +505,7 @@ import Testing
         let rig = try Rig(); defer { rig.cleanUp() }
         try rig.seed([Self.mortgage])
         rig.keychain.itemData = nil   // its key is gone
-        #expect(throws: VaultError.keyMissing) { try rig.store.load() }
+        #expect(throws: VaultError.keyMissing) { try rig.store.savedOnDisk() }
         let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
         let backup = Self.backup(rig, folder: folder)
         let contents = VaultBackupContents(madeAt: VaultLockTests.t0, entries: [Self.passport])
@@ -513,7 +513,7 @@ import Testing
         #expect(await backup.restore(contents, mode: .addMissing) == .failure(.vaultUnreadable))
 
         #expect(await backup.restore(contents, mode: .replace) == .success(1))
-        #expect(try rig.store.load() == [Self.passport], "sealed under a new key")
+        #expect(try rig.store.savedOnDisk() == [Self.passport], "sealed under a new key")
     }
 
     @Test func aPanelHoldingTheOldIDsLetsThemGoWhenARestoreLands() async throws {
@@ -585,4 +585,10 @@ private extension JSONEncoder {
         encoder.outputFormatting = [.sortedKeys]
         return encoder
     }
+}
+
+/// The saved IDs in a sealed Vault file of either format: a v1 file, or the v7.2 document.
+private func savedIDs(_ sealed: Data, key: SymmetricKey) throws -> [VaultEntry] {
+    if let v1 = try? VaultFile.open(sealed, with: key) { return v1 }
+    return try VaultDocument.open(plain: VaultFile.openPlain(sealed, marker: VaultDocument.marker, with: key)).document.entries()
 }

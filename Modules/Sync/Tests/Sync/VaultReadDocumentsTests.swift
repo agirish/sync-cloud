@@ -53,7 +53,7 @@ import Testing
             await model.readDocuments(with: InOrder(order))
             // All of what was read, as sealed (finds, copies, mentions, the read index), with the
             // ids a read makes afresh taken out and every list in a fixed order.
-            var state = try #require(rig.store.loadReading())
+            var state = try #require(rig.store.readingOnDisk())
             state.finds.sort { $0.value < $1.value }
             state.lastRefreshed = nil; state.lastDiscovered = nil
             let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]; encoder.dateEncodingStrategy = .iso8601
@@ -348,9 +348,9 @@ import Testing
             model.closed()
         }
         // As an older build sealed it.
-        var state = try #require(rig.store.loadReading())
+        var state = try #require(rig.store.readingOnDisk())
         state.version -= 1
-        try rig.store.saveReading(state)
+        try rig.store.writeReadingOnDisk(state)
 
         let model = rig.model()
         await model.opened()
@@ -379,7 +379,8 @@ import Testing
         model.setAside(id)
         #expect(model.finds.isEmpty)
 
-        VaultSetAside.forget(in: rig.defaults)
+        await model.opened()
+        #expect(model.forgetSetAside())
         await model.readDocuments(with: documents)
 
         #expect(model.finds.count == 1, "a forgotten number did not come back")

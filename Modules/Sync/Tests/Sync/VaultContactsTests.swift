@@ -153,9 +153,9 @@ import Testing
         #expect(!rig.defaults.dictionaryRepresentation().values.contains { "\($0)".contains("555") || "\($0)".contains("Brookside") },
                 "nothing typed goes to preferences")
         // A reading file of another build's rules lets what was read go, never what was typed.
-        var state = try #require(rig.store.loadReading())
+        var state = try #require(rig.store.readingOnDisk())
         state.version = VaultReading.version - 1
-        try rig.store.saveReading(state)
+        try rig.store.writeReadingOnDisk(state)
         let older = rig.model()
         older.people = Self.people
         await older.opened()
@@ -200,21 +200,21 @@ import Testing
         let contents = try await backup.read(url).get()
         #expect(contents.contacts == typed)
         #expect(await backup.restore(contents, mode: .replace) == .success(1))
-        #expect(rig.store.loadReading()?.contacts == typed, "beside what will be read again")
+        #expect(rig.store.readingOnDisk()?.contacts == typed, "beside what will be read again")
         // Add Missing keeps what is here and adds what the backup has that is not.
-        var here = try #require(rig.store.loadReading())
+        var here = try #require(rig.store.readingOnDisk())
         here.contacts = ["anna": VaultContacts(emails: [.init("anna@example.com", added: VaultLockTests.t0)])]
-        try rig.store.saveReading(here)
+        try rig.store.writeReadingOnDisk(here)
         #expect(await backup.restore(contents, mode: .addMissing) == .success(1))
-        let merged = try #require(rig.store.loadReading()?.contacts?["anna"])
+        let merged = try #require(rig.store.readingOnDisk()?.contacts?["anna"])
         #expect(merged.emails.map(\.value) == ["anna@example.com"] && merged.phones.map(\.value) == ["408 555 0142"])
         #expect(merged.notTheirPhones == ["6505550100"], "a phone set aside stays set aside")
         // Add Missing takes a phone typed here however it is written: one phone, not two.
-        var spaced = try #require(rig.store.loadReading())
+        var spaced = try #require(rig.store.readingOnDisk())
         spaced.contacts = ["anna": VaultContacts(phones: [.init("(408) 555-0142", added: VaultLockTests.t0)])]
-        try rig.store.saveReading(spaced)
+        try rig.store.writeReadingOnDisk(spaced)
         #expect(await backup.restore(contents, mode: .addMissing) == .success(1))
-        #expect(rig.store.loadReading()?.contacts?["anna"]?.phones.map(\.value) == ["(408) 555-0142"])
+        #expect(rig.store.readingOnDisk()?.contacts?["anna"]?.phones.map(\.value) == ["(408) 555-0142"])
     }
 
     @Test func aBackupMadeBeforeContactsStillOpens() throws {

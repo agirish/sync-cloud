@@ -118,7 +118,7 @@ import Testing
         #expect(model.finds.isEmpty && model.contents == .notLoaded, "nothing was read into it")
         #expect(rig.auth.reasons.isEmpty, "Touch ID was never asked for")
         #expect(model.add(VaultModel.Draft(title: "Library card", value: "LIB0000001")) == nil)
-        #expect(try rig.store.load() == [VaultModelTests.mortgage], "nothing was written")
+        #expect(try rig.store.savedOnDisk() == [VaultModelTests.mortgage], "nothing was written")
 
         // Set up while the app runs: the next open is the Vault's.
         rig.auth.touchID = .ready

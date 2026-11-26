@@ -7,6 +7,9 @@ import Sync
 /// always on, and without Touch ID set up the Vault is not used (owner, 2026-11-24). The numbers
 /// themselves are never here; the panel behind ⌘U owns them.
 struct VaultSettingsTab: View {
+    /// The app's Vault: Set Aside counts and forgets through it (``VaultModel/setAsideCount``,
+    /// ``VaultModel/forgetSetAside()``), wherever it keeps the numbers.
+    var vault: VaultModel?
     @AppStorage(VaultLockSettings.askKey) private var ask: VaultLockSettings.Ask = .whenOpened
     @AppStorage(VaultLockSettings.relockKey) private var relock: VaultLockSettings.Relock = .afterOneMinute
     @AppStorage(VaultSharingSettings.clipboardSecondsKey) private var clipboardSeconds: Int = VaultSharingSettings.defaultClipboardSeconds
@@ -43,8 +46,9 @@ struct VaultSettingsTab: View {
     }
     /// Settings ▸ Vault ▸ Folders to read, read again when the page appears.
     @State private var readFolders: [String] = []
-    /// How many numbers Read Documents keeps out, counted when the page appears.
-    @State private var setAsideCount = 0
+    /// How many numbers Read Documents keeps out, counted when the page appears; nil while the
+    /// Vault that holds them is locked.
+    @State private var setAsideCount: Int? = 0
 
     var body: some View {
         SettingsPage {
@@ -212,21 +216,23 @@ struct VaultSettingsTab: View {
             ) {
                 SettingsRow("IDs set aside") {
                     HStack(spacing: 8) {
-                        Text(setAsideCount == 1 ? "1 ID" : "\(setAsideCount) IDs")
+                        Text(Self.setAsideLabel(setAsideCount))
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                         // No question first: forgetting only lets the next read offer them again,
                         // and Not an ID sets each one aside once more.
                         Button("Forget") {
-                            VaultSetAside.forget()
-                            SettingsWindowLog.log("vault.setAside", "forgotten")
-                            setAsideCount = 0
+                            if forgetSetAside() {
+                                SettingsWindowLog.log("vault.setAside", "forgotten")
+                            }
+                            setAsideCount = countSetAside()
                         }
                         .controlSize(.small)
                         .frame(minWidth: 70, alignment: .trailing)
-                        .disabled(setAsideCount == 0)
+                        .disabled((setAsideCount ?? 0) == 0)
                     }
-                    .help("Forget, and the next read opens every file and offers these IDs again.")
+                    .help(setAsideCount == nil ? "Open the Vault to count them or forget them: they are sealed with it."
+                          : "Forget, and the next read opens every file and offers these IDs again.")
                 }
             }
         }
@@ -236,7 +242,7 @@ struct VaultSettingsTab: View {
         .onAppear {
             checkTouchID()
             readFolders = VaultReadFolders.folders(in: .standard)
-            setAsideCount = VaultSetAside.fingerprints().count
+            setAsideCount = countSetAside()
             refreshBackupState()
         }
         .sheet(isPresented: Binding(get: { activityShown != nil }, set: { if !$0 { activityShown = nil } })) {
@@ -291,6 +297,30 @@ struct VaultSettingsTab: View {
         } message: { offer in
             Text(offer.message)
         }
+    }
+
+    // MARK: Set Aside
+
+    /// How many numbers are set aside: the Vault's own count (its document's from 7.2), or nil
+    /// while it holds them sealed. With no Vault given, UserDefaults', as before 7.2.
+    private func countSetAside() -> Int? {
+        guard let vault else { return VaultSetAside.fingerprints().count }
+        return vault.setAsideCount
+    }
+
+    /// Forget, wherever the numbers are kept. False when nothing was forgotten (the Vault's
+    /// document is not open, or could not be written).
+    private func forgetSetAside() -> Bool {
+        guard let vault else {
+            VaultSetAside.forget()
+            return true
+        }
+        return vault.forgetSetAside()
+    }
+
+    static func setAsideLabel(_ count: Int?) -> String {
+        guard let count else { return "Open the Vault to count" }
+        return count == 1 ? "1 ID" : "\(count) IDs"
     }
 
     // MARK: Activity
@@ -434,6 +464,7 @@ struct VaultSettingsTab: View {
         case .vaultUnreadable: return "The Vault on this Mac couldn’t be read."
         case .notWritten: return "The file couldn’t be written, so nothing was changed."
         case .notProved: return "macOS couldn’t confirm it was you."
+        case .newerFormat: return "A newer version of SyncCloud made this. Update SyncCloud to use it."
         }
     }
 }

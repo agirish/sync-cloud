@@ -78,7 +78,7 @@ import Testing
         #expect(shelf.opened.isEmpty, "a copy is left for Discover More")
         #expect(model.needsDiscover)
         #expect(model.copiesChanged, "the banner says it is for copies")
-        #expect(rig.store.loadReading()?.needsDiscover == true, "and that is sealed")
+        #expect(rig.store.readingOnDisk()?.needsDiscover == true, "and that is sealed")
         // Not Now holds: the same change does not ask again at the next Refresh.
         model.dismissDiscover()
         await model.readDocuments(with: shelf, scope: .refresh())
@@ -132,7 +132,7 @@ import Testing
         let model = rig.model()
         await model.opened()
         await model.readDocuments(with: shelf)
-        VaultSetAside.forget(in: rig.defaults)
+        await rig.forgetSetAside()
         await model.readDocuments(with: shelf, scope: .refresh())
         #expect(!model.needsDiscover && !model.copiesChanged)
     }
@@ -224,7 +224,7 @@ import Testing
         rig.clock.advance(3_600)
         await model.readDocuments(with: shelf, scope: .refresh())
         #expect(shelf.opened.isEmpty, "nothing had changed, so nothing was opened")
-        #expect(rig.store.loadReading()?.lastRefreshed == rig.clock.now)
+        #expect(rig.store.readingOnDisk()?.lastRefreshed == rig.clock.now)
     }
 
     /// The panel's "Updating… Stop" line shows while a refresh is what is running. The progress
@@ -464,9 +464,9 @@ import Testing
         let (rig, model, shelf) = try await Self.rig(); defer { rig.cleanUp() }
         // Seal what was read as an older build would have, and open the Vault again.
         model.systemLocked()
-        var state = try #require(rig.store.loadReading())
+        var state = try #require(rig.store.readingOnDisk())
         state.version = VaultReading.version - 1
-        try rig.store.saveReading(state)
+        try rig.store.writeReadingOnDisk(state)
         let again = rig.model()
         await again.opened()
         #expect(again.needsReadAgain)
@@ -491,9 +491,9 @@ import Testing
     @Test func aFullReadSettlesWhatARefreshLeftToOffer() async throws {
         let (rig, model, shelf) = try await Self.rig(); defer { rig.cleanUp() }
         model.systemLocked()
-        var state = try #require(rig.store.loadReading())
+        var state = try #require(rig.store.readingOnDisk())
         state.version = VaultReading.version - 1
-        try rig.store.saveReading(state)
+        try rig.store.writeReadingOnDisk(state)
         let again = rig.model()
         await again.opened()
         await again.readDocuments(with: shelf, scope: .refresh())

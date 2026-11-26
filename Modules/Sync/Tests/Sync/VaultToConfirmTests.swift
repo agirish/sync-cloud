@@ -61,7 +61,7 @@ struct VaultFakeDocuments: VaultDocumentReading {
         #expect(model.lastReading == .init(documents: 3, newNumbers: 3))
         #expect(model.reading == nil)
         #expect(model.entries.isEmpty)
-        #expect(!rig.store.hasFile, "a find was written before it was confirmed")
+        #expect(try rig.store.savedOnDisk().isEmpty, "a find was written before it was confirmed")
         #expect(rig.auth.reasons.isEmpty, "reading asked for a proof")
         #expect(model.selection == model.visibleRows.first?.id)
 
@@ -105,12 +105,12 @@ struct VaultFakeDocuments: VaultDocumentReading {
         let id = try #require(model.confirm(find.id, as: draft))
 
         #expect(!model.finds.contains { $0.id == find.id })
-        let saved = try #require(try rig.store.load().first)
+        let saved = try #require(try rig.store.savedOnDisk().first)
         #expect(saved.id == id)
         #expect(saved.title == "Anna’s passport")
         #expect(saved.value == "L898902C3")
-        #expect(saved.sourcePath == "/docs/passport.pdf")
-        #expect(saved.kind == .identity)
+        #expect(saved.savedFrom == "/docs/passport.pdf")
+        #expect(saved.category == .passport)
     }
 
     @Test func notThisKeepsItOutOfTheNextRead() async throws {
@@ -123,7 +123,7 @@ struct VaultFakeDocuments: VaultDocumentReading {
         #expect(!model.finds.contains { $0.id == find.id })
         await model.readDocuments(with: Self.documents)
         #expect(!model.finds.contains { $0.value == "123456789A1" })
-        #expect(!rig.store.hasFile)
+        #expect(try rig.store.savedOnDisk().isEmpty)
     }
 
     @Test func setAsideOutlivesTheAppAndIsKeptAsAKeyedFingerprint() async throws {
@@ -140,15 +140,17 @@ struct VaultFakeDocuments: VaultDocumentReading {
         #expect(second.finds.count == 2)
 
         // What is stored is not the number, nor a plain hash anyone could recompute.
-        let stored = VaultSetAside.fingerprints(in: rig.defaults)
+        let stored = rig.store.setAsideOnDisk(rig.defaults)
         #expect(stored.count == 1)
         let plain = SHA256.hash(data: Data("L898902C3".utf8)).map { String(format: "%02x", $0) }.joined()
         #expect(!stored.contains(plain))
         #expect(!stored.contains { $0.contains("L898902C3") })
-        #expect(!rig.store.hasFile, "setting a number aside wrote the Vault")
+        #expect(try rig.store.savedOnDisk().isEmpty, "setting a number aside wrote the Vault")
 
         // Forget: everything is offered again.
-        VaultSetAside.forget(in: rig.defaults)
+        await second.opened()
+        #expect(second.forgetSetAside())
+        second.closed()
         let third = rig.model()
         await third.readDocuments(with: Self.documents)
         #expect(third.finds.contains { $0.value == "L898902C3" })
@@ -240,9 +242,9 @@ struct VaultFakeDocuments: VaultDocumentReading {
     }
 
     @Test func documentsOfAnIDRemovedBeforeAreLetGoAsTheVaultOpens() async throws {
-        let rig = try Rig(); defer { rig.cleanUp() }
+        let rig = try Rig(v1: true); defer { rig.cleanUp() }
         let (key, receipt) = try await Self.removedByAnOlderBuild(rig)
-        try rig.store.save([receipt])
+        try rig.store.writeSavedOnDisk([receipt])
 
         let opened = rig.model()
         await opened.opened()
@@ -255,14 +257,14 @@ struct VaultFakeDocuments: VaultDocumentReading {
         #expect(opened.sealedReading.mentions[key] != nil, "documents naming it stay")
         opened.closed()
 
-        guard case .loaded(let sealed) = rig.store.openReading() else { Issue.record("no reading file"); return }
+        let sealed = try #require(rig.store.readingOnDisk())
         #expect(sealed.copies[key] == nil, "sealed as it closed")
         #expect(sealed.copies[receiptKey] != nil && sealed.copies[waitingKey] != nil)
     }
 
     @Test func documentsOfRemovedIDsStayWhileTheVaultCannotSayWhatItHolds() async throws {
         // Empty: set aside as unreadable, say, with a restore to come.
-        let rig = try Rig(); defer { rig.cleanUp() }
+        let rig = try Rig(v1: true); defer { rig.cleanUp() }
         let (key, _) = try await Self.removedByAnOlderBuild(rig)
         try VaultFormatTests.sealed([], plus: []).write(to: rig.scratch.fileURL)
         let empty = rig.model()
@@ -271,7 +273,7 @@ struct VaultFakeDocuments: VaultDocumentReading {
         empty.closed()
 
         // Holding a later build's record: its number cannot be read here.
-        let later = try Rig(); defer { later.cleanUp() }
+        let later = try Rig(v1: true); defer { later.cleanUp() }
         let (laterKey, receipt) = try await Self.removedByAnOlderBuild(later)
         try VaultFormatTests.sealed([receipt], plus: [["category": "bankAccount"]]).write(to: later.scratch.fileURL)
         let model = later.model()
@@ -281,7 +283,7 @@ struct VaultFakeDocuments: VaultDocumentReading {
         model.closed()
 
         // A later build's field on a record this build reads: it may hold a number too.
-        let field = try Rig(); defer { field.cleanUp() }
+        let field = try Rig(v1: true); defer { field.cleanUp() }
         let (fieldKey, kept) = try await Self.removedByAnOlderBuild(field)
         try VaultFormatTests.sealed([kept], plus: [], laterOnFirst: ["formerNumber": "X1234567"]).write(to: field.scratch.fileURL)
         let withField = field.model()
@@ -308,7 +310,7 @@ struct VaultFakeDocuments: VaultDocumentReading {
         draft.value = "WAC2412345679"
         #expect(await model.update(id, to: draft))
         #expect(model.sealedReading.copies[VaultReading.normalized("WAC2412345678")] == nil)
-        guard case .loaded(let sealed) = rig.store.openReading() else { Issue.record("no reading file"); return }
+        let sealed = try #require(rig.store.readingOnDisk())
         #expect(sealed.copies[VaultReading.normalized("WAC2412345678")] == nil && sealed.read["/docs/notice.pdf"] == nil,
                 "sealed: gone, and its document no longer marked read")
         await model.readDocuments(with: documents)
@@ -324,7 +326,7 @@ struct VaultFakeDocuments: VaultDocumentReading {
         let find = try #require(model.finds.first { $0.title == "Passport" })
         rig.keychain.forcedCopyStatus = errSecInteractionNotAllowed
         model.setAside(find.id)
-        #expect(VaultSetAside.fingerprints(in: rig.defaults).isEmpty)
+        #expect(rig.store.setAsideOnDisk(rig.defaults).isEmpty)
         rig.keychain.forcedCopyStatus = nil
         await model.readDocuments(with: Self.documents)
         #expect(!model.finds.contains { $0.value == "L898902C3" })
@@ -339,7 +341,7 @@ struct VaultFakeDocuments: VaultDocumentReading {
         #expect(model.finds.isEmpty)
 
         // Sealed, not in plain sight: no number is in the file's bytes.
-        let bytes = try #require(FileManager.default.contents(atPath: rig.store.readingURL.path))
+        let bytes = try #require(FileManager.default.contents(atPath: rig.store.readingFileOnDisk.path))
         #expect(bytes.range(of: Data("L898902C3".utf8)) == nil)
         #expect(bytes.range(of: Data("passport.pdf".utf8)) == nil)
 
@@ -347,7 +349,7 @@ struct VaultFakeDocuments: VaultDocumentReading {
         let next = rig.model()
         await next.opened()
         #expect(next.finds.map(\.value).sorted() == ["123456789A1", "L898902C3", "WAC2412345678"])
-        #expect(!rig.store.hasFile, "To Confirm was written into the Vault's own file")
+        #expect(try rig.store.savedOnDisk().isEmpty, "To Confirm was written into the Vault's own file")
     }
 
     @Test func onlyNewOrChangedFilesAreReadAgain() async throws {
@@ -376,7 +378,7 @@ struct VaultFakeDocuments: VaultDocumentReading {
         let again = VaultFakeDocuments(pages: documents.pages, stamps: changedStamps)
         await next.readDocuments(with: again, again: true)
         #expect(again.opened.all.count == 3)
-        VaultSetAside.forget(in: rig.defaults)
+        await rig.forgetSetAside()
         let afterForget = VaultFakeDocuments(pages: documents.pages, stamps: changedStamps)
         let third = rig.model()
         await third.readDocuments(with: afterForget)
@@ -421,7 +423,7 @@ struct VaultFakeDocuments: VaultDocumentReading {
 
         let older = try #require(model.finds.first { $0.value == "223456789A1" })
         let id = try #require(model.confirm(older.id, as: VaultModel.Draft(older)))
-        let saved = try #require(try rig.store.load().first { $0.id == id })
+        let saved = try #require(try rig.store.savedOnDisk().first { $0.id == id })
         #expect(saved.category == .i94)
         #expect(saved.facts?.primary?.path == "/I-94/Anna/Archive/Form I-94 - Anna - Jul 2024.pdf")
         #expect(model.rows.first { $0.id == id }?.standing.tab == .archive, "saved, it is still the older one")
@@ -542,8 +544,9 @@ struct VaultFakeDocuments: VaultDocumentReading {
     }
 
     @Test func theHolderSuggestsWhoseItIsOnlyWhenOnePersonAnswers() {
-        let find = VaultFind(title: "Passport", value: "L898902C3", kind: .identity,
-                             holder: "Anna Maria Eriksson", sourcePath: "/a")
+        let find = VaultFind(title: "Passport", value: "L898902C3",
+                             facts: VaultReadFacts(category: .passport, holder: "Anna Maria Eriksson",
+                                                   sources: [VaultSource(path: "/a", role: "Document", rank: 1)]))
         let anna = Person(id: "anna", displayName: "Anna")
         let erik = Person(id: "erik", displayName: "Erik")
         #expect(VaultModel.Draft(find, people: [anna, erik]).personID == "anna")

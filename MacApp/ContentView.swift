@@ -2799,7 +2799,8 @@ struct ContentView: View {
             availableSize: available,
             oneWaySync: AnyView(OneWaySyncSettingsView()),
             onCustomizePaneBar: { showPaneBarCustomizer = true },
-            savedSignatures: AnyView(EditorPDFSavedSignaturesList())
+            savedSignatures: AnyView(EditorPDFSavedSignaturesList()),
+            vault: vault
         )
         .environment(\.cloudAppStatusLabels, cloudApps.problems.mapValues(\.shortLabel))
         .environmentObject(settings)

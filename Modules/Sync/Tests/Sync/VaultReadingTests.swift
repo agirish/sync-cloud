@@ -485,7 +485,8 @@ import Testing
     }
 
     @Test func aFindNeverPrintsItsNumber() {
-        let find = VaultFind(title: "Passport", value: "L898902C3", kind: .identity, sourcePath: "/a")
+        let find = VaultFind(title: "Passport", value: "L898902C3",
+                             facts: VaultReadFacts(category: .passport, sources: [VaultSource(path: "/a", role: "Document", rank: 1)]))
         for text in ["\(find)", String(reflecting: find), "\([find])"] {
             #expect(!text.contains("L898902C3"), "\(text)")
             #expect(text.contains("02C3"))

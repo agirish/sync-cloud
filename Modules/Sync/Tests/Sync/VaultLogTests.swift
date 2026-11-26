@@ -41,13 +41,13 @@ import Testing
         #expect(await model.update(saved, to: draft))
         // Four more typed in, so what is backed up and restored is a count no other case logs.
         for n in 1...4 {
-            _ = try #require(model.add(.init(title: "Zephyrine's card \(n)", value: Self.typed + "\(n)", note: "", kind: .other)))
+            _ = try #require(model.add(.init(title: "Zephyrine's card \(n)", value: Self.typed + "\(n)", note: "", category: .other)))
         }
-        let library = try #require(model.add(.init(title: "Zephyrine's quillery pass", value: Self.typed, note: "", kind: .other)))
+        let library = try #require(model.add(.init(title: "Zephyrine's quillery pass", value: Self.typed, note: "", category: .other)))
         #expect(await model.delete(library))
         // The read one removed and added again: removing it sets its number aside, by fingerprint.
         #expect(await model.delete(saved))
-        try #require(rig.defaults.stringArray(forKey: VaultSetAside.key)?.isEmpty == false, "nothing was set aside")
+        try #require(!rig.store.setAsideOnDisk(rig.defaults).isEmpty, "nothing was set aside")
 
         // Back up, lock, restore.
         let folder = VaultBackupTests.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
@@ -88,7 +88,7 @@ import Testing
         let rig = try Rig(); defer { rig.cleanUp() }
         let titles = (1...11).map { "Wexmoor pass \($0)" }
         try rig.seed(titles.enumerated().map { n, title in
-            VaultEntry(title: title, value: "WXM\(100_000 + n)", kind: .other, addedAt: VaultRig.t0)
+            VaultEntry(title: title, value: "WXM\(100_000 + n)", addedAt: VaultRig.t0)
         })
         rig.defaults.set(VaultLockSettings.Relock.afterOneMinute.rawValue, forKey: VaultLockSettings.relockKey)
         let log = LogCapture()
@@ -124,7 +124,7 @@ import Testing
     /// A proof answered after the Vault locked is said to be set aside, not given.
     @Test func aProofAnsweredAfterALockIsLoggedAsSetAside() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
-        try rig.seed([VaultEntry(title: "Wexmoor card", value: "WXM200001", kind: .other, addedAt: VaultRig.t0)])
+        try rig.seed([VaultEntry(title: "Wexmoor card", value: "WXM200001", addedAt: VaultRig.t0)])
         let auth = VaultLockedRoutesTests.LocksWhileAsked()
         let model = VaultModel(store: rig.store, authenticator: auth, defaults: rig.defaults,
                                clock: { [clock = rig.clock] in clock.now }, copyToPasteboard: { _ in })
@@ -166,7 +166,7 @@ import Testing
     /// where nothing was open to lock, and not twice.
     @Test func aCloseThatLocksNothingSaysNothingLocked() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
-        try rig.seed([VaultEntry(title: "Wexmoor card", value: "WXM300001", kind: .other, addedAt: VaultRig.t0)])
+        try rig.seed([VaultEntry(title: "Wexmoor card", value: "WXM300001", addedAt: VaultRig.t0)])
         rig.defaults.set(VaultLockSettings.Ask.everyNumber.rawValue, forKey: VaultLockSettings.askKey)
         let model = rig.model()
         var own: [String] = []
@@ -181,7 +181,7 @@ import Testing
     /// limit, the idle lock is said once; and the Mac sleeping says a lock only while it was open.
     @Test func aVaultLeftOpenAcrossClosingSaysEachLockOnce() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
-        try rig.seed([VaultEntry(title: "Wexmoor card", value: "WXM400001", kind: .other, addedAt: VaultRig.t0)])
+        try rig.seed([VaultEntry(title: "Wexmoor card", value: "WXM400001", addedAt: VaultRig.t0)])
         rig.defaults.set(VaultLockSettings.Relock.afterTenMinutes.rawValue, forKey: VaultLockSettings.relockKey)
         rig.auth.answer = .allowed
         let model = rig.model()

@@ -20,7 +20,7 @@ import Testing
         let removed = await model.delete(VaultModelTests.mortgage.id)
 
         #expect(!removed)
-        #expect(try rig.store.load().count == 2, "the Vault on disk lost what it held")
+        #expect(try rig.store.savedOnDisk().count == 2, "the Vault on disk lost what it held")
     }
 
     @Test func changingWhileThePanelClosesUnderTheProofChangesNothing() async throws {
@@ -36,7 +36,7 @@ import Testing
                                          to: VaultModel.Draft(title: "Loan", value: "1111222233"))
 
         #expect(!changed)
-        #expect(try rig.store.load().map(\.value) == ["0482917365"])
+        #expect(try rig.store.savedOnDisk().map(\.value) == ["0482917365"])
     }
 
     @Test func aProofAnsweredAfterThePanelClosedLeavesTheVaultLocked() async throws {

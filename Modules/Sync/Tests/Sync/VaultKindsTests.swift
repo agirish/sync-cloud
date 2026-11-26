@@ -64,6 +64,17 @@ import Testing
         #expect(Self.row(model, "1234 5678 9012")?.card == .builtIn(.other))
     }
 
+    /// Kept in the document, a kind is added only with the Vault open: shut, none is answered,
+    /// so no caller is handed a kind that was never kept.
+    @Test func aKindIsNotAddedWhileTheVaultIsShut() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        try rig.seed([VaultModelTests.passport])
+        let model = rig.model()
+        #expect(model.addKind(named: "Charging") == nil)
+        await model.opened()
+        #expect(model.addKind(named: "Charging") != nil)
+    }
+
     @Test func aCustomKindHasItsOwnCardAfterTheAppsAndGoesWhenRemoved() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let model = await Self.model(rig)
@@ -78,7 +89,10 @@ import Testing
         #expect(row.category == .other, "a custom kind is weighed as the account it was read as")
 
         // Kept for the next open, by name only.
-        #expect(rig.model().kinds.custom.map(\.name) == ["Charging"])
+        let next = rig.model()
+        await next.opened()
+        #expect(next.kinds.custom.map(\.name) == ["Charging"])
+        next.closed()
 
         // Removed: its numbers go back to what they were read as.
         model.setKinds(VaultKinds())
@@ -157,7 +171,7 @@ import Testing
     @Test func aVaultSealedBeforeKindsStillOpens() throws {
         // An entry as an older build sealed it: no card at all.
         let old = #"{"id":"6F2A0C2E-0D1B-4C5E-9E33-6A1B2C3D4E5F","title":"Gym","value":"12345678","note":"","kind":"other","addedAt":0,"updatedAt":0}"#
-        let entry = try JSONDecoder().decode(VaultEntry.self, from: Data(old.utf8))
+        let entry = try JSONDecoder().decode(VaultLegacyFormat.Entry.self, from: Data(old.utf8)).entry
         #expect(entry.card == nil)
         // A card this build does not know is kept, and drawn as read.
         let later = try JSONDecoder().decode(VaultCardID.self, from: Data(#""someLaterKind""#.utf8))

@@ -16455,3 +16455,16 @@ next Read Documents reads every file again. The sealed formats gain optional fie
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |
+
+## Vault: one sealed document (v7.2 format) — main only, recorded, not owed
+
+2026-11-25, for v7.2. The Vault's two sealed files and three UserDefaults keys become one sealed
+document, `vault.sealed` with marker `SCVAULT2` (`VaultDocument`, `VaultRecord`), and a cache,
+`vault-cache.sealed`; a `format` stamp opens a later build's read-only. A one-time migration at the
+first open keeps `vault.sealed.v1-premigration-<stamp>`; `VaultLegacyFormat` keeps reading the v1
+files. The passphrase backup gains version 2, carrying the document; version 1 still restores. A
+build before this one finds the Vault unreadable and never writes over it.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |

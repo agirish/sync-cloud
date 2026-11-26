@@ -19,41 +19,6 @@ public enum VaultCategory: String, Codable, CaseIterable, Sendable {
 
     /// Whether even this kind's ending is a secret while it is hidden (``VaultKindSpec/hidesEnding``).
     public var hidesEnding: Bool { spec.hidesEnding }
-
-    /// The entry kind a number of this category is saved as, for the parts of the Vault that
-    /// still group by kind.
-    public var kind: VaultEntry.Kind {
-        switch self {
-        case .passport, .usVisa, .i94, .uscisCase, .driversLicense, .ssn, .pan, .aadhaar, .voterID: return .identity
-        case .health: return .health
-        case .utilities: return .phone
-        case .loans: return .home
-        case .other: return .other
-        }
-    }
-
-    /// A number typed in before categories existed, by the kind it was saved as. "Identity and
-    /// Travel" covered several cards, so its name decides which.
-    public static func from(kind: VaultEntry.Kind, title: String = "") -> VaultCategory {
-        switch kind {
-        case .identity:
-            let name = title.lowercased()
-            if name.contains("passport") { return .passport }
-            if name.contains("visa") { return .usVisa }
-            if name.contains("i-94") || name.contains("i94") { return .i94 }
-            if name.contains("receipt") || name.contains("uscis") { return .uscisCase }
-            if name.contains("licen") { return .driversLicense }
-            if name.contains("social security") || name.contains("ssn") || name.contains("itin") { return .ssn }
-            if name.contains("aadha") { return .aadhaar }
-            if name.contains("voter") || name.contains("epic") { return .voterID }
-            if name.range(of: #"\bpan\b"#, options: .regularExpression) != nil || name.contains("permanent account") { return .pan }
-            return .other
-        case .health: return .health
-        case .phone: return .utilities
-        case .home, .money: return .loans
-        case .other: return .other
-        }
-    }
 }
 
 /// One detail beside a number, each copied on its own: an expiry, an issuing country, a class.

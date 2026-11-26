@@ -132,11 +132,11 @@ import Testing
     typealias Rig = VaultRig
 
     static let mortgage = VaultEntry(title: "Mortgage loan number", value: "0482917365", note: "Home loan servicer",
-                                     kind: .home, addedAt: VaultLockTests.t0)
+                                     addedAt: VaultLockTests.t0, category: .loans)
     static let passport = VaultEntry(title: "Passport", value: "A38291647", personID: "abhishek",
-                                     kind: .identity, addedAt: VaultLockTests.t0)
+                                     addedAt: VaultLockTests.t0, category: .passport)
     static let memberID = VaultEntry(title: "Health plan member ID", value: "XEH482917365", personID: "shweta",
-                                     note: "PPO family plan", kind: .health, addedAt: VaultLockTests.t0)
+                                     note: "PPO family plan", addedAt: VaultLockTests.t0, category: .health)
 
     @Test func openingAsksOnceAndThenShowsNumbersInFull() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
@@ -376,11 +376,11 @@ import Testing
         let model = rig.model()
         await model.opened()
 
-        let id = model.add(.init(title: "  T-Mobile account number ", value: " 948271635 ", note: "", kind: .phone))
+        let id = model.add(.init(title: "  T-Mobile account number ", value: " 948271635 ", note: "", category: .utilities))
         #expect(id != nil)
         #expect(rig.auth.reasons.isEmpty)
         #expect(model.entries.map(\.title) == ["T-Mobile account number"])
-        #expect(try rig.store.load().map(\.value) == ["948271635"])
+        #expect(try rig.store.savedOnDisk().map(\.value) == ["948271635"])
         #expect(model.selection == id)
 
         #expect(model.add(.init(title: "No number", value: "  ")) == nil)
@@ -412,7 +412,7 @@ import Testing
         draft.value = "1111111111"
         #expect(await model.update(Self.mortgage.id, to: draft) == false)
         #expect(await model.delete(Self.passport.id) == false)
-        #expect(try rig.store.load() == [Self.mortgage, Self.passport])
+        #expect(try rig.store.savedOnDisk() == [Self.mortgage, Self.passport])
 
         rig.auth.answer = .allowed
         #expect(await model.update(Self.mortgage.id, to: draft))
@@ -420,7 +420,7 @@ import Testing
         rig.clock.advance(200); model.tick()   // locked again
         #expect(await model.delete(Self.passport.id))
         #expect(rig.auth.reasons.last == "remove Passport")
-        #expect(try rig.store.load().map(\.value) == ["1111111111"])
+        #expect(try rig.store.savedOnDisk().map(\.value) == ["1111111111"])
     }
 
     @Test func aVaultThisMacCannotOpenIsShownAsThatAndLeftAlone() async throws {

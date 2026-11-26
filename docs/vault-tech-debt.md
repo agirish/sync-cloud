@@ -17,32 +17,21 @@ internal half.
   (`TEST_RUNNER_VAULT_PANEL_PNG`); for a reader, the count-only hash harness on the owner's folder
   (memory `vault-reader-changes-check-on-real-papers`).
 - Do not split a file because it is long.
-- The Vault has never shipped (first commit `e4990837e`, 2026-11-18): the owner's sealed file is the
-  only one, so a format migration is cheap until the v7.2 cut.
+- The Vault's sealed file is the v7.2 document (`VaultDocument.format` 1) since the one rewrite of
+  the owner's file: a format change from here is a migration for every user, and a higher `format`
+  opens read-only in the build before it.
 
 ## Owed before the next cut
 
 Read by [`RELEASE.md`](../RELEASE.md) §4.
-- **v7.2: one rewrite of the owner's sealed file** (owner, 2026-11-22 and 11-23), so it changes once:
-  - **VT3**, drop the never-shipped shims: `VaultEntry.Kind`, `older`, the encoded `kind`,
-    `VaultCategory.from(kind:title:)`, `Draft.init(…kind:)`, `VaultFind.init(…kind:…sourcePath:)`, and
-    `dated`/`sourcePath` that repeat `facts`. The migration strips the retired keys itself (else
-    `VaultFile.openRecords` keeps them as a later build's fields), saves under the short-list guard,
-    adds a fixture format and keeps `vault-format-1` opening.
-  - **VT1's stored shape**: one `VaultRecord` with typed `fields` (number, secret, text, date, phone,
-    address), an owner, an origin, a state and the user's choices; `Row` derived, `Draft` a copy,
-    readers emit records. (The choices already go one path, `VaultChoosing`, batches 9 and 13.)
-  - **VT6**, one sealed document: saved and waiting records, set-aside fingerprints, `names`,
-    `nameRoles` and `lessons` together, carried by the passphrase backup (a backup format change), in one
-    atomic swap; `load()` drops a waiting find whose number is saved (today a crash between the two
-    writes, or Restore ▸ Add What's Missing, shows it twice); UserDefaults keeps preferences only.
-  - **A format version stamp**: a build that meets a higher one opens the Vault read-only and says a
-    newer SyncCloud saved it; VT30's merging of a later build's records and fields then goes.
-  - Held back until near the cut: a build made before it shows the Vault empty, with nothing saying
-    why.
+- Nothing owed: the v7.2 rewrite of the owner's sealed file has landed (Done: VT1's stored shape,
+  VT3, VT6, the format stamp).
 
 ## Open: internal
 
+- **VT1's rest, in memory**: the document stores `VaultRecord`; in memory `VaultEntry` and
+  `VaultFind` stay, converted at load and seal. Left: `Row` derived from records, `Draft` a copy of
+  one, readers emitting records.
 - **VT51, zone recovery proves less than it says** (internal half done: `MachineZone.recovery` says
   as read, fill, swap or printed number, each reading logs a debug line counting each, and tests pin
   the pairs branch and a G-series passport read as 6…). With weights 7-3-1, one unknown digit in a
@@ -140,7 +129,8 @@ Each changes what the user sees, gets or is asked.
 | VT113 | Not done, by the owner's call (2026-11-24): what the Vault guards is the ID it read or was given, its number field; a number typed into a title or a note is the user's own text, drawn as typed. (Activity and the Touch ID prompt already mask one, from VT34.) | 2026-11-24 |
 | VT23 | Every choice about an ID has its Activity line, naming the ID, never its number: Move to Current or Archive (or the Vault's choice), Belongs To, Used In, Kind (As Read or As Typed named as such), Read from This Copy; one already in force adds none. A misread name corrected or its correction undone, as whose, never the spelling; a person's IDs copied in full; a birth date copied, listed as the person's, not after their first ID. Someone not in People is listed as such, never by the spelling read. A new line kind (`changed`), listed by its words by a build before it | batch 35 |
 | VT34 | A Social Security or Aadhaar number's ending, never drawn while hidden: in descriptions (batch 19); and now in Activity titles, the Touch ID prompt's reason (every kind's number there cut to its ending), "Its document reads differently now", the editor's other IDs on the card, and a document's or folder's name wherever it is drawn hidden (list, tips, More Fields, the preview). Kept to nothing, the last four written alone ("xxx-xx-6789") count as a number. The correction note names its document masked, for every kind. Activity lines listed before keep what they said | batches 19, 30 |
-| VT1, VT10 | Parts done; the rest is open above | batches 4–19 |
+| VT1 (stored shape), VT3, VT6, the format stamp | The v7.2 rewrite of the owner's sealed file, by the owner's call (2026-11-25). `vault.sealed` is one document (`SCVAULT2`, `VaultDocument`): saved and waiting IDs as `VaultRecord`s (typed fields, an owner, an origin, a state, the choices) with the user's own data (names, roles, contacts, lessons, choices), the set-aside numbers and their generation, and the household's kinds, in one atomic write per action; what reading can find again is `vault-cache.sealed`, set aside and started fresh if it does not open. UserDefaults keeps preferences only. A `format` stamp: a higher one opens read-only, saying a newer SyncCloud saved it, and VT30's merging of a later build's fields goes. The never-shipped shims are gone (VT3); `VaultLegacyFormat` reads the v1 files forever, for old backups. The migration runs once, at the first open with the key: it checks itself (every row the model draws, every count, every saved ID), keeps a permanent `vault.sealed.v1-premigration-<stamp>`, writes under a lock, and refuses while another SyncCloud runs or anything does not decode, opening the v1 files as before. It reads and clears the moved keys only for the Vault in Application Support. Passphrase backup version 2 carries the document; version 1 still restores. Two copies: a save over the other's change of waiting IDs or the user's data is written over the merge, one over its change of a saved ID refused (VT108). Proven on a copy of the owner's files by a count-only harness: every saved and waiting ID, name, contact, lesson, set-aside number and kind the same, three backups migrated. A build from before it finds the Vault unreadable | v7.2 |
+| VT1 (in part), VT10 | Parts done; the rest is open above | batches 4–19 |
 
 Kept on purpose: `sessionLine` in production code (the shared log capture sees sibling cases); the
 reader protocol's three levels (`pages`, `reading`, `noted`); leftover `.writing-` and set-aside files

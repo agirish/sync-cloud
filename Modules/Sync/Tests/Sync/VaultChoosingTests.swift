@@ -12,10 +12,10 @@ import Testing
     /// action always has: what was stored is replaced, not kept beside it.
     @Test func aPinMadeAgainReplacesAnOlderBuildsMark() throws {
         let stored = #"{"id":"00000000-0000-0000-0000-000000000001","title":"Old","value":"P1234567","note":"","kind":"identity","addedAt":0,"updatedAt":0,"older":true}"#
-        var entry = try JSONDecoder().decode(VaultEntry.self, from: Data(stored.utf8))
+        var entry = try JSONDecoder().decode(VaultLegacyFormat.Entry.self, from: Data(stored.utf8)).entry
         #expect(entry.pin == .older)
         entry.apply(.pin(.older))
-        let sealed = String(decoding: try JSONEncoder().encode(entry), as: UTF8.self)
+        let sealed = String(decoding: try JSONEncoder().encode(VaultLegacyFormat.Entry(entry)), as: UTF8.self)
         #expect(sealed.contains(#""pin":"older""#))
         #expect(!sealed.contains(#""older":"#))
     }
@@ -40,8 +40,8 @@ import Testing
         let vault: String
         init(vault: String) { self.vault = vault; super.init() }
         private func check(_ url: URL) throws {
-            if url.lastPathComponent == "vault-reading.sealed" { seals += 1 }
             if refusing, url.lastPathComponent == vault { throw CocoaError(.fileWriteNoPermission) }
+            if url.lastPathComponent == vault { seals += 1 }   // the document: one write per action
         }
         override func moveItem(at srcURL: URL, to dstURL: URL) throws {
             try check(dstURL)

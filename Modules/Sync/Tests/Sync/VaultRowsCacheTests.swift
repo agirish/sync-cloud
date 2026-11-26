@@ -45,7 +45,7 @@ import Testing
         if case .custom(let id) = kind, let index = kinds.custom.firstIndex(where: { $0.id == id }) { kinds.custom[index].name = "Dental cover" }
         model.setKinds(kinds);                                                                     check("a kind a row is on renamed")
         // A kind removed while a typed ID is on it: no lesson moves the rows, only the kinds.
-        let typedID = try #require(model.add(.init(title: "Gym card", value: "GYM5550001", note: "", kind: .other)))
+        let typedID = try #require(model.add(.init(title: "Gym card", value: "GYM5550001", note: "", category: .other)))
         let gym = try #require(model.addKind(named: "Gyms"))
         model.setKind(typedID, to: gym);                                                           check("a typed ID's kind")
         var fewer = model.kinds

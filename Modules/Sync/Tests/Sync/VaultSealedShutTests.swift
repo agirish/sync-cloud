@@ -72,7 +72,7 @@ import Testing
         #expect(model.add(VaultModel.Draft(title: "Passport", value: "A38291647", category: .passport)) != nil)
         model.tick()
         #expect(model.isSealedShut && model.entries.isEmpty, "saved, and let go again with the lock still shut")
-        #expect(try rig.store.load().map(\.value) == ["0482917365", "A38291647"])
+        #expect(try rig.store.savedOnDisk().map(\.value) == ["0482917365", "A38291647"])
     }
 
     @Test func documentsReadWhileLockedAreSealedAndWaitForTheProof() async throws {
