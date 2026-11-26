@@ -201,6 +201,43 @@ import Testing
         #expect(student.title == "Twin Creeks · Student ID")
     }
 
+    /// VT91: an Indian school's or university's "Enrolment No" over fourteen or sixteen digits of
+    /// its own is the student's number, never UIDAI's enrolment number: the page is no Aadhaar
+    /// letter, so a twelve-digit number it prints elsewhere is no Aadhaar. Every number is made up.
+    @Test func anIndianSchoolsEnrolmentNumberIsTheStudentsID() throws {
+        let at = "School/IN/Lotus Vidyalaya/Anna/Enrolment 2024.pdf"
+        // A twelve-digit roll number that passes Verhoeff, as one in ten does.
+        let roll = "Roll " + VaultIDReadingTests.spaced(VaultIDReadingTests.aadhaar("23456789012"))
+        let labelled = try #require(Self.read(["Lotus Vidyalaya", "Student ID: 31415926535897"], at: at).first)
+        for (label, value) in [("Enrolment No.: ", "31415926535897"), ("Enrollment No: ", "31415926535897"),
+                               ("Enrolment Number: ", "2718281828459045"), ("Enrollment Number - ", "2718281828459045"),
+                               ("Enrolment No.: ", "2718 2818 2845 9045")] {
+            let finds = Self.read(["Lotus Vidyalaya", "Name of Student: Anna Eriksson", label + value, roll], at: at)
+            #expect(finds.map(\.value) == [value], "\(label)\(value.count)")
+            #expect(finds.first?.facts.form == "Student ID", "\(label)\(value.count)")
+            #expect(finds.first?.category == labelled.category, "\(label)\(value.count)")
+            #expect(finds.first?.title == labelled.title, "\(label)\(value.count)")
+        }
+        // The label over its number, on the line below.
+        let below = Self.read(["Lotus Vidyalaya", "Enrolment No.", "31415926535897", roll], at: at)
+        #expect(below.map(\.value) == ["31415926535897"])
+        // Outside School an enrollment number is a plan's, not a student's.
+        #expect(Self.read(["Enrollment No: 31415926535897"], at: "Health/Kaiser/Anna/ID Cards/card.pdf").isEmpty)
+    }
+
+    /// VT91's other side: a child's Aadhaar letter filed under School is still the letter, and its
+    /// enrolment number, its slashes read or lost, is no student's.
+    @Test func anAadhaarLetterFiledUnderSchoolIsStillTheLetter() throws {
+        let at = "School/IN/Lotus Vidyalaya/Anna/Admission 2024.pdf"
+        let number = VaultIDReadingTests.aadhaar("23456789012")
+        for enrolment in ["Enrolment No.: 1234/12345/12345", "Enrolment No.: 12341234512345"] {
+            let finds = Self.read(["Unique Identification Authority of India", enrolment, "To", "Anna Eriksson",
+                                   VaultIDReadingTests.spaced(number)], at: at)
+            #expect(finds.map(\.value) == [number], "\(enrolment.count)")
+            #expect(finds.first?.facts.primary?.rank == VaultReading.IDRank.card, "\(enrolment.count)")
+        }
+    }
+
     @Test func aVINCountsOnlyWhenItsCheckDigitAgrees() throws {
         // The check-digit example every VIN decoder uses: a 2003 Honda Accord.
         #expect(VaultReading.isVIN("1HGCM82633A004352"))

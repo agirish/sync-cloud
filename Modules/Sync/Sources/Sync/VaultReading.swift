@@ -203,7 +203,9 @@ public enum VaultReading {
         }
         // A license's barcode before its printed front, wherever each is in the file: it states
         // what the front's print can only suggest.
-        let identity = printedPages.indices.flatMap { index in identityNumbers(on: printedPages[index], from: path).map { (index, $0) } }
+        let identity = printedPages.indices.flatMap { index in
+            identityNumbers(on: printedPages[index], from: path, under: roots).map { (index, $0) }
+        }
             .enumerated().sorted { a, b in
                 let (ba, bb) = (a.element.1.facts.primary?.role.hasSuffix("barcode") == true,
                                 b.element.1.facts.primary?.role.hasSuffix("barcode") == true)

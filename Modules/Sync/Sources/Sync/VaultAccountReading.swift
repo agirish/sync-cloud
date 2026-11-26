@@ -17,6 +17,9 @@ extension VaultReading {
     struct AccountKind {
         let name: String
         let labels: [String]
+        /// Labels read only on a school's paper, after `labels`, and never on a page naming UIDAI:
+        /// elsewhere "Enrollment No" is a plan's, and on an Aadhaar letter it is UIDAI's (VT91).
+        var schoolLabels: [String] = []
     }
 
     static let accountKinds: [AccountKind] = [
@@ -27,7 +30,9 @@ extension VaultReading {
                                                 "medical record number", "medical record no", "mrn"]),
         AccountKind(name: "Policy number", labels: ["policy number", "policy no", "policy #"]),
         AccountKind(name: "Loan number", labels: ["loan number", "loan no", "loan #"]),
-        AccountKind(name: "Student ID", labels: ["student id", "student number", "student no", "student #"]),
+        // An Indian school's or university's "Enrolment No", fourteen or sixteen digits as often as not.
+        AccountKind(name: "Student ID", labels: ["student id", "student number", "student no", "student #"],
+                    schoolLabels: ["enrolment no", "enrolment number", "enrollment no", "enrollment number"]),
         AccountKind(name: "VIN", labels: ["vehicle identification number", "vehicle id number", "vin"]),
         AccountKind(name: "Account number", labels: ["account number", "account no", "account #", "acct no", "acct. no",
                                                      "acct #", "acct number", "a/c no", "customer number", "customer no",
@@ -61,13 +66,14 @@ extension VaultReading {
         var out: [VaultFind] = []
         var seen = Set<String>()
         let facts = AccountPageFacts(page: page, path: path, roots: roots, people: people)
+        let school = isSchoolPaper(path, under: roots) && !namesUIDAI(page)
         for kind in accountKinds {
             let isVINKind = kind.name == "VIN"
             // The first label with a number, and which label that was.
             let reader = isVINKind ? PrintedPage.reader(vinPattern) : VaultAccountValue.leading
             var rows: [PrintedPage.Hit] = []
             var label = ""
-            for each in kind.labels {
+            for each in kind.labels + (school ? kind.schoolLabels : []) {
                 rows = page.values([each], reader, skipping: beforeNumber,
                                    keeping: { isVINKind ? vin($0) : accountNumber($0) })
                 if !rows.isEmpty { label = each; break }

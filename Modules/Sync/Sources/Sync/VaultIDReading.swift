@@ -17,10 +17,12 @@ extension VaultReading {
 
     /// One page's identity numbers. `page` is the page as every reader questions it, made once
     /// for all of them.
-    static func identityNumbers(on page: PrintedPage, from path: String) -> [VaultFind] {
+    /// `roots` are the read folders, which say whether the paper is a school's
+    /// (``aadhaarNumbers(on:from:under:)``).
+    static func identityNumbers(on page: PrintedPage, from path: String, under roots: [String] = []) -> [VaultFind] {
         licenseBarcodes(on: page, from: path) + usLicenseFronts(on: page, from: path)
             + indianLicenses(on: page, from: path) + socialSecurityNumbers(on: page, from: path)
-            + panNumbers(on: page, from: path) + aadhaarNumbers(on: page, from: path)
+            + panNumbers(on: page, from: path) + aadhaarNumbers(on: page, from: path, under: roots)
             + voterIDs(on: page, from: path)
     }
 
@@ -704,14 +706,18 @@ extension VaultReading {
     /// that line holds no digit, the one below. Read line by line, so the digits a page prints
     /// next (a helpline, a postcode) never complete a school's "2024/00123". The label alone is
     /// also the start of "Open Enrollment Notice".
-    static func saysEnrolmentNumber(_ page: [String]) -> Bool {
+    ///
+    /// `slashedOnly`, for a school's paper, takes only the groups with both slashes read as a
+    /// slash or a bar, as for the American spelling: an Indian school or university prints its
+    /// own fourteen or sixteen digits in one run under the same label (VT91).
+    static func saysEnrolmentNumber(_ page: [String], slashedOnly: Bool = false) -> Bool {
         let lines = page.map(PrintedPage.squeeze)
         for (index, line) in lines.enumerated() {
             let ns = line as NSString
             guard let label = enrolmentLabel.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { continue }
             var after = ns.substring(from: label.range.upperBound)
             if !after.contains(where: { $0.isASCII && $0.isNumber }), index + 1 < lines.count { after = lines[index + 1] }
-            let groups = label.range(at: 1).length == 0 ? enrolmentGroups : enrollmentGroups
+            let groups = label.range(at: 1).length == 0 && !slashedOnly ? enrolmentGroups : enrollmentGroups
             if groups.firstMatch(in: after, range: NSRange(location: 0, length: (after as NSString).length)) != nil { return true }
         }
         return false
@@ -723,13 +729,23 @@ extension VaultReading {
     private static let uidaiWord = try! NSRegularExpression(pattern: #"(?<![A-Za-z])u ?i ?d ?a ?i(?:gov)?(?![A-Za-z])"#,
                                                             options: [.caseInsensitive])
 
-    static func aadhaarNumbers(on printed: PrintedPage, from path: String) -> [VaultFind] {
+    /// Whether the page prints UIDAI's name, in full or as its word.
+    static func namesUIDAI(_ printed: PrintedPage) -> Bool {
+        let text = printed.text
+        return printed.spacedSqueezed.contains("uniqueidentificationauthority")
+            || uidaiWord.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) != nil
+    }
+
+    /// Whether a paper is filed under School, where "Enrolment No" is the student's number
+    /// (``accountNumbers(on:from:under:people:)``) unless the page names UIDAI.
+    static func isSchoolPaper(_ path: String, under roots: [String]) -> Bool {
+        VaultReadPlan.place(of: path, under: roots).first?.lowercased() == "school"
+    }
+
+    static func aadhaarNumbers(on printed: PrintedPage, from path: String, under roots: [String] = []) -> [VaultFind] {
         let page = printed.lines
         let squeezed = printed.spacedSqueezed
-        let text = printed.text
-        let uidai = squeezed.contains("uniqueidentificationauthority")
-            || uidaiWord.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) != nil
-            || saysEnrolmentNumber(page)
+        let uidai = namesUIDAI(printed) || saysEnrolmentNumber(page, slashedOnly: isSchoolPaper(path, under: roots))
         guard uidai || squeezed.contains("aadhaar") || squeezed.contains("aadhar") else { return [] }
         let receipt = squeezed.contains("paymentreceipt") || squeezed.contains("acknowledgement") || squeezed.contains("invoice")
         let role = receipt ? "Aadhaar receipt" : uidai ? "Aadhaar letter" : squeezed.contains("digilocker") ? "Aadhaar, DigiLocker" : "Names it"
