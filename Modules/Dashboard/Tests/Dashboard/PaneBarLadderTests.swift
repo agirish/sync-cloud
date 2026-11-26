@@ -540,7 +540,7 @@ import FileExplorerTestSupport
     @Test(.machinePinned(.pixelSampling)) func theBarStartsAtTheContentEdgeAndANarrowPaneTakesMiniPills() {
         let rows: [(String, CGFloat, CGFloat, ControlSize)] = [
             ("iCloud Drive", 1.0, 250, .mini), ("iCloud Drive", 0.9, 250, .mini),
-            ("iCloud Drive", 1.0, 330, .small), ("Marketing Team Shared Archive Drive", 1.0, 710, .small),
+            ("iCloud Drive", 1.0, 400, .small), ("Marketing Team Shared Archive Drive", 1.0, 710, .small),
         ]
         for (name, scale, width, size) in rows {
             let drawn = barRings(Self.header(name).environment(\.appFontScale, scale), width: width)

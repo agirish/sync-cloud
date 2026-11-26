@@ -16497,3 +16497,16 @@ trims newlines as the Keychain store does; Notes for Claude says when a save or 
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` | The rail search (Esc closes the sheet, a search drops the page, no page names), the key field's whitespace-only trim, the blank Location field (`case .changed, .unchanged`). No Vault, no Notes for Claude | RECORDED — not owed |
 | `v2.x` | The rail search and the key field's trim; not the Location field | RECORDED — not owed |
+
+## Pane bar: bigger buttons at Regular — main only, recorded, not owed
+
+2026-11-26, for v7.2. The pane bar's Regular size grows from a 33×20 pill with a 12pt glyph and a
+10pt word to 40×24, 14pt and 11pt (`PaneNavMetrics.pill`, `PaneBarTitleMetrics.pointSize`); Small
+keeps its 27×17 pill. The shared header height (`LiquidGlass.headerHeight`) grows from 81 to 88 to
+hold the taller row, the lens header card takes the extra as vertical padding, and the source chip
+grows to 24pt so it stays as tall as the bar's controls. The words still show at 90–115% text size
+(`rowBudget` 41.5).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | 33×20 pills in an 81pt header | RECORDED — not owed (UI polish) |

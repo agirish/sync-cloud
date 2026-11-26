@@ -156,11 +156,11 @@ import Design
 
     @Test("The section capsule is drawn below the header, not in it")
     func theCapsuleIsInTheContentCard() throws {
-        // Ink in a band below row 1's 81pt rung: the capsule must stay out of the header's
+        // Ink in a band below the header card: the capsule must stay out of the header's
         // geometry, and one that crept back up into it would still pass every sizing test in
         // `StorageRailTests`.
         let host = mount(Self.manager(Self.report()), section: nil)
-        let header: CGFloat = 81
+        let header = LiquidGlass.headerHeight
         let band = CGRect(x: 8, y: header + 14, width: 420, height: 34)
         let rep = try #require(PixelProbe.render(host, band))
         let background = try #require(rep.colorAt(x: 2, y: rep.pixelsHigh - 2))

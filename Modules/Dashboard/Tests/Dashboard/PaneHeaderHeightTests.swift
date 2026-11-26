@@ -21,8 +21,8 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
     return host.fittingSize.height
 }
 
-/// The pane side of the shared header line. `LensHeaderCardTests.restsAt81Visible` pins the other
-/// side to the same `LiquidGlass.headerHeight`, so "both land on 83.5" is checked, not drawn.
+/// The pane side of the shared header line. `LensHeaderCardTests.restsAt88Visible` pins the other
+/// side to the same `LiquidGlass.headerHeight`, so "both land on 90.5" is checked, not drawn.
 @MainActor
 @Suite(.serialized) struct PaneHeaderHeightTests {
 
@@ -47,12 +47,12 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
     }
 
     /// The line itself: the pane header's bottom edge, in the pane's coordinates, is the card inset
-    /// plus the header, 83.5. `LensHeaderCard`'s visible bottom edge lands on the same number from
+    /// plus the header, 90.5. `LensHeaderCard`'s visible bottom edge lands on the same number from
     /// the other side of the window.
-    @Test func headerBottomEdgeLandsOn83Point5() {
+    @Test func headerBottomEdgeLandsOn90Point5() {
         let bottomEdge = LiquidGlass.cardInset + laidOutHeight(
             Self.header(providerName: "iCloud Drive"), width: 560)
-        #expect(bottomEdge == 83.5)
+        #expect(bottomEdge == 90.5)
     }
 
     /// A full Columns bar costs the header no height at any width: where the controls don't fit,

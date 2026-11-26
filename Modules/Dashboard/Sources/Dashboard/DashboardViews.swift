@@ -264,7 +264,7 @@ public struct PaneHeader: View {
                 //
                 // The search field takes the bar's track while it is open, and the bar comes back
                 // when it closes. This row, not a new one: the header is pinned to
-                // `LiquidGlass.headerHeight` and holds two rows inside it, the bar (up to 34pt) and
+                // `LiquidGlass.headerHeight` and holds two rows inside it, the bar (up to 41pt) and
                 // the breadcrumb (~20pt). The ~33pt field fits this row and would burst the
                 // breadcrumb's, pushing the header off the height `PaneHeaderHeightTests` pins. It
                 // also gets the pane's full width.
@@ -1273,7 +1273,7 @@ enum PaneNavMetrics {
     /// pill, only gives it a taller box to sit in, so it measures right and still renders small.
     /// Drawing the capsule ourselves is the only way the size is actually ours.
     static func pill(_ controlSize: ControlSize) -> CGSize {
-        controlSize == .mini ? CGSize(width: 27, height: 17) : CGSize(width: 33, height: 20)
+        controlSize == .mini ? CGSize(width: 27, height: 17) : CGSize(width: 40, height: 24)
     }
 
     /// How far a segment (a view-switch half) is drawn inside the plain pill's width, so a
@@ -1303,7 +1303,7 @@ enum PaneNavMetrics {
 
     /// An explicit symbol size, so the glyphs stop each having their own intrinsic metrics.
     static func glyphFont(_ controlSize: ControlSize) -> ScaledFont {
-        .system(size: controlSize == .mini ? 10 : 12, weight: .medium)
+        .system(size: controlSize == .mini ? 10 : 14, weight: .medium)
     }
 
     // No fixed cluster width: the bar's length is whatever someone arranged. The pill's painted

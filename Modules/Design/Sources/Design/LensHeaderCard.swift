@@ -10,7 +10,7 @@ import SwiftUI
 public enum LensHeaderMetrics {
     /// Row 1: the lens's name, its actions and the search toggle. 27pt is a 12pt label (15pt line)
     /// plus its 6pt vertical padding. The lens tabs live in the window's workspace bar, so this row
-    /// names the lens, and it keeps `restingHeight` at 81, which the pane's header↔list boundary is
+    /// names the lens, and it keeps `restingHeight` at 88, which the pane's header↔list boundary is
     /// pinned to.
     public static let tabRow: CGFloat = 27
     /// Row 2: the scanned-folder chip, the stat pills, and the trailing detail or "N of M". 22pt is
@@ -22,27 +22,31 @@ public enum LensHeaderMetrics {
     public static let chipRow: CGFloat = 22
     /// The gap between any two rows of the card.
     public static let rowGap: CGFloat = 8
-    /// The card's internal padding on all four sides.
+    /// The card's internal padding, leading and trailing.
     public static let padding: CGFloat = 12
+    /// The card's internal padding, top and bottom. Taller than the sides so `restingHeight` meets
+    /// `LiquidGlass.headerHeight`, which the pane header's titled bar row sets: the extra goes
+    /// to the card's margins rather than stretching either row.
+    public static let verticalPadding: CGFloat = 15.5
 
-    /// 12 + 27 + 8 + 22 + 12 = 81, the card's visible height with the search collapsed. It must
+    /// 15.5 + 27 + 8 + 22 + 15.5 = 88, the card's visible height with the search collapsed. It must
     /// equal `LiquidGlass.headerHeight` so the card's bottom edge lands on the file pane's
     /// header↔list boundary. Derived, not typed: change a row and this follows.
     public static var restingHeight: CGFloat {
-        padding + tabRow + rowGap + summaryRow + padding
+        verticalPadding + tabRow + rowGap + summaryRow + verticalPadding
     }
 
     /// What the card occupies in its parent at rest in Cards, including the half-gutter it insets
-    /// itself by on each side (`columnSectionCard`): 2.5 + 81 + 2.5 = 86. In Unified the card draws
+    /// itself by on each side (`columnSectionCard`): 2.5 + 88 + 2.5 = 93. In Unified the card draws
     /// no frame and occupies `restingHeight`; the window's one region (`windowRegionFrame`)
-    /// supplies the same 2.5 above it, so its bottom edge lands on 83.5 in both styles.
+    /// supplies the same 2.5 above it, so its bottom edge lands on 90.5 in both styles.
     public static var restingTotalHeight: CGFloat {
         restingHeight + 2 * LiquidGlass.cardInset
     }
 }
 
 /// The one header card of a lensed workspace: the lens's name and controls on row 1, a summary of
-/// what the lens found on row 2, and an expanding search below. 81pt tall at rest, in every lens
+/// what the lens found on row 2, and an expanding search below. 88pt tall at rest, in every lens
 /// and every state.
 ///
 /// Drawn in the empty and scanning states too, which is what makes the height a promise rather
@@ -184,7 +188,8 @@ public struct LensHeaderCard<Title: View, Actions: View, Summary: View, Trailing
                 }
             }
         }
-        .padding(LensHeaderMetrics.padding)
+        .padding(.horizontal, LensHeaderMetrics.padding)
+        .padding(.vertical, LensHeaderMetrics.verticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         // This frame doesn't hold the card to the width it was offered: with `maxWidth: .infinity`
         // it reports the larger of the proposal and what its child insists on, and a row of

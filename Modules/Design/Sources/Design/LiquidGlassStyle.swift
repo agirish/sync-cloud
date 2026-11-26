@@ -467,7 +467,7 @@ public enum LiquidGlass {
     /// card's bottom edge sit on the same rule across the window.
     ///
     /// Both headers inset themselves by `cardInset`, so each occupies `headerHeight + 2 *
-    /// cardInset` in its parent and its bottom edge falls at `cardInset + headerHeight`, 83.5. That
+    /// cardInset` in its parent and its bottom edge falls at `cardInset + headerHeight`, 90.5. That
     /// shared line is the point of the constant. `LensHeaderMetrics` derives its rows to match, and
     /// both are asserted against the laid-out `fittingSize`, not against each other: a constant
     /// agreeing with itself proves nothing.
@@ -475,7 +475,7 @@ public enum LiquidGlass {
     /// Edit's document header (`EditorWorkspaceView.headerCard`) is pinned here too, so it shares a
     /// bottom edge with the source pane's toolbar card beside it and the text starts where the list
     /// does. `EditHeaderMatchesPaneHeaderTests` compares the two real views at every text size.
-    public static let headerHeight: CGFloat = 81
+    public static let headerHeight: CGFloat = 88
 
     /// Soft shadow for glass cards to add depth without heaviness.
     public static let cardShadow = (color: Color.black.opacity(0.06), radius: CGFloat(12), x: CGFloat(0), y: CGFloat(4))

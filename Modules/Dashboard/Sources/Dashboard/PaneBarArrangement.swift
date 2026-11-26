@@ -79,7 +79,7 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
     /// The word drawn under this item's pill in `PaneBarLabelMode.iconAndText`.
     ///
     /// Separate from `displayName`, which the palette and the ⋯ menu keep, because a menu row has
-    /// room for "Collapse Pane" and a 33pt pill doesn't. The same control at two lengths.
+    /// room for "Collapse Pane" and a 40pt pill doesn't. The same control at two lengths.
     ///
     /// A title says what the control is, not its state. Hidden Files keeps one word while its eye
     /// swaps open and slashed: the glyph carries the state, and a word that changed with it would
@@ -107,7 +107,7 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
     ///
     /// An item is as wide as the wider of its pill and its word, so a word that changes could change
     /// width under the cursor and shift everything to its left. "Scan" and "Stop" both fit inside
-    /// the 33pt pill today, so this costs nothing; it absorbs a longer pair chosen later.
+    /// the 40pt pill today, so this costs nothing; it absorbs a longer pair chosen later.
     public var titleVariants: [String] {
         self == .scan ? [barTitle, ScanRungMode.stopTitle] : [barTitle]
     }
@@ -423,7 +423,7 @@ public enum PaneBarLayout {
     /// The width of one item once its title is taken into account.
     ///
     /// An item is as wide as the wider of its pill and its word. Most words are narrower than the
-    /// 33pt pill and cost nothing; only New Folder, Search, Hidden and the Back/Forward pair are
+    /// 40pt pill and cost nothing; only New Folder, Search, Hidden and the Back/Forward pair are
     /// ever the binding half. Uses the widest of `titleVariants` (see there).
     @MainActor
     static func titledWidth(of item: PaneBarItem, pill: CGSize, compactsViewMode: Bool,
@@ -654,27 +654,27 @@ public enum PaneBarLabelMode: String, CaseIterable, Sendable {
 public enum PaneBarTitleMetrics {
     /// The title's base point size.
     ///
-    /// 10pt, so the word reads as a caption under its pill rather than competing with the
-    /// breadcrumb below it, as `WorkspaceBarMetrics` treats its own labels.
-    public static let pointSize: CGFloat = 10
+    /// 11pt, a point under the breadcrumb's 12pt, so the word reads as a caption under its pill
+    /// rather than competing with the breadcrumb below it, as `WorkspaceBarMetrics` treats its own labels.
+    public static let pointSize: CGFloat = 11
     /// Between the pill's bottom edge and the title's line box.
     public static let gap: CGFloat = 2
 
-    /// The tallest titled row the pinned 81pt pane header can carry and still keep its content 6pt
+    /// The tallest titled row the pinned 88pt pane header can carry and still keep its content 6pt
     /// clear of both card edges, the floor `PaneBarLadderTests.theHeaderIsBalancedTopToBottom`
     /// holds the header to.
     ///
     /// Calibrated against the rendered header, not derived: `rowHeight` is the row's box, the floor
     /// is about where ink lands, and no sum of these constants gets from one to the other.
-    /// `rowHeight` takes six values across the slider's range, and the tightest clearance at each,
+    /// `rowHeight` takes five values across the slider's range, and the tightest clearance at each,
     /// with the gate lifted so every size drew words, is:
     ///
-    /// | row | 33pt | 34pt | 35pt | 36pt | 37pt | 38pt |
-    /// |---|---|---|---|---|---|---|
-    /// | text size | 90% | 95% | 100–105% | 110–115% | 120–125% | 130–135% |
-    /// | clearance | 9.0 | 8.0 | 7.0 | 6.5 | **5.0** | **4.0** |
+    /// | row | 39pt | 40pt | 41pt | 42pt | 44pt |
+    /// |---|---|---|---|---|---|
+    /// | text size | 90–95% | 100–105% | 110–115% | 120–125% | 130–135% |
+    /// | clearance | 8.0 | 7.0 | 6.5 | **5.0** | **3.5** |
     ///
-    /// The floor is crossed between the 36pt and 37pt rows, so 36.5 leaves half a point of margin
+    /// The floor is crossed between the 41pt and 42pt rows, so 41.5 leaves half a point of margin
     /// on each side, the widest any value can. Re-measure the table if `LabelMetrics.lineHeight`
     /// changes. `PaneBarTitleTests.theGateHasBothDirectionsWithMarginOnEach` fails if this lands on
     /// a producible row.
@@ -683,7 +683,7 @@ public enum PaneBarTitleMetrics {
     /// `PaneBarLadderTests.theTitledHeaderClearsBothEdges` sees the crowding. Too low, and nothing
     /// crowds because the header renders untitled, so `PaneBarTitleTests.theTextSizesThatGetWords`
     /// names the percentages outright.
-    public static let rowBudget: CGFloat = 36.5
+    public static let rowBudget: CGFloat = 41.5
 
     public static let font: ScaledFont = .system(size: pointSize, weight: .regular)
 

@@ -1132,9 +1132,9 @@ struct ContentView: View {
             // a fifth segment would need a wider floor. The icon-only rung is therefore unreachable
             // at any legal width (`testTheIconOnlyRungIsOutOfTheShippingBarsReachButStillLive`).
             //
-            // The height keeps it a window: 560 less the header card's 86
-            // (`LiquidGlass.headerHeight` 81 in 2×`cardInset`) and the action bar's 44 leaves the
-            // file list about 430, and clears the 428pt below which `SettingsLayout` overflows the
+            // The height keeps it a window: 560 less the header card's 93
+            // (`LiquidGlass.headerHeight` 88 in 2×`cardInset`) and the action bar's 44 leaves the
+            // file list about 423, and clears the 428pt below which `SettingsLayout` overflows the
             // window (`floorSize` 380 + `hostMargin` 48).
             .frame(minWidth: 804, minHeight: 560)
             // Resolved in the transform, so the action and the state write behind it fire only when

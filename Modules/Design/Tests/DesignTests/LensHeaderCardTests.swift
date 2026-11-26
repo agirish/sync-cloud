@@ -69,57 +69,57 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
     // MARK: The line
 
     /// The visible height, against the constant both headers read; `paneHeaderRestsAtHeaderHeight`
-    /// (Dashboard) pins it from the other side. At rest the card occupies 86pt (2.5 + 81 + 2.5), so
-    /// its bottom edge lands at 83.5, where the file pane's header meets its list.
-    @Test(.machinePinned(.layoutMetrics)) func restsAt81Visible() {
+    /// (Dashboard) pins it from the other side. At rest the card occupies 93pt (2.5 + 88 + 2.5), so
+    /// its bottom edge lands at 90.5, where the file pane's header meets its list.
+    @Test(.machinePinned(.layoutMetrics)) func restsAt88Visible() {
         let total = laidOutHeight(Self.card(), width: 700)
-        #expect(total == 86.0)
+        #expect(total == 93.0)
         let visible = total - 2 * LiquidGlass.cardInset
         #expect(visible == LiquidGlass.headerHeight)
-        #expect(visible == 81.0)
+        #expect(visible == 88.0)
     }
 
     /// The derived geometry must reproduce the constant. Cheap, and it localizes the failure: if
-    /// this passes but `restsAt81Visible` fails, the rows are right and the card stopped applying
+    /// this passes but `restsAt88Visible` fails, the rows are right and the card stopped applying
     /// them.
     @Test func metricsDeriveTheHeaderHeight() {
         #expect(LensHeaderMetrics.restingHeight == LiquidGlass.headerHeight)
-        #expect(LensHeaderMetrics.restingTotalHeight == 86.0)
+        #expect(LensHeaderMetrics.restingTotalHeight == 93.0)
     }
 
     // MARK: Growth
 
-    /// Search open: +8 gap +28 field = 122 total. The card grows rather than swapping the field in
+    /// Search open: +8 gap +28 field = 129 total. The card grows rather than swapping the field in
     /// over the pills, because the pills are the filter's live readout (12 groups → 3).
-    @Test(.machinePinned(.layoutMetrics)) func searchOpenGrowsTo122() {
-        #expect(laidOutHeight(Self.card(isSearchExpanded: true), width: 700) == 122.0)
+    @Test(.machinePinned(.layoutMetrics)) func searchOpenGrowsTo129() {
+        #expect(laidOutHeight(Self.card(isSearchExpanded: true), width: 700) == 129.0)
     }
 
-    /// A parsed token adds the chip row: +8 gap +22 chips = 152 total. Free text alone leaves the
-    /// card at 122.
-    @Test(.machinePinned(.layoutMetrics)) func chipsGrowTo152() {
+    /// A parsed token adds the chip row: +8 gap +22 chips = 159 total. Free text alone leaves the
+    /// card at 129.
+    @Test(.machinePinned(.layoutMetrics)) func chipsGrowTo159() {
         let chips = [
             TokenChipsRow.Item(label: "kind: pdf", word: "kind:pdf", isActive: true),
             TokenChipsRow.Item(label: "> 5 MB", word: ">5mb", isActive: true)
         ]
         #expect(laidOutHeight(Self.card(searchText: "kind:pdf >5mb", isSearchExpanded: true, chips: chips),
-                              width: 700) == 152.0)
+                              width: 700) == 159.0)
     }
 
     /// Free text with no parsable token stays at the open height, with no empty chip row.
-    @Test(.machinePinned(.layoutMetrics)) func freeTextWithoutTokensStaysAt122() {
-        #expect(laidOutHeight(Self.card(searchText: "invoice", isSearchExpanded: true), width: 700) == 122.0)
+    @Test(.machinePinned(.layoutMetrics)) func freeTextWithoutTokensStaysAt129() {
+        #expect(laidOutHeight(Self.card(searchText: "invoice", isSearchExpanded: true), width: 700) == 129.0)
     }
 
     /// A live query keeps the field showing even if the host clears `isSearchExpanded`: a filter
     /// narrowing the list must never be on behind a hidden field.
     @Test(.machinePinned(.layoutMetrics)) func liveQueryKeepsFieldShowing() {
-        #expect(laidOutHeight(Self.card(searchText: "invoice", isSearchExpanded: false), width: 700) == 122.0)
+        #expect(laidOutHeight(Self.card(searchText: "invoice", isSearchExpanded: false), width: 700) == 129.0)
     }
 
     // MARK: Ungated
 
-    /// The empty or scanning state (no results, so no pills and no actions) is still 86: the
+    /// The empty or scanning state (no results, so no pills and no actions) is still 93: the
     /// header's height must not depend on the lens or on having results.
     @Test(.machinePinned(.layoutMetrics)) func emptyStateHoldsTheSameHeight() {
         let bare = LensHeaderCard(
@@ -132,11 +132,11 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
             level: .frosted,
             title: { Self.titleRow }
         )
-        #expect(laidOutHeight(bare, width: 700) == 86.0)
+        #expect(laidOutHeight(bare, width: 700) == 93.0)
     }
 
     /// Unified moves the frame to the window (`windowRegionFrame`), not the line: the card alone is
-    /// 81, and inside the column and region the same 86. Measured both ways, because a card or
+    /// 88, and inside the column and region the same 93. Measured both ways, because a card or
     /// column that kept its own inset would pass the first and land 2.5pt low in the region.
     @Test(.machinePinned(.layoutMetrics)) func unifiedLeavesTheFrameToTheColumnAndKeepsTheLine() {
         let unified = LensHeaderCard(
@@ -151,7 +151,7 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
         )
         #expect(laidOutHeight(unified, width: 700) == LiquidGlass.headerHeight)
         #expect(laidOutHeight(unified.columnRegionFrame(.unified, level: .frosted)
-            .windowRegionFrame(.unified, level: .frosted), width: 700) == 86.0)
+            .windowRegionFrame(.unified, level: .frosted), width: 700) == 93.0)
     }
 
     // MARK: A lens that answers no query does not offer the control
@@ -174,19 +174,19 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
     }
 
     /// Dropping the toggle must not change the height. It lives in a fixed-height row, so this
-    /// holds by construction, but the card's 81pt is what the pane's header↔list boundary aligns
+    /// holds by construction, but the card's 88pt is what the pane's header↔list boundary aligns
     /// to, and a header that shrank on some pages would break the alignment only there.
     @Test(.machinePinned(.layoutMetrics)) func aHeaderThatOffersNoSearchIsStillTheSameHeight() {
-        #expect(laidOutHeight(Self.plainCard(showsSearch: false), width: 700) == 86.0)
-        #expect(laidOutHeight(Self.plainCard(showsSearch: true), width: 700) == 86.0)
+        #expect(laidOutHeight(Self.plainCard(showsSearch: false), width: 700) == 93.0)
+        #expect(laidOutHeight(Self.plainCard(showsSearch: true), width: 700) == 93.0)
     }
 
     /// A query parked by another lens can't open a field here: the overview shares To File's query
     /// slot, so `isSearching` (`isExpanded || !searchText.isEmpty`) would grow the card with a field
     /// that filters nothing. The `true` case proves the fixture carries a query.
     @Test(.machinePinned(.layoutMetrics)) func aParkedQueryCannotOpenAFieldOnAHeaderThatOffersNoSearch() {
-        #expect(laidOutHeight(Self.plainCard(showsSearch: false, searchText: "tax"), width: 700) == 86.0)
-        #expect(laidOutHeight(Self.plainCard(showsSearch: true, searchText: "tax"), width: 700) > 86.0,
+        #expect(laidOutHeight(Self.plainCard(showsSearch: false, searchText: "tax"), width: 700) == 93.0)
+        #expect(laidOutHeight(Self.plainCard(showsSearch: true, searchText: "tax"), width: 700) > 93.0,
                 "the fixture's query does not open a field even when search IS offered — the check above is vacuous")
     }
 
@@ -214,10 +214,10 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
             size: CGSize(width: width, height: height), appearance: nil, sRGB: false, close: true))
 
         let scale = Int(rep.pixelsWide) / Int(width)
-        // The toggle is last on row 1, inside the card's 12pt padding plus its 2.5pt inset.
+        // The toggle is last on row 1, inside the card's padding plus its 2.5pt inset.
         let right = Int(width - LensHeaderMetrics.padding - LiquidGlass.cardInset)
         let left = right - Int(OrganizeToggleProbe.width)
-        let top = Int(LensHeaderMetrics.padding + LiquidGlass.cardInset)
+        let top = Int(LensHeaderMetrics.verticalPadding + LiquidGlass.cardInset)
         let bottom = top + Int(LensHeaderMetrics.tabRow)
         // The card's own fill, sampled from a point on row 1 that is definitely empty: just
         // inside the leading padding is the title, so take the middle of the row's blank span.

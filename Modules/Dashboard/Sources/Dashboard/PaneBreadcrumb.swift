@@ -35,8 +35,8 @@ public enum SourceChip {
     public static let leading: CGFloat = 6
     public static let trailing: CGFloat = 7
     /// Enough for the capsule to contain the name rather than hug it, so the chip doesn't read
-    /// small beside a 20pt bar control.
-    public static let vertical: CGFloat = 3
+    /// small beside a 24pt bar control.
+    public static let vertical: CGFloat = 4
 
     /// The brand wash behind the name.
     ///

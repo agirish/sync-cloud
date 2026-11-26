@@ -273,7 +273,7 @@ import Design
     /// padding, row 1 and the row gap. Rows 1 and 2 don't move when the search field opens (the card
     /// grows downward), so the band is stable across the comparison. The host is flipped.
     private static var readoutBand: CGRect {
-        let top = LiquidGlass.cardInset + LensHeaderMetrics.padding
+        let top = LiquidGlass.cardInset + LensHeaderMetrics.verticalPadding
             + LensHeaderMetrics.tabRow + LensHeaderMetrics.rowGap
         return CGRect(x: canvas.width - 170, y: top - 4,
                       width: 150, height: LensHeaderMetrics.summaryRow + 8)

@@ -926,7 +926,7 @@ public struct LensWorkspaceView: View {
                 } action: { railStyle = $0 }
                 .onGeometryChange(for: Bool.self) { $0.size.width < compactBelow } action: { rowTwoCompact = $0 }
             // The header card heads the workspace in every lens and state, so its bottom edge lands
-            // on 83.5, the file pane's header/list boundary. The `sourceBar` sits below it, and
+            // on 90.5, the file pane's header/list boundary. The `sourceBar` sits below it, and
             // appears only when the source rail is collapsed.
             //
             // Under the pane's tab strip, the strip's slot is left empty (`paneShowsTabStrip`) so
@@ -961,7 +961,7 @@ public struct LensWorkspaceView: View {
         }
         // One region in Unified, two cards in Cards, the rule every workspace column follows (see
         // `columnSectionCard`). In Unified the content starts flush under the header's hairline at
-        // the same 83.5 the file pane's list does.
+        // the same 90.5 the file pane's list does.
         .columnRegionFrame(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         // Review-after-create: a rule just learned from "Remember" (or saved from "Save rule")
         // opens in its editor. Cancel keeps it as created; the review is an offer, not a gate.

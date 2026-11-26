@@ -45,7 +45,7 @@ import Design
     private static let gatedPercents = [90, 95, 100, 105, 110, 115, 120, 125, 130, 135]
 
     /// Both sides of the gate are real, and the budget sits clear of the rows on each side: a
-    /// `rowBudget` nudged onto a producible row height (36 or 37) still passes the table above but
+    /// `rowBudget` nudged onto a producible row height (41 or 42) still passes the table above but
     /// fails here.
     @Test func theGateHasBothDirectionsWithMarginOnEach() {
         let pill = PaneNavMetrics.pill(.small).height
@@ -61,10 +61,11 @@ import Design
                 "the widest admitted row (\(admitted.map(\.row).max()!)pt) is flush against the \(PaneBarTitleMetrics.rowBudget)pt budget")
         #expect(refused.map(\.row).min()! >= PaneBarTitleMetrics.rowBudget + Self.gateMargin,
                 "the narrowest refused row (\(refused.map(\.row).min()!)pt) is flush against the \(PaneBarTitleMetrics.rowBudget)pt budget")
-        // The rows really are a point apart, which is what makes half a point the right margin.
+        // The rows are at least a point apart, which is what makes half a point the right margin.
+        // (At 130% the 11pt word's line box jumps two points, so 42 is followed by 44.)
         let distinct = Set(rows.map(\.row)).sorted()
-        #expect(zip(distinct, distinct.dropFirst()).allSatisfy { $1 - $0 == 1 },
-                "the producible rows are \(distinct) — no longer one point apart, so re-derive the margin instead of keeping \(Self.gateMargin)")
+        #expect(zip(distinct, distinct.dropFirst()).allSatisfy { $1 - $0 >= 1 },
+                "the producible rows are \(distinct) — closer than a point apart, so re-derive the margin instead of keeping \(Self.gateMargin)")
     }
 
     /// How far the budget must sit from the nearest row it decides about, in either direction.
