@@ -3,7 +3,7 @@ import Foundation
 /// The month and year a raw filename already carries, when it carries exactly one of each.
 ///
 /// Providers often put the date in the name (`9829custbill07182023.pdf`,
-/// `20240128-statements-8857.pdf`, `ATTBill_1897_Feb2022.pdf`), so many renames need no model call.
+/// `20240128-statements-6604.pdf`, `ATTBill_1897_Feb2022.pdf`), so many renames need no model call.
 /// This mines it, purely, with no disk and no clock.
 ///
 /// It says no far more often than yes, by design: most raw files in month folders are year-end

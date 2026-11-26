@@ -86,7 +86,7 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
     func minesRealNames() throws {
         let cases: [(String, Int, Int)] = [
             ("9829custbill07182023.pdf", 7, 2023),                       // MMDDYYYY
-            ("20240128-statements-8857-.pdf", 1, 2024),                  // YYYYMMDD
+            ("20240128-statements-6604-.pdf", 1, 2024),                  // YYYYMMDD
             ("STMTCMB100_20201101_5203_Elder_1154171_239175.PDF", 11, 2020),
             ("Statement12312020-5.pdf", 12, 2020),
             ("ATTBill_1897_Feb2022.pdf", 2, 2022),                       // glued MonYYYY
@@ -713,7 +713,7 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
     func datestampReportsDay() {
         #expect(FileNameDate.mine("9829custbill07182023.pdf")?.day == 18)
         #expect(FileNameDate.mine("9829custbill07182023.pdf")?.month == 7)
-        #expect(FileNameDate.mine("20240128-statements-8857.pdf")?.day == 28)
+        #expect(FileNameDate.mine("20240128-statements-6604.pdf")?.day == 28)
         // Two stamps in one month still answer the month — folding the day into that key would
         // turn a known month with an unknown day into a refusal.
         let two = FileNameDate.mine("bill 20240115 and 20240120.pdf")
