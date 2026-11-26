@@ -15,7 +15,7 @@ import Testing
         VaultReadFolders.add(VaultNameCorrectionTests.root, in: rig.defaults)
         rig.auth.answer = .allowed
         let model = rig.model()
-        model.people = [Person(id: "divit", displayName: "Divit")]
+        model.people = [Person(id: "tobias", displayName: "Tobias")]
         await model.opened()
         #expect(await model.unlock())
         await model.readDocuments(with: VaultAccountModelTests.PlannedDocuments(pages: VaultNameCorrectionTests.pages))
@@ -41,7 +41,7 @@ import Testing
         model.readFrom(saved, copy: VaultNameCorrectionTests.root + "/Health/Dental/ID Cards/card.pdf")
         model.keepSaved(saved)
         model.setAside(waiting.id)
-        #expect(model.setRole(.goesBy, of: "Dlvit Girish", for: "divit") == 0)
+        #expect(model.setRole(.goesBy, of: "Toblas Lindqvist", for: "tobias") == 0)
         var draft = VaultModel.Draft(entry)
         draft.note = "changed"
         #expect(await model.update(saved, to: draft) == false, "Edit")
@@ -86,14 +86,14 @@ import Testing
     /// a route that forgot its own look still passed it).
     @Test func aRoutesProofAnsweredAfterALockAndReopenDoesNothing() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
-        let entry = VaultEntry(title: "Passport", value: "Z0000009", personID: "divit", addedAt: VaultLockTests.t0)
+        let entry = VaultEntry(title: "Passport", value: "Z0000009", personID: "tobias", addedAt: VaultLockTests.t0)
         try rig.seed([entry])
         rig.defaults.set(VaultLockSettings.Ask.everyNumber.rawValue, forKey: VaultLockSettings.askKey)
         let auth = LocksAndReopensWhileAsked()
         let model = VaultModel(store: rig.store, authenticator: auth, defaults: rig.defaults,
                                clock: { VaultLockTests.t0 }, copyToPasteboard: { _ in Issue.record("a number was copied") })
         auth.model = model
-        model.people = [Person(id: "divit", displayName: "Divit")]
+        model.people = [Person(id: "tobias", displayName: "Tobias")]
         await model.opened()
         try #require(model.contents == .loaded && model.entries.count == 1, "loaded with no proof")
         #expect(await model.copy(entry.id) == false, "Copy")
@@ -107,14 +107,14 @@ import Testing
     /// numbers stay let go); a route's own look is tested with the numbers back, below.
     @Test func aProofAnsweredAfterALockDoesNothing() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
-        let entry = VaultEntry(title: "Passport", value: "Z0000009", personID: "divit", addedAt: VaultLockTests.t0)
+        let entry = VaultEntry(title: "Passport", value: "Z0000009", personID: "tobias", addedAt: VaultLockTests.t0)
         try rig.seed([entry])
         rig.auth.answer = .allowed
         let auth = LocksWhileAsked()
         let model = VaultModel(store: rig.store, authenticator: auth, defaults: rig.defaults,
                                clock: { VaultLockTests.t0 }, copyToPasteboard: { _ in Issue.record("a number was copied") })
         auth.model = model
-        model.people = [Person(id: "divit", displayName: "Divit")]
+        model.people = [Person(id: "tobias", displayName: "Tobias")]
         await model.opened()
         // It asks as it opens, and the proof locks it.
         let vault = try Data(contentsOf: rig.store.fileURL)

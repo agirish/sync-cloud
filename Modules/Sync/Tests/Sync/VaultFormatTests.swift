@@ -17,18 +17,21 @@ import Testing
 
     /// Each committed file's SHA-256, so a deleted one made again by today's build (which would
     /// pin nothing) is caught.
+    /// Pinned. `vault-format-6` and `vault-document-format-1` were made again once (2026-11-26):
+    /// they held what may have been a real passport number, in a public repository; only that
+    /// value changed, the shape is the same.
     static let fixtureDigests = [
         "vault-format-1": "395698fe0a1221661a3ef299c63cafb1056199e4253f4d31e96d3d61ab9a0b54",
         "vault-format-2": "aea993a8c3a1cd21082df06d4699e95b6eafa41471ef6819d77b8a179b91429f",
         "vault-format-3": "e2e8d9e15b4adcaca37e933dce570e16534c552bef2e11e71784fc66b1213087",
         "vault-format-4": "0627c70c3f49fb757de21e766d7e48257ab4863ec609012763bf813b00ea0907",
         "vault-format-5": "4b3ef709c521bbeb34fbd01a90465cbf5a212555719f24ccc82385a3f890c53b",
-        "vault-format-6": "9bd4934791f065fac32adc82dd8557b9dacfad3f948709a5d2344416ec678a32",
+        "vault-format-6": "84e3885fcc67311f2bb67c64a4ec8777c4aeefe31ff7fac536e2e9071d76a6d8",
         "vault-reading-format-1": "dfea3a1d18ce338ad86da7357d860940c0916df3be5c7d675ac6c586563b2e01",
         "vault-reading-format-2": "d9d2f4c085a4949f0aa6f911897b9602d7ab1132afd5e1e964dc118b349a5aba",
         "vault-backup-format-1": "e8804f03ce79d39910a34e70e60fedb212c86ce50019c09aaa9ddbd36633735b",
         "vault-activity-format-1": "f71977411a8302757bc866c370ae41786dbc1d76ec1d818f525d1bd445eb1232",
-        "vault-document-format-1": "54747d5f9c74d3bfd12ad4409d22f7a2b818b316cbd1df75b34a6909f6f3a574",
+        "vault-document-format-1": "3b24e3770bb5e5d00f17ade46ca421e46e35f6c0617d879ace371fb160c34b34",
         "vault-cache-format-1": "1aa44b8e93806ce9d71ff0bacc8ca88657611e40c5550cd7bb821cba0546e860",
     ]
 
@@ -216,7 +219,7 @@ import Testing
 
     static func formatEntries6() throws -> [VaultEntry] {
         var entries = try formatEntries5()
-        entries[1].notFields = ["111111111", "9416925"]
+        entries[1].notFields = ["111111111", "7531864"]
         return entries
     }
 
@@ -428,7 +431,7 @@ import Testing
 
         let entries = try Self.migrated("vault-format-6", reading: "vault-reading-format-2").entries()
         #expect(entries == records.entries)
-        #expect(entries[1].notFields == ["111111111", "9416925"])
+        #expect(entries[1].notFields == ["111111111", "7531864"])
     }
 
     @Test func theFifthFormatStillOpensAndMigrates() throws {
@@ -1058,7 +1061,7 @@ import Testing
         let key = SymmetricKey(data: try #require(keychain.itemData))
         var object = try #require(JSONSerialization.jsonObject(with: VaultFile.openPlain(
             Data(contentsOf: store.readingURL), marker: VaultFile.readingMarker, with: key)) as? [String: Any])
-        object["names"] = ["DLVITGIRISH": ["name": "Divit Girish", "since": 2027]]   // a later shape
+        object["names"] = ["TOBLASLINDQVIST": ["name": "Tobias Lindqvist", "since": 2027]]   // a later shape
         try VaultFile.sealPlain(JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
                                 marker: VaultFile.readingMarker, with: key).write(to: store.readingURL)
 
@@ -1068,7 +1071,7 @@ import Testing
         try store.saveReading(state)
         let after = try #require(JSONSerialization.jsonObject(with: VaultFile.openPlain(
             Data(contentsOf: store.readingURL), marker: VaultFile.readingMarker, with: key)) as? [String: Any])
-        #expect((after["names"] as? [String: Any])?["DLVITGIRISH"] != nil, "the names were sealed empty")
+        #expect((after["names"] as? [String: Any])?["TOBLASLINDQVIST"] != nil, "the names were sealed empty")
         #expect(after["generation"] as? Int == 9)
         // One name corrected here keeps the rest a later build wrote.
         state = try #require(store.loadReading())
@@ -1076,14 +1079,14 @@ import Testing
         try store.saveReading(state)
         let both = try #require(JSONSerialization.jsonObject(with: VaultFile.openPlain(
             Data(contentsOf: store.readingURL), marker: VaultFile.readingMarker, with: key)) as? [String: Any])
-        #expect((both["names"] as? [String: Any])?.keys.sorted() == ["ANNAERIKSSON", "DLVITGIRISH"])
+        #expect((both["names"] as? [String: Any])?.keys.sorted() == ["ANNAERIKSSON", "TOBLASLINDQVIST"])
         // Opened again, the name set here reads; the later one is still carried.
         let reopened = try #require(store.loadReading())
         #expect(reopened.names["ANNAERIKSSON"] == "Anna Eriksson", "a name set here was lost beside a later one")
         try store.saveReading(reopened)
         let again = try #require(JSONSerialization.jsonObject(with: VaultFile.openPlain(
             Data(contentsOf: store.readingURL), marker: VaultFile.readingMarker, with: key)) as? [String: Any])
-        #expect((again["names"] as? [String: Any])?.keys.sorted() == ["ANNAERIKSSON", "DLVITGIRISH"])
+        #expect((again["names"] as? [String: Any])?.keys.sorted() == ["ANNAERIKSSON", "TOBLASLINDQVIST"])
     }
 
     /// A disk that will not give a file's bytes, though the file is there.
@@ -1454,17 +1457,17 @@ import Testing
                                clock: { VaultFormatTests.day }, copyToPasteboard: { _ in })
         await model.opened()
         await model.readDocuments(with: VaultAccountModelTests.PlannedDocuments(pages: [
-            "/Users/anna/Documents/Health/Dental/ID Cards/card.pdf": ["Delta Dental", "Member Name: DLVIT GIRISH", "Member ID: XZB123456789"],
+            "/Users/anna/Documents/Health/Dental/ID Cards/card.pdf": ["Delta Dental", "Member Name: TOBLAS LINDQVIST", "Member ID: XZB123456789"],
         ]))
         let find = try #require(model.finds.first { $0.value == "XZB123456789" })
         var draft = model.prepared(VaultModel.Draft(find))
-        draft.holderName = "Divit Girish"
+        draft.holderName = "Tobias Lindqvist"
         draft.correctEverywhere = true
         let id = try #require(model.confirm(find.id, as: draft))
 
         let again = rig.model()
         await again.opened()
-        #expect(again.entries.first { $0.id == id }?.holderName == "Divit Girish", "the typed name was lost")
+        #expect(again.entries.first { $0.id == id }?.holderName == "Tobias Lindqvist", "the typed name was lost")
     }
 
     /// With no key in the Keychain, a reading file is one this Mac cannot open, not a fresh

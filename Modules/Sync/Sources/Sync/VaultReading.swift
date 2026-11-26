@@ -230,13 +230,13 @@ public enum VaultReading {
         read(pages: [lines], from: path).finds
     }
 
-    /// A name as two readings of it are compared: its words, letters only, lower case. "SHWETA
-    /// RAVINDRA DANT" and "Shweta Ravindra Dant" are one reading; "…Dani" is another.
+    /// A name as two readings of it are compared: its words, letters only, lower case. "SIGRID
+    /// LINNEA BERQ" and "Sigrid Linnea Berq" are one reading; "…Berg" is another.
     public static func spellingKey(_ name: String) -> String {
         letterWords(name).joined(separator: " ")
     }
 
-    /// A name's words, letters only, lower case: "O'Brien-Dant, Anna" is o, brien, dant, anna.
+    /// A name's words, letters only, lower case: "O'Brien-Berq, Anna" is o, brien, berq, anna.
     static func letterWords(_ name: String) -> [String] {
         name.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
     }

@@ -66,12 +66,12 @@ import Testing
     @Test func aFirstNameMisreadByOneLetterIsStillOnePerson() {
         let born = VaultFixtures.day(1988, 3, 4)
         let s = VaultStandingsTests.self
-        let old = s.input("P0", .passport, born: born, holder: "Abhlshek Girish", issuer: "IND",
+        let old = s.input("P0", .passport, born: born, holder: "Henrlk Lindqvist", issuer: "IND",
                           dated: s.day(2022, 5, 16), until: s.day(2022, 5, 16))
-        let new = s.input("P1", .passport, born: born, holder: "Abhishek Girish", issuer: "IND",
+        let new = s.input("P1", .passport, born: born, holder: "Henrik Lindqvist", issuer: "IND",
                           dated: s.day(2032, 5, 16), until: s.day(2032, 5, 16))
         #expect(s.tabs([old, new]) == [.archive, .current])
-        #expect(VaultPeopleClusters.sameFirstName("g", "girish"))
+        #expect(VaultPeopleClusters.sameFirstName("l", "lindqvist"))
         #expect(!VaultPeopleClusters.sameFirstName("liv", "nils"))
         #expect(!VaultPeopleClusters.sameFirstName("anna", "erik"))
     }

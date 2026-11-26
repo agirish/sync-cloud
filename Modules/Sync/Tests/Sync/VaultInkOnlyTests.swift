@@ -57,11 +57,11 @@ import Testing
     /// The ink alone keeps the card's background small print too, which a scan misreads: that
     /// line ends the name as the signature does, rather than joining it.
     @Test func aCardsSmallPrintMisreadEndsTheName() {
-        let card = ["THIS NUMBER HAS BEEN ESTABLISHED FOR", "DIVIT", "ABHISHEK", "ICA SDCIAL SEGURITY", "SIGNATURE"]
-        #expect(VaultReading.cardName(card) == "Divit Abhishek")
-        #expect(VaultReading.cardName(["THIS NUMBER HAS BEEN ESTABLISHED FOR", "SHWETA RAVINDRA", "DANI", "SIGNATURE"])
-                == "Shweta Ravindra Dani")
-        #expect(VaultReading.holdsMisreadCardWord("UNITED STATEE") && !VaultReading.holdsMisreadCardWord("SHWETA RAVINDRA"))
+        let card = ["THIS NUMBER HAS BEEN ESTABLISHED FOR", "TOBIAS", "HENRIK", "ICA SDCIAL SEGURITY", "SIGNATURE"]
+        #expect(VaultReading.cardName(card) == "Tobias Henrik")
+        #expect(VaultReading.cardName(["THIS NUMBER HAS BEEN ESTABLISHED FOR", "SIGRID LINNEA", "BERG", "SIGNATURE"])
+                == "Sigrid Linnea Berg")
+        #expect(VaultReading.holdsMisreadCardWord("UNITED STATEE") && !VaultReading.holdsMisreadCardWord("SIGRID LINNEA"))
     }
 
     @Test func theInkAloneMayNotKnowLess() {

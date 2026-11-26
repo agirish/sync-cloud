@@ -37,7 +37,7 @@ import Testing
         entry.notOn = ["1024-" + String(repeating: "ef", count: 32)]
         entry.fields = [VaultDetail("RxBIN", .text("610502")), VaultDetail("Payer ID", .number("60054")),
                         VaultDetail("Renewed", .date(day))]
-        entry.notFields = ["111111111", "9416925"]
+        entry.notFields = ["111111111", "7531864"]
         return entry
     }
 

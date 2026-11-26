@@ -263,10 +263,10 @@ import Testing
         #expect(VaultReading.accountIssuer(root + "Home/Insurance/Policy/a.pdf") == "Insurance")
         #expect(VaultReading.accountIssuer(root + "Vehicles/a.pdf") == nil)
         // A person's folder says whose the card is, never who issued it.
-        let people = [Person(id: "shweta", displayName: "Shweta"), Person(id: "liv", displayName: "Liv")]
-        #expect(VaultReading.accountIssuer(root + "Health/Medical/Shweta/ID Cards/a.pdf", people: people) == "Medical")
+        let people = [Person(id: "sigrid", displayName: "Sigrid"), Person(id: "liv", displayName: "Liv")]
+        #expect(VaultReading.accountIssuer(root + "Health/Medical/Sigrid/ID Cards/a.pdf", people: people) == "Medical")
         #expect(VaultReading.accountIssuer(root + "School/US/Twin Creeks/Liv/a.pdf", people: people) == "Twin Creeks")
-        #expect(VaultReading.accountIssuer(root + "Health/Shweta/a.pdf", people: people) == nil)
+        #expect(VaultReading.accountIssuer(root + "Health/Sigrid/a.pdf", people: people) == nil)
     }
 
     @Test func theHolderIsReadOnlyBesideALabelForAPerson() {

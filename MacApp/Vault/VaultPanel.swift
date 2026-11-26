@@ -1357,7 +1357,7 @@ struct VaultCard: View {
         item.people.map { id in people.first { $0.id == id }?.displayName ?? "Someone no longer in People" }
     }
 
-    /// "Abhishek, Shweta · From 4 IDs · Oct 2026", or "Shweta · Mobile · From you".
+    /// "Henrik, Sigrid · From 4 IDs · Oct 2026", or "Sigrid · Mobile · From you".
     static func contactSubtitle(_ item: VaultContactCard.Item, names: [String]) -> String {
         var parts = [names.joined(separator: ", ")]
         // A search shows past addresses on Current too: each says so.
@@ -1591,7 +1591,7 @@ struct VaultCard: View {
         }
     }
 
-    /// "2841 Larkspur Lane is not Abhishek’s or Shweta’s home?", and the like.
+    /// "2841 Larkspur Lane is not Henrik’s or Sigrid’s home?", and the like.
     static func contactRemoveQuestion(_ item: VaultContactCard.Item, names: [String]) -> String {
         if let phone = item.phone, !phone.rows.isEmpty {
             return "\(phone.shown) is not \(ListFormatter.localizedString(byJoining: names))’s phone? The papers stay; it is no longer shown as theirs."
@@ -3857,7 +3857,7 @@ struct VaultCard: View {
         .onChange(of: shown) { _, now in if !now { mergingFrom = nil } }
     }
 
-    /// "This is Abhishek’s Aetna · Member ID, already in the Vault. It can’t be added as Shweta’s
+    /// "This is Henrik’s Aetna · Member ID, already in the Vault. It can’t be added as Sigrid’s
     /// too.": an ID the editor will not add again. `whose` is the saved one's person, `other`
     /// the editor's when that is someone else.
     static func alreadySavedLine(title: String, whose: String?, as other: String?) -> String {

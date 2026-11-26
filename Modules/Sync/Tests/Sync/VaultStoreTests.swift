@@ -18,14 +18,14 @@ import Testing
         let keychain = VaultFakeKeychain()
         let store = VaultStore(fileURL: scratch.fileURL, keychain: keychain)
         let entries = [Self.entry("Mortgage loan number", "0482917365"),
-                       Self.entry("Health plan member ID", "XEH482917365", person: "shweta")]
+                       Self.entry("Health plan member ID", "XEH482917365", person: "sigrid")]
 
         try store.save(entries)
         #expect(try store.load() == entries)
 
         let bytes = try Data(contentsOf: scratch.fileURL)
         #expect(bytes.prefix(8) == Data("SCVAULT1".utf8))
-        for secret in ["0482917365", "XEH482917365", "Mortgage", "shweta", "A note"] {
+        for secret in ["0482917365", "XEH482917365", "Mortgage", "sigrid", "A note"] {
             #expect(bytes.range(of: Data(secret.utf8)) == nil, "\(secret) is readable in the sealed file")
         }
         let mode = try FileManager.default.attributesOfItem(atPath: scratch.fileURL.path)[.posixPermissions] as? Int

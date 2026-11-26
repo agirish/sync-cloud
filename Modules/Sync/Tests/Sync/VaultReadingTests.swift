@@ -114,7 +114,7 @@ import Testing
     }
 
     @Test func aCharacterVisionCouldNotReadIsFilledOnlyWhenTheChecksAgreeOnOne() throws {
-        let lines = Self.zone("P", number: "U5054030", born: "850514", expires: "330601", given: "SHWETA")
+        let lines = Self.zone("P", number: "U5054030", born: "850514", expires: "330601", given: "SIGRID")
         // A digit of the expiry read as "~", as on a real scan.
         var garbled = Array(lines[1])
         garbled[24] = "~"
@@ -133,7 +133,7 @@ import Testing
     @Test func anIndianPassportsLeadingLetterReadAsADigitIsReadAsTheLetter() throws {
         for (letter, digit) in [("G", "6"), ("L", "1"), ("U", "0")] {
             let lines = Self.zone("P", number: "\(letter)1234567", born: "850514", expires: "330601",
-                                  given: "SHWETA", country: "IND")
+                                  given: "SIGRID", country: "IND")
             var misread = Array(lines[1])
             misread[0] = Character(digit)
             let zone = try #require(MachineZone.read([lines[0], String(misread)]), "\(letter)")
@@ -141,7 +141,7 @@ import Testing
             #expect(zone.recovery == .swap)
         }
         // With a character Vision could not read as well: filled, and the letter put back.
-        let lines = Self.zone("P", number: "L1234567", born: "850514", expires: "330601", given: "SHWETA", country: "IND")
+        let lines = Self.zone("P", number: "L1234567", born: "850514", expires: "330601", given: "SIGRID", country: "IND")
         var garbled = Array(lines[1])
         garbled[0] = "1"
         garbled[24] = "~"
@@ -197,7 +197,7 @@ import Testing
     }
 
     @Test func aStrayCharacterBetweenFieldsIsDroppedAndAnOddLetterInADateFilled() throws {
-        let lines = Self.zone("P", number: "Z1234567", born: "550312", expires: "310704", given: "GIRISH", country: "IND")
+        let lines = Self.zone("P", number: "Z1234567", born: "550312", expires: "310704", given: "LINDQVIST", country: "IND")
         // Vision put a "-" after the birth date's check digit, making the line 45 long.
         var long = Array(lines[1])
         long.insert("-", at: 20)
@@ -211,12 +211,12 @@ import Testing
         two[0] = "2"
         #expect(MachineZone.read([lines[0], String(two)])?.number == "Z1234567")
         // Not for another country's passport, whose number may well start with a digit.
-        let other = Self.zone("P", number: "Z1234567", born: "550312", expires: "310704", given: "GIRISH")
+        let other = Self.zone("P", number: "Z1234567", born: "550312", expires: "310704", given: "LINDQVIST")
         var otherTwo = Array(other[1])
         otherTwo[0] = "2"
         #expect(MachineZone.read([other[0], String(otherTwo)]) == nil)
         // A date's 6 read as a B, which the look-alike table fixes to the wrong digit (8).
-        let six = Self.zone("P", number: "Z1234567", born: "550312", expires: "360704", given: "GIRISH", country: "IND")
+        let six = Self.zone("P", number: "Z1234567", born: "550312", expires: "360704", given: "LINDQVIST", country: "IND")
         var bee = Array(six[1])
         bee[22] = "B"
         #expect(MachineZone.read([six[0], String(bee)])?.expires == Self.day(2036, 7, 4))
@@ -225,13 +225,13 @@ import Testing
     @Test func theDocumentReadFromIsTheOneFiledWhereItsKindLives() {
         var facts = VaultReadFacts(category: .passport)
         let page = "Passport photo page"
-        facts.add(VaultSource(path: "/D/Immigration/H-1B/Petition/Supporting Documents/Passport/Shweta Passport.pdf", role: page, rank: 40))
-        facts.add(VaultSource(path: "/D/Immigration/Passport/Shweta/Archive/Passport Old.pdf", role: page, rank: 40))
-        facts.add(VaultSource(path: "/D/Immigration/Passport/Shweta/Passport - Shweta.pdf", role: page, rank: 40))
-        facts.add(VaultSource(path: "/D/Immigration/Form I-94/Shweta/I-94.pdf", role: "I-94", rank: 10))
-        #expect(facts.primary?.path == "/D/Immigration/Passport/Shweta/Passport - Shweta.pdf")
+        facts.add(VaultSource(path: "/D/Immigration/H-1B/Petition/Supporting Documents/Passport/Sigrid Passport.pdf", role: page, rank: 40))
+        facts.add(VaultSource(path: "/D/Immigration/Passport/Sigrid/Archive/Passport Old.pdf", role: page, rank: 40))
+        facts.add(VaultSource(path: "/D/Immigration/Passport/Sigrid/Passport - Sigrid.pdf", role: page, rank: 40))
+        facts.add(VaultSource(path: "/D/Immigration/Form I-94/Sigrid/I-94.pdf", role: "I-94", rank: 10))
+        #expect(facts.primary?.path == "/D/Immigration/Passport/Sigrid/Passport - Sigrid.pdf")
         #expect(facts.orderedSources.map { ($0.path as NSString).lastPathComponent }
-                == ["Passport - Shweta.pdf", "Passport Old.pdf", "Shweta Passport.pdf", "I-94.pdf"])
+                == ["Passport - Sigrid.pdf", "Passport Old.pdf", "Sigrid Passport.pdf", "I-94.pdf"])
     }
 
     @Test func aPassportFindSaysWhoItNamesAndWhenItLapses() throws {

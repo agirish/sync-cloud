@@ -72,7 +72,7 @@ extension VaultReading {
     ]
 
     /// A line that is a person's name and nothing else: letters, at least two words of two letters,
-    /// none of them a card's printing. Title-cased: "SHWETA RAVINDRA DANI" → "Shweta Ravindra Dani".
+    /// none of them a card's printing. Title-cased: "SIGRID LINNEA BERG" → "Sigrid Linnea Berg".
     static func nameOnly(_ line: String) -> String? {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, trimmed.allSatisfy({ ($0.isLetter && $0.isASCII) || $0 == " " || $0 == "." }) else { return nil }

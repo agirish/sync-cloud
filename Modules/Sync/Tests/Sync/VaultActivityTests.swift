@@ -21,7 +21,7 @@ import Testing
     @Test func whatIsDoneIsListedNewestFirstByNameAndOwner() async throws {
         let (rig, activity, model) = try Self.rig(); defer { rig.cleanUp() }
         try rig.seed([Self.mortgage, Self.passport])
-        model.people = [Person(id: "abhishek", displayName: "Anna")]
+        model.people = [Person(id: "henrik", displayName: "Anna")]
         await model.opened()
         rig.clock.advance(1)
         #expect(await model.copy(Self.passport.id))
@@ -123,7 +123,7 @@ import Testing
     @Test func eachChoiceAboutAnIDIsListed() async throws {
         let (rig, activity, model) = try Self.rig(); defer { rig.cleanUp() }
         try rig.seed([Self.mortgage, Self.passport])
-        model.people = [Person(id: "abhishek", displayName: "Anna"), Person(id: "erik", displayName: "Erik")]
+        model.people = [Person(id: "henrik", displayName: "Anna"), Person(id: "erik", displayName: "Erik")]
         await model.opened()
         model.pin(Self.mortgage.id, .older)
         model.assign(Self.mortgage.id, to: .person("erik"))
@@ -171,9 +171,9 @@ import Testing
     @Test func copyingAPersonsIDsOrBirthDateIsListedAsTheirs() async throws {
         let (rig, activity, model) = try Self.rig(); defer { rig.cleanUp() }
         try rig.seed([Self.passport])
-        model.people = [Person(id: "abhishek", displayName: "Anna")]
+        model.people = [Person(id: "henrik", displayName: "Anna")]
         await model.opened()
-        let section = try #require(model.peopleSections.first { $0.id == .person("abhishek") })
+        let section = try #require(model.peopleSections.first { $0.id == .person("henrik") })
         #expect(await model.copyPerson(section.id, numbers: false))
         #expect(await model.copyPerson(section.id, numbers: true))
         #expect(await model.copyBirth(Date(timeIntervalSince1970: 0), in: section))

@@ -133,14 +133,14 @@ import Testing
     static let dental = root + "/Health/Dental/ID Cards/card.pdf"
     static let scan = root + "/Health/Dental/ID Cards/scan.pdf"
     static let pages: [String: [String]] = [
-        dental: ["Member Name: DLVIT GIRISH", "Member ID: XZB123456789"],
-        scan: ["Member Name: DIVIT GIRISH", "Member ID: XZB123456789"],
+        dental: ["Member Name: TOBLAS LINDQVIST", "Member ID: XZB123456789"],
+        scan: ["Member Name: TOBIAS LINDQVIST", "Member ID: XZB123456789"],
     ]
 
     static func model(_ rig: Rig) async -> VaultModel {
         VaultReadFolders.add(root, in: rig.defaults)
         let model = rig.model()
-        model.people = [Person(id: "divit", displayName: "Divit")]
+        model.people = [Person(id: "tobias", displayName: "Tobias")]
         await model.opened()
         await model.readDocuments(with: PlannedDocuments(pages: pages))
         return model
@@ -159,7 +159,7 @@ import Testing
         model.readFrom(before.id, copy: Self.scan)
         let chosen = try Self.row(model)
         #expect(chosen.chosenSource == Self.scan && chosen.facts?.primary?.path == Self.scan)
-        #expect(chosen.facts?.holder == "Divit Girish" && chosen.personID == "divit", "the chosen copy's name, and whose it matches")
+        #expect(chosen.facts?.holder == "Tobias Lindqvist" && chosen.personID == "tobias", "the chosen copy's name, and whose it matches")
         #expect(chosen.appSource == Self.dental, "the Vault's own pick is kept for where it is filed")
         #expect(chosen.standing == before.standing && chosen.card == before.card && chosen.facts?.dated == before.facts?.dated)
         // Read again: kept.
@@ -168,11 +168,11 @@ import Testing
         // Confirmed: kept, and Edit compares against the name it shows as read.
         let find = try #require(model.finds.first { $0.value == "XZB123456789" })
         let draft = model.prepared(VaultModel.Draft(find), for: find.id)
-        #expect(draft.facts?.holder == "Divit Girish")
+        #expect(draft.facts?.holder == "Tobias Lindqvist")
         let saved = try #require(model.confirm(find.id, as: draft))
         #expect(model.entries.first { $0.id == saved }?.chosenSource == Self.scan)
         let row = try Self.row(model)
-        #expect(row.chosenSource == Self.scan && row.facts?.holder == "Divit Girish" && row.ownHolderName == nil,
+        #expect(row.chosenSource == Self.scan && row.facts?.holder == "Tobias Lindqvist" && row.ownHolderName == nil,
                 "saved unchanged, no name of its own")
         // Closed and opened: kept.
         model.closed()
@@ -182,8 +182,8 @@ import Testing
         model.readFrom(saved, copy: nil)
         let back = try Self.row(model)
         #expect(back.chosenSource == nil && back.facts?.primary?.path == Self.dental && back.sourceChoices == [Self.scan])
-        #expect(back.facts?.holder == "Dlvit Girish", "the name its own copy reads, not the chosen copy's kept from Confirm")
-        #expect(model.entries.first { $0.id == saved }?.facts?.holder == "Dlvit Girish")
+        #expect(back.facts?.holder == "Toblas Lindqvist", "the name its own copy reads, not the chosen copy's kept from Confirm")
+        #expect(model.entries.first { $0.id == saved }?.facts?.holder == "Toblas Lindqvist")
     }
 
     /// The primary is found in one pass (VT66), and is always the ordered list's first: by the
@@ -260,11 +260,11 @@ import Testing
         model.readFrom(saved, copy: Self.scan)
         let entry = try #require(model.entries.first { $0.id == saved })
         var draft = model.prepared(VaultModel.Draft(entry), for: saved)
-        #expect(draft.facts?.holder == "Divit Girish" && draft.holderName == nil)
+        #expect(draft.facts?.holder == "Tobias Lindqvist" && draft.holderName == nil)
         draft.note = "Dental"
         #expect(await model.update(saved, to: draft))
         #expect(model.entries.first { $0.id == saved }?.holderName == nil)
-        #expect(try Self.row(model).facts?.holder == "Divit Girish")
+        #expect(try Self.row(model).facts?.holder == "Tobias Lindqvist")
     }
 
     // MARK: Kept across a change of rules and an older build's files

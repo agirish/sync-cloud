@@ -507,7 +507,7 @@ struct VaultFolderReader: VaultDocumentReading {
 
     /// `image` in its ink alone, when it is on colored paper: every pixel dark and grey (ink)
     /// black, every other white. Nil for a page that is not colored, which is never read this
-    /// way. The thresholds read DANI, and the card's number, on a Social Security card whose
+    /// way. The thresholds read BERG, and the card's number, on a Social Security card whose
     /// red pattern Vision otherwise reads into the letters.
     static func inkOnly(_ image: CGImage) -> CGImage? {
         guard coloredShare(image) >= coloredPaper else { return nil }

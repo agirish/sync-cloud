@@ -15,12 +15,12 @@ import Testing
         VaultReadFolders.add(VaultNameCorrectionTests.root, in: rig.defaults)
         rig.auth.answer = .allowed
         let model = rig.model()
-        model.people = [Person(id: "divit", displayName: "Divit")]
+        model.people = [Person(id: "tobias", displayName: "Tobias")]
         await model.opened()
         #expect(await model.unlock())
         var pages = VaultNameCorrectionTests.pages
         let copy = VaultNameCorrectionTests.root + "/Health/Dental/ID Cards/copy.pdf"
-        pages[copy] = ["Member Name: DLVIT GIRISH", "Member ID: XZB123456789", "Group Number: 0099999"]
+        pages[copy] = ["Member Name: TOBLAS LINDQVIST", "Member ID: XZB123456789", "Group Number: 0099999"]
         await model.readDocuments(with: VaultAccountModelTests.PlannedDocuments(pages: pages))
         let find = try #require(model.finds.first { $0.value == "XZB123456789" })
         let saved = try #require(model.confirm(find.id, as: VaultModel.Draft(find)))
@@ -31,13 +31,13 @@ import Testing
             #expect(model.rows == model.rowsWorkedOutAfresh, "after \(change) the rows were stale", sourceLocation: sourceLocation)
         }
         check("the read")
-        model.people = [Person(id: "divit", displayName: "Divit", fullNames: ["Dlvit Girish"])];   check("a change of people")
+        model.people = [Person(id: "tobias", displayName: "Tobias", fullNames: ["Toblas Lindqvist"])];   check("a change of people")
         model.assign(saved, to: .household);                                                       check("Belongs to")
         model.pin(saved, .older);                                                                  check("a pin")
         model.setGeo(saved, to: .india);                                                           check("a country")
         model.setKind(saved, to: .builtIn(.utilities));                                            check("a kind")
         model.readFrom(saved, copy: copy);                                                         check("Read from This Copy")
-        model.assign(waiting.id, to: .person("divit"));                                            check("a waiting ID's owner")
+        model.assign(waiting.id, to: .person("tobias"));                                            check("a waiting ID's owner")
         model.setGeo(waiting.id, to: .us);                                                         check("a waiting ID's country")
         let kind = try #require(model.addKind(named: "Dental plans"));                             check("a kind added")
         model.setKind(waiting.id, to: kind);                                                       check("a waiting ID's kind")
@@ -52,10 +52,10 @@ import Testing
         if case .custom(let id) = gym { fewer.custom.removeAll { $0.id == id } }
         model.setKinds(fewer);                                                                     check("a kind a row is on removed")
         var edit = model.prepared(VaultModel.Draft(try #require(model.entries.first { $0.id == saved })), for: saved)
-        edit.holderName = "Divit Girish"
+        edit.holderName = "Tobias Lindqvist"
         edit.correctEverywhere = true
         #expect(await model.update(saved, to: edit));                                              check("a name corrected everywhere")
-        _ = model.setRole(.misread, of: "Dlvit Girish", for: "divit");                             check("a Misread")
+        _ = model.setRole(.misread, of: "Toblas Lindqvist", for: "tobias");                             check("a Misread")
         model.setAside(waiting.id);                                                                check("Not This")
         // A document gone from where it was, found so by a refresh.
         pages[copy] = nil

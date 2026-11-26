@@ -367,7 +367,7 @@ import Testing
         #expect(VaultNameGuess.looksMisread(Name(name: "Anna Maria Ericson", on: ["visa"]), legal: "Anna Maria Eriksson"), "two letters")
         #expect(!VaultNameGuess.looksMisread(Name(name: "Ana Mariah Ericsson", on: ["visa"]), legal: "Anna Maria Eriksson"), "four letters")
         #expect(!VaultNameGuess.looksMisread(Name(name: "Anna Maria Ericsson", on: ["visa", "I-94"]), legal: "Anna Maria Eriksson"), "two papers agree")
-        #expect(VaultNameGuess.distance(Array("dant"), Array("dani")) == 1)
+        #expect(VaultNameGuess.distance(Array("berq"), Array("berg")) == 1)
     }
 
     /// VT100: spellings that differ only in punctuation, spaces or case are one name to the Vault

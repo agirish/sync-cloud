@@ -45,7 +45,7 @@ extension VaultReading {
             let raw = label.map(trimmedWord).filter { !$0.isEmpty }
             let words = labelWords(raw)
             // "Group Number" is cut back to "Number": what it is comes from the words before.
-            // A letter alone is no label: it is a number's first letter, read apart ("V 9416925").
+            // A letter alone is no label: it is a number's first letter, read apart ("V 7531864").
             guard !words.isEmpty, !(words.count == 1 && words[0].count == 1 && words[0].allSatisfy(\.isLetter)),
                   !isNotIDLabel(Array(raw.suffix(3))), code || isID(value), seen.insert(normalized(value)).inserted else { return }
             out.append(VaultCardValue(label: words.joined(separator: " "), value: value))

@@ -14,34 +14,34 @@ import Testing
     // MARK: What a card prints
 
     @Test func aDependentsCardGivesBothIDsAndNoGroupDatePhoneOrAmount() {
-        let card = ["Aetna", "Member Name: SHWETA DANI", "Member ID: W288319122", "Subscriber ID: W288319115",
-                    "Group Number: 0012345", "RxBIN 610014 RxPCN ADV RxGRP RX1234", "Effective 01/01/2025",
+        let card = ["Aetna", "Member Name: SIGRID BERG", "Member ID: W246813572", "Subscriber ID: W135724681",
+                    "Group Number: 2468135", "RxBIN 864209 RxPCN ADV RxGRP RX1234", "Effective 01/01/2025",
                     "Customer Service 1-800-555-0142", "Copay $25 ER $250"]
-        #expect(Self.values(card) == [Self.pair("Member ID", "W288319122"), Self.pair("Subscriber ID", "W288319115"),
-                                      Self.pair("RxBIN", "610014"), Self.pair("RxPCN", "ADV")])
+        #expect(Self.values(card) == [Self.pair("Member ID", "W246813572"), Self.pair("Subscriber ID", "W135724681"),
+                                      Self.pair("RxBIN", "864209"), Self.pair("RxPCN", "ADV")])
     }
 
     @Test func aPhoneNumberPrintedInGroupsIsLeftOut() {
         #expect(Self.values(["Customer Service 1 (800) 555-0142"]).isEmpty)
         #expect(Self.values(["Member Services 800 555 0142"]).isEmpty)
         #expect(Self.values(["Pharmacy Help Desk 1 800 555 0142"]).isEmpty)
-        #expect(Self.values(["Member Services (800) 555-0142 Member ID W288319122"]) == [Self.pair("Member ID", "W288319122")])
+        #expect(Self.values(["Member Services (800) 555-0142 Member ID W246813572"]) == [Self.pair("Member ID", "W246813572")])
         // An account number in groups of four is not one.
         #expect(Self.values(["Account Number 1234 5678 9012"]) == [Self.pair("Account Number", "1234 5678 9012")])
     }
 
     /// A number's first letter read apart is not its label, and a box filled with one digit is
-    /// nobody's number: a passport page gave "V 9416925" and "ifrf 111111111".
+    /// nobody's number: a passport page gave "V 7531864" and "ifrf 111111111".
     @Test func aLetterAloneIsNoLabelAndOneDigitOverAndOverIsNoValue() {
-        #expect(Self.values(["V 9416925"]).isEmpty)
+        #expect(Self.values(["V 7531864"]).isEmpty)
         #expect(Self.values(["ifrf 111111111"]).isEmpty)
         #expect(Self.values(["Member ID 0000 0000"]).isEmpty)
         #expect(Self.values(["Member ID 1111 1112"]) == [Self.pair("Member ID", "1111 1112")])
-        #expect(Self.values(["ID 9416925"]) == [Self.pair("ID", "9416925")], "a two-letter label stays")
+        #expect(Self.values(["ID 7531864"]) == [Self.pair("ID", "7531864")], "a two-letter label stays")
     }
 
     @Test func aLabelOverItsValueNamesIt() {
-        #expect(Self.values(["Subscriber ID", "W288319115"]) == [Self.pair("Subscriber ID", "W288319115")])
+        #expect(Self.values(["Subscriber ID", "W135724681"]) == [Self.pair("Subscriber ID", "W135724681")])
         #expect(Self.values(["Member #:", "XZB123456789"]) == [Self.pair("Member", "XZB123456789")])
         // A plan's name over a number is no label.
         #expect(Self.values(["Delta Dental", "12345678 PPO"]).isEmpty)
@@ -56,7 +56,7 @@ import Testing
     @Test func twoColumnsReadAsOneLineGiveEachValueItsOwnLabel() {
         #expect(Self.values(["Member ID W28831 Plan Code 4412A"])
                 == [Self.pair("Member ID", "W28831"), Self.pair("Plan Code", "4412A")])
-        #expect(Self.values(["Member ID W28831 Group 0012345"]) == [Self.pair("Member ID", "W28831")])
+        #expect(Self.values(["Member ID W28831 Group 2468135"]) == [Self.pair("Member ID", "W28831")])
     }
 
     @Test func groupsOfDigitsASpaceApartAreOneNumber() {
@@ -65,12 +65,12 @@ import Testing
     }
 
     @Test func aShortOrLetterOnlyValueAndAnUnlabelledNumberAreLeftOut() {
-        #expect(Self.values(["Plan A12", "Plan ADV", "W288319115"]).isEmpty)
+        #expect(Self.values(["Plan A12", "Plan ADV", "W135724681"]).isEmpty)
         // A plan's processor code is letters alone, and is read beside its own label only.
         #expect(Self.values(["RxPCN ADV"]) == [Self.pair("RxPCN", "ADV")])
         #expect(Self.values(["RxPCN A"]).isEmpty)
         // The same value twice is listed once, by its first label.
-        #expect(Self.values(["Member ID W288319122", "ID W288319122"]) == [Self.pair("Member ID", "W288319122")])
+        #expect(Self.values(["Member ID W246813572", "ID W246813572"]) == [Self.pair("Member ID", "W246813572")])
     }
 
     @Test func anUnknownLabelKeepsItsLastTwoWords() {
@@ -81,7 +81,7 @@ import Testing
     // MARK: Read once, kept for its size and date
 
     static let path = "/Documents/Health/Aetna/card.pdf"
-    static let card = ["Aetna", "Member ID: W288319122", "Subscriber ID: W288319115"]
+    static let card = ["Aetna", "Member ID: W246813572", "Subscriber ID: W135724681"]
 
     @Test func aCardIsReadOnceAndAgainOnlyOnceItChanges() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
@@ -89,12 +89,12 @@ import Testing
         await model.opened()
         let shelf = VaultShelf([Self.path: Self.card])
         let first = await model.readCard(Self.path, with: shelf)
-        #expect(first == .read([Self.pair("Member ID", "W288319122"), Self.pair("Subscriber ID", "W288319115")]))
+        #expect(first == .read([Self.pair("Member ID", "W246813572"), Self.pair("Subscriber ID", "W135724681")]))
         #expect(await model.readCard(Self.path, with: shelf) == first)
         #expect(shelf.opened == [Self.path], "an unchanged card was read again")
 
-        shelf.write(Self.path, ["Member ID: W288319122"])
-        #expect(await model.readCard(Self.path, with: shelf) == .read([Self.pair("Member ID", "W288319122")]))
+        shelf.write(Self.path, ["Member ID: W246813572"])
+        #expect(await model.readCard(Self.path, with: shelf) == .read([Self.pair("Member ID", "W246813572")]))
         #expect(shelf.opened.count == 2)
     }
 

@@ -41,7 +41,7 @@ public struct VaultEntry: Sendable, Equatable, Identifiable {
     /// household made. Nil draws it on ``category``'s card, which stays what it was read or typed as.
     public var card: VaultCardID?
     /// The name on its document as the user corrected it (Edit's Name), when the scan misread
-    /// it: "Shweta Ravindra Dani" for a card read as "…Dant". What was read stays in ``facts``.
+    /// it: "Sigrid Linnea Berg" for a card read as "…Berq". What was read stays in ``facts``.
     public var holderName: String?
     /// The copy of its document the user chose to read it from (Read from This Copy), by path,
     /// when another copy of the same document would be: its name and details are shown, and it
@@ -238,7 +238,7 @@ public enum VaultMask {
                 masked = masked.replacingOccurrences(of: piece, with: Self.masked(piece, keep: keep))
             }
             // Digit groups, and a short capital prefix such as "WAC", join into one stretch; a word
-            // mixing letters and digits ("V9416925", "797A") is judged on its own.
+            // mixing letters and digits ("V7531864", "797A") is judged on its own.
             // Two separators side by side ("123 - 45") leave an empty word between them, which
             // neither ends a stretch nor belongs to one.
             var last = 0

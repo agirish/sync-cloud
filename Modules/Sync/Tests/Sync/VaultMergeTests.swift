@@ -56,8 +56,8 @@ import Testing
         #expect(family.mergeSuggestion(for: sibling) == nil)
 
         let other = try Rig(); defer { other.cleanUp() }
-        let (named, _, shweta) = try await Self.rig(other, name: "SHWETA DANI")
-        #expect(named.mergeSuggestion(for: shweta) == nil, "the cards print different names")
+        let (named, _, sigrid) = try await Self.rig(other, name: "SIGRID BERG")
+        #expect(named.mergeSuggestion(for: sigrid) == nil, "the cards print different names")
     }
 
     @Test func anotherPersonsSavedIDIsNoCandidate() async throws {

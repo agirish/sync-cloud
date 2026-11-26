@@ -263,9 +263,9 @@ extension VaultReading {
     ]
 
     /// Who issued the account, as the household's folders name it: the last folder below the
-    /// area that is neither a year (or a year's folder, "2023 - Girish"), a kind of paper, nor one
+    /// area that is neither a year (or a year's folder, "2023 - Lindqvist"), a kind of paper, nor one
     /// of the household's people ("EBMUD" in `Home/Utilities/EBMUD/2024`, "Twin Creeks" in
-    /// `School/US/Twin Creeks/Liv`, "Medical" in `Health/Medical/Shweta/ID Cards`). With none,
+    /// `School/US/Twin Creeks/Liv`, "Medical" in `Health/Medical/Sigrid/ID Cards`). With none,
     /// the folder just below the area ("Insurance" in `Home/Insurance/Policy`); nil when the paper
     /// sits in the area itself.
     static func accountIssuer(_ path: String, under roots: [String] = [], people: [Person] = []) -> String? {

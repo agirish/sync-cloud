@@ -11,8 +11,8 @@ import Testing
 
     static let card = "/Documents/Identity/License/Anna/License.pdf"
     static let filed = "/Documents/Identity/License/Anna/2030/License.pdf"
-    static let relative = "/Documents/Identity/License/Shweta/License.pdf"
-    static let shwetaPage = ["California USA DRIVER LICENSE", "DL D1234567", "EXP 01/02/2031", "LN DANI", "FN SHWETA"]
+    static let relative = "/Documents/Identity/License/Sigrid/License.pdf"
+    static let sigridPage = ["California USA DRIVER LICENSE", "DL D1234567", "EXP 01/02/2031", "LN BERG", "FN SIGRID"]
 
     static func documents(_ pages: [String: [String]]) -> VaultFakeDocuments {
         var documents = VaultFakeDocuments(pages: pages)
@@ -64,7 +64,7 @@ import Testing
         let (model, _) = try await Self.corrected(rig)
         // Another card, other bytes, that really does print D1234567: it is someone's ID.
         await model.readDocuments(with: Self.documents([Self.card: VaultFixtures.licensePage,
-                                                        Self.relative: Self.shwetaPage]))
+                                                        Self.relative: Self.sigridPage]))
         #expect(model.finds.map(\.value) == ["D1234567"])
         #expect(model.finds.first?.facts.sources.map(\.path) == [Self.relative])
     }

@@ -175,7 +175,7 @@ public struct VaultReadPlan: Equatable, Sendable {
     private static let yearInName = try! NSRegularExpression(pattern: #"(?<![0-9])(20[0-9]{2})(?![0-9])"#)
 
     /// What a paper's name says beyond its date and its kind: "PG&E 2024-03 Statement" and
-    /// "PGE_eBill_Apr" are both "pg e"/"pge", and "Kaiser - Shweta" is Kaiser for Shweta. Two
+    /// "PGE_eBill_Apr" are both "pg e"/"pge", and "Kaiser - Sigrid" is Kaiser for Sigrid. Two
     /// papers of one folder with different names are two accounts (a dental, a medical and a vision
     /// card filed side by side); a month's bill and the next month's are one.
     private static let paperWords = try! NSRegularExpression(

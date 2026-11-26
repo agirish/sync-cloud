@@ -377,7 +377,7 @@ import Testing
 
     @Test func aPANCardsFatherIsNotItsHolder() {
         let card = ["INCOME TAX DEPARTMENT", "GOVT. OF INDIA", "Permanent Account Number Card", "ABCPD1234F",
-                    "Father\u{27}s Name", "RAMESH DANI", "Date of Birth", "12/08/1974"]
+                    "Father\u{27}s Name", "RAMESH BERG", "Date of Birth", "12/08/1974"]
         #expect(VaultFixtures.read(card).first?.holder == nil)
     }
 

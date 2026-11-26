@@ -88,7 +88,7 @@ public struct VaultSource: Codable, Equatable, Hashable, Sendable {
     }
 
     /// How fitting a home the file's folders are for a number of `category`, among copies of one
-    /// page: `…/Immigration/Passport/Shweta` for a passport is where it lives; a copy attached to
+    /// page: `…/Immigration/Passport/Sigrid` for a passport is where it lives; a copy attached to
     /// a petition or an application ("Supporting Documents", "Petition", "Evidence") is a copy;
     /// one in an Archive or Backup folder is an old copy, and one not yet filed (TODO, TMP) ranks
     /// below a filed one too.
@@ -346,8 +346,8 @@ struct VaultPeopleClusters {
     static let noName: Set<String> = ["fnu", "lnu", "unk"]
 
     /// Whether two first names read off documents can be one person's: the same; an initial
-    /// and the name it starts ("G" and "Girish"); or one letter misread in a name of four or more
-    /// ("Abhlshek" and "Abhishek"). Twins' names differ by more than that.
+    /// and the name it starts ("L" and "Lindqvist"); or one letter misread in a name of four or more
+    /// ("Henrlk" and "Henrik"). Twins' names differ by more than that.
     static func sameFirstName(_ a: String, _ b: String) -> Bool {
         if a == b { return true }
         if a.count == 1 || b.count == 1 { return a.first == b.first }
@@ -785,7 +785,7 @@ public enum VaultCopies {
     }
 
     /// The name to keep of two read for one number: the one present, and of two that start
-    /// alike, the longer, so "Abhishek" read off a license front gives way to "Abhishek Girish"
+    /// alike, the longer, so "Henrik" read off a license front gives way to "Henrik Lindqvist"
     /// from its barcode.
     static func fuller(_ kept: String?, _ other: String?) -> String? {
         guard let kept else { return other }

@@ -527,8 +527,8 @@ public final class VaultModel: ObservableObject {
     }
 
     /// The person whose folder a document is filed in: the deepest folder below the read folder
-    /// that names one of the household's people and no one else (`Health/Medical/Shweta`, never
-    /// `Visitor Insurance/2021 - Girish, Muktha and Anuraag`). Never a folder above the read
+    /// that names one of the household's people and no one else (`Health/Medical/Sigrid`, never
+    /// `Visitor Insurance/2021 - Lindqvist, Greta and Mattias`). Never a folder above the read
     /// folder: the home folder is named for whoever's Mac it is.
     public nonisolated static func person(inPath path: String, under readFolders: [String], among people: [Person]) -> String? {
         guard !people.isEmpty else { return nil }
@@ -2921,7 +2921,7 @@ public final class VaultModel: ObservableObject {
     }
 
     /// The household person a file naming `row`'s ID is made out to, by name, when that is someone
-    /// other than the ID's own person: "Shweta" for her card printing only the subscriber's ID.
+    /// other than the ID's own person: "Sigrid" for her card printing only the subscriber's ID.
     /// Nil while the ID's person is not known, or the file is its person's own or nobody's.
     public func otherHolder(of path: String, for row: Row) -> String? {
         guard let own = row.personID, !row.isHousehold,
@@ -3770,7 +3770,7 @@ public final class VaultModel: ObservableObject {
     }
 
     /// What More fields offers from `values`, read off a saved ID's card: not the ID itself or a
-    /// piece of it (a passport number read as "V" and "9416925"), not another ID the Vault holds
+    /// piece of it (a passport number read as "V" and "7531864"), not another ID the Vault holds
     /// (a subscriber's on a dependent's card is another person's), nothing its details already
     /// show, and nothing the user dismissed for it.
     public func moreFields(_ values: [VaultCardValue], for id: UUID) -> [VaultCardValue] {

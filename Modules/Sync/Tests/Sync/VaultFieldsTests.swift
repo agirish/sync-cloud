@@ -80,8 +80,8 @@ import Testing
                       VaultCardValue(label: "Box", value: "2462"),
                       VaultCardValue(label: "RxBIN", value: "610502")]
         #expect(model.moreFields(values, for: id).map(\.label) == ["Box", "RxBIN"])
-        #expect(VaultModel.overlaps("V9416925", "9416925"))
-        #expect(!VaultModel.overlaps("V9416925", "9416"), "four characters are too few to say")
+        #expect(VaultModel.overlaps("V7531864", "7531864"))
+        #expect(!VaultModel.overlaps("V7531864", "7531"), "four characters are too few to say")
     }
 
     /// The X beside a value: never offered for that ID again, sealed with it, and Show Dismissed

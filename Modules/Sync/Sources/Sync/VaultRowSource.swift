@@ -261,7 +261,7 @@ struct VaultRowSource {
                 all[index].facts?.holder = match.holder
             }
         }
-        // A paper that prints no name is whoever's folder it is filed in: `Health/Medical/Shweta`.
+        // A paper that prints no name is whoever's folder it is filed in: `Health/Medical/Sigrid`.
         for index in all.indices where all[index].assignment == nil && all[index].personID == nil
             && all[index].facts?.holder == nil {
             if let path = all[index].appSource ?? all[index].facts?.primary?.path,

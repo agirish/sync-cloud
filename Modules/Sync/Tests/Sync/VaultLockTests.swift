@@ -133,9 +133,9 @@ import Testing
 
     static let mortgage = VaultEntry(title: "Mortgage loan number", value: "0482917365", note: "Home loan servicer",
                                      addedAt: VaultLockTests.t0, category: .loans)
-    static let passport = VaultEntry(title: "Passport", value: "A38291647", personID: "abhishek",
+    static let passport = VaultEntry(title: "Passport", value: "A38291647", personID: "henrik",
                                      addedAt: VaultLockTests.t0, category: .passport)
-    static let memberID = VaultEntry(title: "Health plan member ID", value: "XEH482917365", personID: "shweta",
+    static let memberID = VaultEntry(title: "Health plan member ID", value: "XEH482917365", personID: "sigrid",
                                      note: "PPO family plan", addedAt: VaultLockTests.t0, category: .health)
 
     @Test func openingAsksOnceAndThenShowsNumbersInFull() async throws {
@@ -349,8 +349,8 @@ import Testing
 
         #expect(model.count(person: .everyone) == 3)
         #expect(model.count(person: .household) == 1)
-        #expect(model.count(person: .person("shweta")) == 1)
-        model.personFilter = .person("shweta")
+        #expect(model.count(person: .person("sigrid")) == 1)
+        model.personFilter = .person("sigrid")
         #expect(model.visibleRows.map(\.id) == [Self.memberID.id])
         #expect(model.selection == Self.memberID.id)
         model.personFilter = .household

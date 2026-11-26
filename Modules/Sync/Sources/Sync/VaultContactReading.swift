@@ -34,7 +34,7 @@ extension VaultReading {
 
     /// Who in People a line names, and by which words: someone is named by two words of their
     /// names or more ("Anna Eriksson", "ANNA M ERIKSSON"), so a stranger sharing one ("Dr. Anna
-    /// Lee", "Dant Plumbing") is not taken for them. One word names them only in a field of a
+    /// Lee", "Berq Plumbing") is not taken for them. One word names them only in a field of a
     /// name and nothing else ("FN ANNA", "LN ERIKSSON", "First Name: Anna"), as a license's
     /// front prints its names a line each.
     struct NameIndex {

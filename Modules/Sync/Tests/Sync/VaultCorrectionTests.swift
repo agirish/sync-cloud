@@ -176,7 +176,7 @@ import Testing
         await quiet.readDocuments(with: stamped)
         _ = try Self.corrected(quiet, try #require(quiet.finds.first), to: "D1234568")
         var unrelated = VaultReadAsTests.documents([Self.card: VaultFixtures.licensePage, VaultReadAsTests.relative:
-            VaultReadAsTests.shwetaPage.map { $0.replacingOccurrences(of: "D1234567", with: "S7654321") }])
+            VaultReadAsTests.sigridPage.map { $0.replacingOccurrences(of: "D1234567", with: "S7654321") }])
         unrelated.stamps = [Self.card: "1", VaultReadAsTests.relative: "1"]
         await quiet.readDocuments(with: unrelated)
         #expect(quiet.finds.map(\.value) == ["S7654321"])
