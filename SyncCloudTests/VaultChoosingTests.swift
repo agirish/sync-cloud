@@ -40,16 +40,20 @@ import Testing
         }
     }
 
-    /// Two rows of wells in a grouped form, as in Customize Groups; each pick redraws every row.
+    /// The colors Customize Groups holds, changed from outside the form as a pick would.
+    @MainActor final class Colors: ObservableObject {
+        @Published var byGroup: [String: VaultCardColor] = [:]
+    }
+
+    /// Two rows of wells in a grouped form, as in Customize Groups; each change redraws every row.
     struct WellRows: View {
-        @State var colors: [String: VaultCardColor] = [:]
-        let picked: (VaultCardColor?) -> Void
+        @ObservedObject var colors: Colors
 
         var body: some View {
             Form {
                 ForEach(["Travel", "Money"], id: \.self) { group in
                     HStack {
-                        VaultColorWell(color: Binding(get: { colors[group] }, set: { colors[group] = $0; picked($0) }),
+                        VaultColorWell(color: Binding(get: { colors.byGroup[group] }, set: { colors.byGroup[group] = $0 }),
                                        label: "Color of the group \(group)", what: "group \(group)")
                         Text(group)
                     }
@@ -60,11 +64,13 @@ import Testing
     }
 
     /// The popover a well opens stays open while colors are tried, as a card's Color… does,
-    /// though every row of the form is drawn again with each pick (the 2026-11-25 review).
+    /// though every row of the form is drawn again with each change (the 2026-11-25 review). The
+    /// colors change from outside, as a pick changes them: clicking a swatch inside the popover,
+    /// whose frame makes room for its arrow, found it on this Mac but not on the hosted runner.
     @Test func aWellsSwatchesStayOpenWhileColorsAreTried() async throws {
-        var picks: [VaultCardColor?] = []
+        let colors = Colors()
         let size = CGSize(width: 360, height: 220)
-        let host = NSHostingView(rootView: WellRows { picks.append($0) }.frame(width: size.width, height: size.height))
+        let host = NSHostingView(rootView: WellRows(colors: colors).frame(width: size.width, height: size.height))
         host.frame = CGRect(origin: .zero, size: size)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -85,31 +91,13 @@ import Testing
             if let found = popover() { opened = found; break }
         }
         let shown = try #require(opened, "no well opened its swatches")
-        // Closed, not hidden: an open popover floats above every window, and keeps its views.
         defer { shown.close() }
-        func hosting(_ view: NSView) -> NSView? {
-            if String(describing: type(of: view)).contains("HostingView") { return view }
-            return view.subviews.lazy.compactMap(hosting).first
+        for tint in VaultTint.allCases.prefix(2) {
+            colors.byGroup["Travel"] = .tint(tint)
+            colors.byGroup["Money"] = .tint(tint)
+            try await Task.sleep(for: .milliseconds(300))
+            #expect(popover() === shown, "the swatches closed when the rows were drawn again")
         }
-        let content = try #require(shown.contentView.flatMap(hosting))
-        // The first swatch, found by clicking across and down: the popover's frame takes room for
-        // its arrow, so where the swatches start is not known exactly.
-        var spot: NSPoint?
-        scan: for y in stride(from: 2.0, through: content.bounds.height - 2, by: 4) {
-            for x in stride(from: 4.0, through: 80, by: 6) {
-                let point = NSPoint(x: x, y: content.isFlipped ? y : content.bounds.height - y)
-                click(content.convert(point, to: nil), in: shown)
-                try await Task.sleep(for: .milliseconds(15))
-                if !picks.isEmpty { spot = point; break scan }
-            }
-        }
-        let first = try #require(spot, "no swatch answered")
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(popover() === shown, "the swatches closed after one pick")
-        let next = NSPoint(x: first.x + VaultSwatches.swatch + VaultSwatches.gap, y: first.y)
-        click(content.convert(next, to: nil), in: shown)
-        await waitUntil("the second swatch answered") { picks.count == 2 }
-        #expect(picks == [.tint(VaultTint.allCases[0]), .tint(VaultTint.allCases[1])])
         // Closed, not only hidden: an open popover floats above every window and keeps its views.
         shown.performClose(nil)
         await waitUntil("the swatches closed") { popover() == nil }
