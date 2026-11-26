@@ -237,14 +237,14 @@ extension FileSyncManager {
         }
     }
 
-    /// " · copied to Roth IRA 4657" for a banner.
+    /// " · copied to Roth IRA 5442" for a banner.
     static func copiedPhrase(_ copies: [CopyItemState]) -> String {
         guard !copies.isEmpty else { return "" }
         let folders = Array(Set(copies.map { accountName(of: $0.destination.deletingLastPathComponent()) })).sorted()
         return "; copied to " + folders.joined(separator: ", ")
     }
 
-    /// The account folder above a year: `Roth IRA 4657` for `…/Roth IRA 4657/2026`.
+    /// The account folder above a year: `Roth IRA 5442` for `…/Roth IRA 5442/2026`.
     static func accountName(of folder: URL) -> String {
         var f = folder
         while FolderProfileEntry.looksLikeYear(f.lastPathComponent) || FilingPeriod.monthSlot(ofFolderNamed: f.lastPathComponent) != nil {

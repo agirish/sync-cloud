@@ -9,7 +9,7 @@ import Foundation
 
     @Test func aLabelledRangeEndsWhereItsSecondDateIs() {
         // Chase cards: the statement is January's, not December's.
-        #expect(period("Chase Freedom\nOpening/Closing Date 12/29/25 - 01/28/26\nAccount Number: XXXX XXXX XXXX 1768") == "2026-1")
+        #expect(period("Chase Freedom\nOpening/Closing Date 12/29/25 - 01/28/26\nAccount Number: XXXX XXXX XXXX 1833") == "2026-1")
     }
 
     @Test func aBalanceAsOfLosesToThePrintedRange() {
@@ -23,8 +23,8 @@ import Foundation
     }
 
     @Test func aLongNumberOnTheNextLineIsTheAccounts() {
-        let f = DocumentFacts(page: "Chase\nAccount Number:\n000000123452378 DRE 802 142 22\nStatement Period: March 1, 2026 to March 31, 2026")
-        #expect(f.ownNumbers.map(\.ending).contains("2378"), "\(f.ownNumbers)")
+        let f = DocumentFacts(page: "Chase\nAccount Number:\n000000123452939 DRE 615 307 48\nStatement Period: March 1, 2026 to March 31, 2026")
+        #expect(f.ownNumbers.map(\.ending).contains("2939"), "\(f.ownNumbers)")
         #expect(!DocumentFacts(page: "Bank\nAccount: 401(k) Plan\nStatement Period: March 1, 2026 to March 31, 2026").ownNumbers.contains { $0.digits == "401" })
         #expect(DocumentFacts(page: "Bank\nAccount number: 123 456 789.\nStatement Period: March 1, 2026 to March 31, 2026")
                     .ownNumbers.first?.ending == "6789", "a full stop ends a sentence, not an amount")
@@ -50,7 +50,7 @@ import Foundation
     @Test func theSurveysInboxIsNeverAnAccount() {
         func file(_ p: String) -> FileNode { FileNode(id: "/D/" + p, name: (p as NSString).lastPathComponent, isDirectory: false, fileSize: 9000) }
         func dir(_ p: String, _ c: [FileNode]) -> FileNode { FileNode(id: "/D/" + p, name: (p as NSString).lastPathComponent, isDirectory: true, children: c) }
-        let acct = "To Sort/Chase/Checking 0779"
+        let acct = "To Sort/Chase/Checking 0896"
         let tree = [dir("To Sort", [dir("To Sort/Chase", [dir(acct, (1...6).map { file(acct + String(format: "/eStmt_2025-%02d-28.pdf", $0)) })])])]
         #expect(!AccountIndex.build(tree: tree).accounts.isEmpty, "by name it isn't one")
         #expect(AccountIndex.build(tree: tree, isInbox: { $0.hasPrefix("To Sort") }).accounts.isEmpty, "the survey says it is")
@@ -58,10 +58,10 @@ import Foundation
 
     @Test func aMovedAccountKeepsItsPlaceInTheWalkedTree() {
         func dir(_ p: String, _ c: [FileNode]) -> FileNode { FileNode(id: "/D/" + p, name: (p as NSString).lastPathComponent, isDirectory: true, children: c) }
-        let tree = [dir("Inv", [dir("Inv/Archive", [dir("Inv/Archive/Schwab", [dir("Inv/Archive/Schwab/Roth 2336", [])])])])]
-        let moved = FileSyncManager.relocatingNode(in: tree, from: "Inv/Archive/Schwab/Roth 2336", to: "Inv/Schwab/Roth 2336")
-        #expect(AccountProposal.node(at: "Inv/Schwab/Roth 2336", in: moved) != nil)
-        #expect(AccountProposal.node(at: "Inv/Archive/Schwab/Roth 2336", in: moved) == nil)
+        let tree = [dir("Inv", [dir("Inv/Archive", [dir("Inv/Archive/Schwab", [dir("Inv/Archive/Schwab/Roth 2912", [])])])])]
+        let moved = FileSyncManager.relocatingNode(in: tree, from: "Inv/Archive/Schwab/Roth 2912", to: "Inv/Schwab/Roth 2912")
+        #expect(AccountProposal.node(at: "Inv/Schwab/Roth 2912", in: moved) != nil)
+        #expect(AccountProposal.node(at: "Inv/Archive/Schwab/Roth 2912", in: moved) == nil)
     }
 }
 

@@ -34,11 +34,11 @@ import Testing
     @Test(arguments: [
         ("Loan Number: 48291", "Loan Number: ••8291"),
         ("Policy No. 482917", "Policy No. ••2917"),
-        ("Account Number\n3841-7863\nPage 2 of 6", "Account Number\n••7863\nPage 2 of 6"),
-        ("Account Number 3841 7863 2 of 6", "Account Number ••7863 2 of 6"),
+        ("Account Number\n3841-9312\nPage 2 of 6", "Account Number\n••9312\nPage 2 of 6"),
+        ("Account Number 3841 9312 2 of 6", "Account Number ••9312 2 of 6"),
         ("Member number: 000 123 456 789", "Member number: ••6789"),
-        ("Account Number: Z26-141750", "Account Number: Z••1750"),
-        ("Account Number: 711840407\u{2212}01", "Account Number: ••0701"),
+        ("Account Number: Z26-221746", "Account Number: Z••1746"),
+        ("Account Number: 946261935\u{2212}01", "Account Number: ••3501"),
     ])
     func aNumberThePageLabelsIsCutHoweverItIsPrinted(page: String, expected: String) {
         #expect(masked(page) == expected)
@@ -74,11 +74,11 @@ import Testing
 
     /// A number the page already masks shows only what the page chose to show.
     @Test(arguments: [
-        "Account ending in 5696",
-        "Visa XXXX XXXX XXXX 1768",
-        "Savings ******4121",
-        "Card XXXX-XXXX-XXXX-1768",
-        "Account •••• 7863",
+        "Account ending in 6701",
+        "Visa XXXX XXXX XXXX 1833",
+        "Savings ******4824",
+        "Card XXXX-XXXX-XXXX-1833",
+        "Account •••• 9312",
     ])
     func aNumberMaskedOnThePageIsLeftAsPrinted(page: String) {
         #expect(masked(page) == page)
@@ -142,8 +142,8 @@ import Testing
             Statement Period 03/01/2026 – 03/31/2026
             Primary Account Number: 000004829173650
             Ending Balance $12,345.67
-            AutoPay from account ending in ****4121
-            Tax ID XXX-XX-7396    Customer service 1-800-555-0100
+            AutoPay from account ending in ****4824
+            Tax ID XXX-XX-8508    Customer service 1-800-555-0100
             Your 2025 Form 1099-INT is now available
             """
         let expected = """
@@ -152,8 +152,8 @@ import Testing
             Statement Period 03/01/2026 – 03/31/2026
             Primary Account Number: ••3650
             Ending Balance $12,345.67
-            AutoPay from account ending in ****4121
-            Tax ID XXX-XX-7396    Customer service ••0100
+            AutoPay from account ending in ****4824
+            Tax ID XXX-XX-8508    Customer service ••0100
             Your 2025 Form 1099-INT is now available
             """
         #expect(masked(page) == expected)

@@ -72,7 +72,7 @@ extension FileSyncManager {
         guard let archiveIndex else { return nil }
         let archiveName = parts[archiveIndex]
         // Out of the archive and any year folders it filed the account under (`Archive/2019/…`),
-        // keeping the bank folder between (`Archive/HDFC Forex/HDFC Forex 9055`).
+        // keeping the bank folder between (`Archive/HDFC Forex/HDFC Forex 9754`).
         parts.remove(at: archiveIndex)
         while archiveIndex < parts.count - 1, FolderProfileEntry.looksLikeYear(parts[archiveIndex]) {
             parts.remove(at: archiveIndex)

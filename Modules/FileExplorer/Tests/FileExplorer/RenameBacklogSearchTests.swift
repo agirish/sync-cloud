@@ -32,9 +32,9 @@ import Testing
 
     @Test("A folder is findable by a name inside it, before or after the rename")
     func matchesFileNames() {
-        // Names are searched because what you remember is the file (`9829custbill…`), not the
+        // Names are searched because what you remember is the file (`9954custbill…`), not the
         // folder it landed in, and the backlog runs to a hundred folders and more.
-        let p = plan("Home/Utilities/X/2023", current: "9829custbill07182023.pdf",
+        let p = plan("Home/Utilities/X/2023", current: "9954custbill07182023.pdf",
                      proposed: "07. Jul 2023.pdf", skip: "Interest Certificate.pdf")
         #expect(RenameBacklogSearch.matches("custbill", p))
         #expect(RenameBacklogSearch.matches("07. Jul", p))            // the proposed name

@@ -7,7 +7,7 @@ import Testing
 /// back.
 @Suite struct StatementFilingTests {
 
-    static let rel = "Finance/US/Credit Accounts/American Express/Credit 1001"
+    static let rel = "Finance/US/Credit Accounts/American Express/Credit 1009"
 
     private func names(in dir: URL) -> [String] {
         ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])
@@ -162,15 +162,15 @@ import Testing
 
     // MARK: Copies into a second account
 
-    static let brokerage = "Finance/US/Investments/Fidelity/Brokerage 1750"
-    static let roth = "Finance/US/Investments/Fidelity/Roth IRA 4657"
+    static let brokerage = "Finance/US/Investments/Fidelity/Brokerage 1746"
+    static let roth = "Finance/US/Investments/Fidelity/Roth IRA 5442"
 
     /// A card filing `loose` into `brokerage/2025` as `proposed`, copied into Roth's 2025 under the
     /// same account name, as a combined statement naming both accounts is.
     private func combined(_ loose: URL, proposed: String, root: URL) -> FilingSuggestion {
         let rothRoot = root.appendingPathComponent(Self.roth).path
         let copy = FilingCopy(path: rothRoot + "/2025", proposedName: proposed,
-                              account: FilingAccount(root: rothRoot, ending: "4657", institution: "fidelity",
+                              account: FilingAccount(root: rothRoot, ending: "5442", institution: "fidelity",
                                                      archived: false, kind: .statement))
         var dest = FilingDestination(path: root.appendingPathComponent(Self.brokerage + "/2025").path,
                                      confidence: .high, reasons: [], newSegments: [],

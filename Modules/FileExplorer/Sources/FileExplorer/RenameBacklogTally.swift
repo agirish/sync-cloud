@@ -15,7 +15,7 @@ struct RenameBacklogTally: Equatable {
     /// Steps that only respell a name already in the grammar (`4. Apr 2021.pdf` →
     /// `04. Apr 2021.pdf`). Usually the bulk of a backlog; they don't change where a file sits.
     let tidied: Int
-    /// Steps giving a raw name a slot it did not have (`9829custbill07182023.pdf` →
+    /// Steps giving a raw name a slot it did not have (`9954custbill07182023.pdf` →
     /// `07. Jul 2023.pdf`).
     let named: Int
     /// Steps whose slot moved to make room for one of the above: the only kind that touches a file

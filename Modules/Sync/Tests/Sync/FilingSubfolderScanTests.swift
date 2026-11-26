@@ -14,9 +14,9 @@ import EventsTestSupport
         let root = try makeCanonicalTempRoot(prefix: prefix)
         try writeBytes(root.appendingPathComponent("Documents/Finance/Statements/.keep"), bytes: 1)
         let inbox = root.appendingPathComponent("TODO")
-        try writeBytes(inbox.appendingPathComponent("Finance/Schwab/IRA 7863/2026/01. Jan 2026.pdf"), bytes: 64)
-        try writeBytes(inbox.appendingPathComponent("Finance/Schwab/IRA 7863/2026/02. Feb 2026.pdf"), bytes: 64)
-        try writeBytes(inbox.appendingPathComponent("Finance/Chase/Credit 2809/2026/01. Jan 2026.pdf"), bytes: 64)
+        try writeBytes(inbox.appendingPathComponent("Finance/Schwab/IRA 9312/2026/01. Jan 2026.pdf"), bytes: 64)
+        try writeBytes(inbox.appendingPathComponent("Finance/Schwab/IRA 9312/2026/02. Feb 2026.pdf"), bytes: 64)
+        try writeBytes(inbox.appendingPathComponent("Finance/Chase/Credit 3679/2026/01. Jan 2026.pdf"), bytes: 64)
         // A package is one item, never a pile of files to file.
         try writeBytes(inbox.appendingPathComponent("Tools/Helper.app/Contents/Info.plist"), bytes: 64)
         // Finder leaves one in every folder it opens; it is not a loose file.
@@ -66,9 +66,9 @@ import EventsTestSupport
         #expect(m.filingScanReadSubfolders && !m.filingAlwaysScansSubfolders)
         #expect(OrganizeScopeFilter.looseFileScanCovers(subject: inbox.path + "/Finance/Schwab", scannedFolder: inbox.path,
                                                         readSubfolders: true), "a scope below is covered")
-        let schwab = try #require(m.filingSuggestions.first { $0.filePath.contains("IRA 7863") })
+        let schwab = try #require(m.filingSuggestions.first { $0.filePath.contains("IRA 9312") })
         #expect(FileSyncManager.sourceHint(forFile: schwab.filePath, scannedFolder: m.filingScanFolder)
-                == "Finance/Schwab/IRA 7863/2026")
+                == "Finance/Schwab/IRA 9312/2026")
 
         // Every new scan the user starts asks again; an automatic one keeps the answer.
         await userScan(m, inbox, into: documents)

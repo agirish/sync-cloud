@@ -22,7 +22,7 @@ import Testing
                      "ScanSnap_20240101.pdf", "PXL_20240101_123456789.jpg", "0042.pdf", "Scanned Document 12.pdf"] {
             #expect(ContentName.needsName(poor), "\(poor)")
         }
-        for named in ["W-2 2025.pdf", "Statement.pdf", "2024 Ally 1099-INT.pdf", "9829custbill07182023.pdf",
+        for named in ["W-2 2025.pdf", "Statement.pdf", "2024 Ally 1099-INT.pdf", "9954custbill07182023.pdf",
                       "Receipt 0042.pdf", "Lease.pdf"] {
             #expect(!ContentName.needsName(named), "\(named)")
         }

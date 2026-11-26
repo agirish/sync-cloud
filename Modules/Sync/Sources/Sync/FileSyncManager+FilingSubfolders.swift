@@ -240,8 +240,8 @@ extension FileSyncManager {
 
     static let subfolderOfferProbeBudget = 20_000
 
-    /// The folders between the scanned folder and a file found below it: `Finance/Schwab/IRA 7863/2026`
-    /// for `TODO/Finance/Schwab/IRA 7863/2026/01. Jan 2026.pdf`. Empty for a file sitting directly
+    /// The folders between the scanned folder and a file found below it: `Finance/Schwab/IRA 9312/2026`
+    /// for `TODO/Finance/Schwab/IRA 9312/2026/01. Jan 2026.pdf`. Empty for a file sitting directly
     /// in the scanned folder. A hint that adds weight, never a mapping.
     public nonisolated static func sourceHint(forFile path: String, scannedFolder: String?) -> String {
         guard let scannedFolder else { return "" }

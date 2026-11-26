@@ -22,10 +22,10 @@ import Foundation
         // Only the explicit group makes one step of it.
         undo.groupsByEvent = false
         m.undoManager = undo
-        let account = docs.path + "/Bank Accounts/Chase/Checking 0779"
-        let dest = FilingDestination(path: account + "/2026", confidence: .medium, reasons: ["No folder holds Chase ••0779"],
-                                     newSegments: ["Checking 0779", "2026"], fromContent: true,
-                                     account: FilingAccount(root: account, ending: "0779", institution: "chase", archived: false, kind: .statement))
+        let account = docs.path + "/Bank Accounts/Chase/Checking 0896"
+        let dest = FilingDestination(path: account + "/2026", confidence: .medium, reasons: ["No folder holds Chase ••0896"],
+                                     newSegments: ["Checking 0896", "2026"], fromContent: true,
+                                     account: FilingAccount(root: account, ending: "0896", institution: "chase", archived: false, kind: .statement))
         let card = FilingSuggestion(filePath: file.path, fileName: file.lastPathComponent, size: 40, modificationDate: nil,
                                     candidates: [dest], providerRoot: docs.path)
         #expect(await m.applyFilingSuggestion(card, to: dest) == .moved)
@@ -41,7 +41,7 @@ import Foundation
         let root = try makeCanonicalTempRoot(prefix: "FilingReviewChosen")
         defer { try? FileManager.default.removeItem(at: root) }
         let docs = root.appendingPathComponent("Docs")
-        let account = docs.appendingPathComponent("IRA 7863")
+        let account = docs.appendingPathComponent("IRA 9312")
         try FileManager.default.createDirectory(at: account, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: docs.appendingPathComponent("TODO/Later"), withIntermediateDirectories: true)
         var cards: [FilingSuggestion] = []
@@ -49,7 +49,7 @@ import Foundation
             let f = docs.appendingPathComponent("TODO/\(n).pdf")
             try writeBytes(f, Data(repeating: 2, count: 40))
             let dest = FilingDestination(path: account.path, confidence: .high, reasons: ["r"], newSegments: [], fromContent: true,
-                                         account: FilingAccount(root: account.path, ending: "7863", institution: "x", archived: false, kind: .statement))
+                                         account: FilingAccount(root: account.path, ending: "9312", institution: "x", archived: false, kind: .statement))
             cards.append(FilingSuggestion(filePath: f.path, fileName: "\(n).pdf", size: 40, modificationDate: nil,
                                           candidates: [dest], providerRoot: docs.path))
         }
@@ -86,32 +86,32 @@ import Foundation
         let docs = root.appendingPathComponent("Docs")
         let file = root.appendingPathComponent("In/03. Mar 2026.pdf")
         try writeBytes(file, Data(repeating: 3, count: 40))
-        for a in ["Brokerage 1750", "Roth IRA 4657", "HSA 0012"] {
+        for a in ["Brokerage 1746", "Roth IRA 5442", "HSA 0012"] {
             try FileManager.default.createDirectory(at: docs.appendingPathComponent("Fidelity/" + a), withIntermediateDirectories: true)
         }
         func acct(_ name: String, _ ending: String) -> FilingCopy {
             FilingCopy(path: docs.path + "/Fidelity/\(name)", proposedName: nil,
                        account: FilingAccount(root: docs.path + "/Fidelity/\(name)", ending: ending, institution: "fidelity", archived: false, kind: .statement))
         }
-        var dest = FilingDestination(path: docs.path + "/Fidelity/Brokerage 1750", confidence: .high, reasons: ["r"], newSegments: [], fromContent: true)
-        dest.alsoCopiesTo = [acct("Roth IRA 4657", "4657"), acct("HSA 0012", "0012")]
+        var dest = FilingDestination(path: docs.path + "/Fidelity/Brokerage 1746", confidence: .high, reasons: ["r"], newSegments: [], fromContent: true)
+        dest.alsoCopiesTo = [acct("Roth IRA 5442", "5442"), acct("HSA 0012", "0012")]
         let card = FilingSuggestion(filePath: file.path, fileName: file.lastPathComponent, size: 40, modificationDate: nil,
                                     candidates: [dest], providerRoot: docs.path)
         let m = FileSyncManager(defaults: ScratchDefaults("FilingReviewApplyTests.except"))
-        #expect(await m.applyFilingSuggestion(card, to: dest, exceptCopiesTo: [docs.path + "/Fidelity/Roth IRA 4657"]) == .moved)
-        #expect(!FileManager.default.fileExists(atPath: docs.path + "/Fidelity/Roth IRA 4657/03. Mar 2026.pdf"))
+        #expect(await m.applyFilingSuggestion(card, to: dest, exceptCopiesTo: [docs.path + "/Fidelity/Roth IRA 5442"]) == .moved)
+        #expect(!FileManager.default.fileExists(atPath: docs.path + "/Fidelity/Roth IRA 5442/03. Mar 2026.pdf"))
         #expect(FileManager.default.fileExists(atPath: docs.path + "/Fidelity/HSA 0012/03. Mar 2026.pdf"), "the other copy is still made")
     }
 
     @Test func lessonsAndPreferencesOutliveTheManagerUntilRemoved() {
         let defaults = ScratchDefaults("FilingReviewApplyTests.persist")
         let a = FileSyncManager(defaults: defaults)
-        a.filingLearnedAccounts = [LearnedAccount(id: UUID(), institution: "chase", institutionName: "Chase", ending: "4139",
+        a.filingLearnedAccounts = [LearnedAccount(id: UUID(), institution: "chase", institutionName: "Chase", ending: "4859",
                                                   folder: "Bank/Chase/Joint", surveyRoot: "/D", taughtAt: Date(),
                                                   taughtBy: .groupRedirect, filedCount: 2, teaching: [])]
         a.setFilingPreference(FilingPreference(scope: .institution("fidelity"), copies: false, label: "Fidelity"))
         let b = FileSyncManager(defaults: defaults)
-        #expect(b.filingLearnedAccounts.map(\.ending) == ["4139"])
+        #expect(b.filingLearnedAccounts.map(\.ending) == ["4859"])
         #expect(b.filingPreferences.map(\.label) == ["Fidelity"])
         b.removeLearnedAccount(id: b.filingLearnedAccounts[0].id)
         b.removeFilingPreference(id: b.filingPreferences[0].id)

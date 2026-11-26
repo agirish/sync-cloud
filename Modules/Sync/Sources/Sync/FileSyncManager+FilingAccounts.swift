@@ -234,7 +234,7 @@ extension FileSyncManager {
                                              registry: PersonRegistry? = nil) -> FilingSuggestion {
         guard f.kind != .taxForm else { return s }
         // The bank: the one page 1's header names; else the one the folder it came from names (his
-        // own words, `ScholarShare 529/529 6797-02`). Not the rest of the page, where a GEICO
+        // own words, `ScholarShare 529/529 7915-02`). Not the rest of the page, where a GEICO
         // letter names the card it is paid with.
         guard let institution = index.headerInstitution(f) ?? index.institution(namedIn: hint.lowercased()) else {
             return companyHome(for: s, facts: f, hint: hint, index: index, taxonomy: taxonomy, root: root,
@@ -282,7 +282,7 @@ extension FileSyncManager {
                 : s
         }
         // The folder's own spelling, when it is this account's; with the holder after the number
-        // when page 1 names only someone whose accounts carry their name (`Credit 8436 (Mother)`).
+        // when page 1 names only someone whose accounts carry their name (`Credit 9592 (Mother)`).
         let ownName = hinted.flatMap { h in ending == nil || h.digits == ending ? h.name : nil }
         let holder = ownName?.contains("(") == true ? nil
             : AccountProposal.holderSuffix(page: f.text, tree: taxonomy, registry: registry)
@@ -294,7 +294,7 @@ extension FileSyncManager {
                                               isArchived: isArchived) else { return s }
         // The bank keeps statements of this category together in one folder (`Citi/Statements`): no
         // account folders. Unless it keeps a live account in a folder of its own there too
-        // (`Fidelity/Roth IRA 4657` beside `Fidelity/Statements`): then each account gets one.
+        // (`Fidelity/Roth IRA 5442` beside `Fidelity/Statements`): then each account gets one.
         let parent = (p.accountRoot as NSString).deletingLastPathComponent
         let ownFolders = index.accounts.contains { a in
             !a.archived && a.institution == institution && (a.root as NSString).deletingLastPathComponent == parent
@@ -326,7 +326,7 @@ extension FileSyncManager {
     }
 
     /// A statement from a known bank that no account matches and whose folder names no account type
-    /// to call a new one by (`529 6797-02`, or loose): the bank's own folder, when the tree has just
+    /// to call a new one by (`529 7915-02`, or loose): the bank's own folder, when the tree has just
     /// one. Inside it, the folder of the one person page 1 names that holds no other account
     /// (`ScholarShare/Son` for Son's 529, beside Daughter's account `ScholarShare/Daughter`), laid out
     /// like the bank's live account there. Medium either way: no number placed it.
@@ -384,10 +384,10 @@ extension FileSyncManager {
         return s.replacingCandidates(inserting(dest, into: s.candidates))
     }
 
-    /// A page from a company no account folder names (an insurer: `TODO/Finance/GEICO/Auto 0652`),
+    /// A page from a company no account folder names (an insurer: `TODO/Finance/GEICO/Auto 0596`),
     /// whose folder in the inbox names it and whose page 1 names it too: the one folder holding the
     /// most files named for it (`Vehicles/Honda/Insurance`, eight `GEICO …` files). When the page
-    /// prints the number that folder names (policy ••0652), that is its account. Medium: a name, not
+    /// prints the number that folder names (policy ••0596), that is its account. Medium: a name, not
     /// a number, chose the folder.
     nonisolated static func companyHome(for s: FilingSuggestion, facts f: DocumentFacts, hint: String,
                                         index: AccountIndex, taxonomy: [FileNode], root: String,
@@ -457,8 +457,8 @@ extension FileSyncManager {
     }
 
     /// The company the inbox folder names, as words page 1 names too: the folders' own words, less
-    /// a category (`Finance`), a year, the account folder (`Auto 0652`) and words common to many
-    /// folder names. `TODO/Finance/GEICO/Auto 0652/2026` gives `geico`.
+    /// a category (`Finance`), a year, the account folder (`Auto 0596`) and words common to many
+    /// folder names. `TODO/Finance/GEICO/Auto 0596/2026` gives `geico`.
     nonisolated static func companyWords(hint: String, facts f: DocumentFacts, index: AccountIndex,
                                          taxonomy: [FileNode]) -> Set<String> {
         let categories = Set(taxonomy.filter(\.isDirectory).map { $0.name.lowercased() })
@@ -486,7 +486,7 @@ extension FileSyncManager {
         return out
     }
 
-    /// The bank's folder above an account (`Investments/Fidelity` for `…/Fidelity/Roth IRA 4657`).
+    /// The bank's folder above an account (`Investments/Fidelity` for `…/Fidelity/Roth IRA 5442`).
     nonisolated static func bankNode(of accountRoot: String, in taxonomy: [FileNode]) -> FileNode? {
         AccountIndex.institutionFolder(of: accountRoot, isArchived: { _ in false })
             .flatMap { AccountProposal.node(at: $0.0, in: taxonomy) }

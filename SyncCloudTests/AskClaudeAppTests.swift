@@ -358,7 +358,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
 
     @Test func wordsMatchAcrossFoldersAndTheNewestPeriodLeads() async {
         // The 2026-2029 approval is a scan with an opaque name; only its folders say what it is.
-        let opaque = Self.file("Documents/Immigration/H-1B/2026-2029/Approval/ELDER, FATHER_65_383875.pdf")
+        let opaque = Self.file("Documents/Immigration/H-1B/2026-2029/Approval/ELDER, FATHER_65_659543.pdf")
         let named = Self.file("Documents/Immigration/H-1B/2024-2026/Approval/H-1B Approval Notice New - 2023-2026.pdf")
         let unrelated = Self.file("Documents/Immigration/H-1B/2026-2029/Receipt/Receipt notice.pdf")
         var handles = AskClaudeHandles()
@@ -406,7 +406,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
     @Test func theLatestYearInAPathIsTheEndOfItsLatestPeriod() {
         #expect(AskClaudeBrowseTools.latestYear(in: "Immigration/H-1B/2026-2029/Approval") == 2029)
         #expect(AskClaudeBrowseTools.latestYear(in: "Taxes/2024 Return – filed.pdf") == 2024)
-        #expect(AskClaudeBrowseTools.latestYear(in: "Receipts/ail_65_383875.pdf") == nil)
+        #expect(AskClaudeBrowseTools.latestYear(in: "Receipts/ail_65_659543.pdf") == nil)
         #expect(AskClaudeBrowseTools.latestYear(in: "Scans/120255.pdf") == nil)
     }
 
@@ -1209,7 +1209,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
         #expect(found.map { String(text[$0.range]) } == ["Mother", "1. jan 2023.pdf", "Scans"])
         #expect(found.first.map { text.distance(from: text.startIndex, to: $0.range.lowerBound) } == text.distance(
             from: text.startIndex, to: text.range(of: "Passport/Mother")!.lowerBound) + "Passport/".count)
-        #expect(AskClaudeLinks.hasExtension("Tax.pdf") && !AskClaudeLinks.hasExtension("Checking 6436")
+        #expect(AskClaudeLinks.hasExtension("Tax.pdf") && !AskClaudeLinks.hasExtension("Checking 7259")
             && !AskClaudeLinks.hasExtension("v1.2") && !AskClaudeLinks.hasExtension("Scans"))
     }
 

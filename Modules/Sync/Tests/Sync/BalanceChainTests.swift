@@ -66,7 +66,7 @@ import Testing
     }
 
     @Test func theNewestStatementOfAnAccount() {
-        let node = node("Credit 5542", isDirectory: true, children: [
+        let node = node("Credit 6579", isDirectory: true, children: [
             node("2025", isDirectory: true, children: (1...12).map { m in
                 node("\(m). \(AccountPlacement.Template.monthNames[m - 1]) 2025.pdf", isDirectory: false)
             }),
@@ -84,8 +84,8 @@ import Testing
 
 /// Which account a statement continues: one, never two, never one that closed after it.
 @Suite struct BalanceChainMatchTests {
-    private let card = AccountIndex.Account(root: "Apple/Credit 5542", identities: ["5542"], institution: "apple", archived: false)
-    private let savings = AccountIndex.Account(root: "Apple/Savings 9952", identities: ["9952"], institution: "apple", archived: false)
+    private let card = AccountIndex.Account(root: "Apple/Credit 6579", identities: ["6579"], institution: "apple", archived: false)
+    private let savings = AccountIndex.Account(root: "Apple/Savings 4699", identities: ["4699"], institution: "apple", archived: false)
     private let april = DocumentFacts(page: """
         Apple Card
         Statement Apr 1 - Apr 30, 2026
@@ -125,9 +125,9 @@ import Testing
 
 /// Which bank's accounts a statement printing no account's number is compared with.
 @Suite struct BalanceChainCandidateTests {
-    private let card = AccountIndex.Account(root: "Banana Republic/Credit 3857", identities: ["3857"],
+    private let card = AccountIndex.Account(root: "Banana Republic/Credit 4480", identities: ["4480"],
                                             institution: "banana republic", archived: false)
-    private let chase = AccountIndex.Account(root: "Chase/Credit 1768", identities: ["1768"], institution: "chase", archived: false)
+    private let chase = AccountIndex.Account(root: "Chase/Credit 1833", identities: ["1833"], institution: "chase", archived: false)
     private var index: AccountIndex {
         AccountIndex(accounts: [card, chase], institutionTokens: ["banana republic": ["banana republic"], "chase": ["chase"]])
     }
@@ -184,8 +184,8 @@ import Testing
         let root = try makeCanonicalTempRoot(prefix: "BalanceChainApple")
         defer { try? FileManager.default.removeItem(at: root) }
         let docs = root.appendingPathComponent("Docs")
-        let card = docs.appendingPathComponent("Credit Accounts/Apple/Credit 5542")
-        let savings = docs.appendingPathComponent("Bank Accounts/Apple/Savings 9952")
+        let card = docs.appendingPathComponent("Credit Accounts/Apple/Credit 6579")
+        let savings = docs.appendingPathComponent("Bank Accounts/Apple/Savings 4699")
         try statements(card)
         try statements(savings)
         let inbox = root.appendingPathComponent("Inbox")
@@ -202,8 +202,8 @@ import Testing
         #expect(best.path == card.path + "/2026", "\(best.path)")
         #expect(best.confidence == .high, "the month before, to the cent, and no other number on the page")
         #expect(best.proposedName?.hasSuffix("Apr 2026.pdf") == true, "\(String(describing: best.proposedName))")
-        #expect(best.account?.ending == "5542")
-        #expect(best.reasons.contains("Opens at the balance ••5542’s Mar 2026 statement closed at"), "\(best.reasons)")
+        #expect(best.account?.ending == "6579")
+        #expect(best.reasons.contains("Opens at the balance ••6579’s Mar 2026 statement closed at"), "\(best.reasons)")
     }
 
     /// A card reissued under a new number: the folder still carries the old one. The chain finds it,
@@ -212,8 +212,8 @@ import Testing
         let root = try makeCanonicalTempRoot(prefix: "BalanceChainReissue")
         defer { try? FileManager.default.removeItem(at: root) }
         let docs = root.appendingPathComponent("Docs")
-        let card = docs.appendingPathComponent("Credit Accounts/Chase/Credit 1768")
-        let other = docs.appendingPathComponent("Credit Accounts/Chase/Credit 2809")
+        let card = docs.appendingPathComponent("Credit Accounts/Chase/Credit 1833")
+        let other = docs.appendingPathComponent("Credit Accounts/Chase/Credit 3679")
         try statements(card)
         try statements(other)
         let inbox = root.appendingPathComponent("Inbox")
@@ -229,7 +229,7 @@ import Testing
         let best = try #require(m.filingSuggestions.first { $0.filePath == loose.path }?.best)
         #expect(best.path == card.path + "/2026", "\(best.path)")
         #expect(best.confidence == .medium, "a number no folder has: check it")
-        #expect(best.account?.ending == "7777", "filing it teaches ••1768’s folder the new number")
+        #expect(best.account?.ending == "7777", "filing it teaches ••1833’s folder the new number")
         #expect(best.reasons.first?.contains("page 1 prints ••7777, a number no folder has") == true, "\(best.reasons)")
     }
 
@@ -238,8 +238,8 @@ import Testing
         let root = try makeCanonicalTempRoot(prefix: "BalanceChainTie")
         defer { try? FileManager.default.removeItem(at: root) }
         let docs = root.appendingPathComponent("Docs")
-        let a = docs.appendingPathComponent("Credit Accounts/Discover/Credit 3531")
-        let b = docs.appendingPathComponent("Credit Accounts/Discover/Credit 9278")
+        let a = docs.appendingPathComponent("Credit Accounts/Discover/Credit 4092")
+        let b = docs.appendingPathComponent("Credit Accounts/Discover/Credit 9840")
         try statements(a)
         try statements(b)
         let inbox = root.appendingPathComponent("Inbox")

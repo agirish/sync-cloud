@@ -162,7 +162,7 @@ struct FilingPageRender: @unchecked Sendable {
                 "\(long) \(d), \(p.year)", "\(short) \(d), \(p.year)"]
     }
 
-    /// "account ••22002, Jan 29, 2026 (marked)": what page 1 matched on, in words, and "(marked)"
+    /// "account ••44928, Jan 29, 2026 (marked)": what page 1 matched on, in words, and "(marked)"
     /// only when the picture marks something.
     static func matchedLine(_ s: FilingSuggestion, facts: DocumentFacts?, marked: Bool) -> String? {
         var parts: [String] = []
@@ -172,7 +172,7 @@ struct FilingPageRender: @unchecked Sendable {
     }
 
     /// Where `term` first sits in `text` as a whole number or phrase: not inside a longer run of
-    /// digits, so "7863" never marks part of "178630".
+    /// digits, so "9312" never marks part of "193120".
     static func wholeRange(of term: String, in text: String) -> NSRange? {
         let pattern = "(?<![0-9])" + NSRegularExpression.escapedPattern(for: term) + "(?![0-9])"
         guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }

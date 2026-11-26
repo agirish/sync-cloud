@@ -1,7 +1,7 @@
 import Design
 import SwiftUI
 
-/// "Remember ••7863 for next time" under a card's actions (decision 8): what Choose a Folder…
+/// "Remember ••9312 for next time" under a card's actions (decision 8): what Choose a Folder…
 /// teaches, shown before the click. On for a group card, off for a single file; a card whose page
 /// prints no number says there is nothing to remember.
 struct FilingRememberAccount {

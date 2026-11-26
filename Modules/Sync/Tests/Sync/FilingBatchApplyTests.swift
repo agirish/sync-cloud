@@ -6,7 +6,7 @@ import Foundation
 @Suite struct FilingMatchedTests {
     private func card(confidence: FilingConfidence = .high, account: Bool = false, fromContent: Bool = false,
                       fromAI: Bool = false, to path: String = "/D/Receipts") -> FilingSuggestion {
-        let acct = account ? FilingAccount(root: "/D/IRA 7863", ending: "7863", institution: "x", archived: false, kind: .statement) : nil
+        let acct = account ? FilingAccount(root: "/D/IRA 9312", ending: "9312", institution: "x", archived: false, kind: .statement) : nil
         let dest = FilingDestination(path: path, confidence: confidence, reasons: ["r"], newSegments: [],
                                      fromContent: fromContent, fromAI: fromAI, account: acct)
         return FilingSuggestion(filePath: "/In/a.pdf", fileName: "a.pdf", size: 1, modificationDate: nil, candidates: [dest])
@@ -34,7 +34,7 @@ import Foundation
         try writeBytes(f, Data(name.utf8))
         let dest = FilingDestination(path: folder.path, confidence: confidence, reasons: ["r"], newSegments: newSegments,
                                      fromContent: true, proposedName: proposed,
-                                     account: FilingAccount(root: account.path, ending: "7863", institution: "x",
+                                     account: FilingAccount(root: account.path, ending: "9312", institution: "x",
                                                             archived: false, kind: .statement),
                                      nameOrigin: .template)
         return FilingSuggestion(filePath: f.path, fileName: name, size: 1, modificationDate: nil, candidates: [dest])
@@ -45,8 +45,8 @@ import Foundation
     @Test func everyTickedCardFilesAsOneUndo() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingBatchApply")
         defer { try? FileManager.default.removeItem(at: root) }
-        let ira = root.appendingPathComponent("Docs/IRA 7863")
-        let card = root.appendingPathComponent("Docs/Credit 2002")
+        let ira = root.appendingPathComponent("Docs/IRA 9312")
+        let card = root.appendingPathComponent("Docs/Credit 5652")
         let receipts = root.appendingPathComponent("Docs/Receipts")
         for d in [ira, card, receipts] { try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true) }
         let year = card.appendingPathComponent("2026")
@@ -94,7 +94,7 @@ import Foundation
     @Test func aFileThatFailsStaysAsItsOwnCard() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingBatchFail")
         defer { try? FileManager.default.removeItem(at: root) }
-        let ira = root.appendingPathComponent("Docs/IRA 7863")
+        let ira = root.appendingPathComponent("Docs/IRA 9312")
         try FileManager.default.createDirectory(at: ira, withIntermediateDirectories: true)
         let cards = [try statement(root, "01.pdf", into: ira, account: ira, proposed: "IRA_01.pdf"),
                      try statement(root, "02.pdf", into: ira, account: ira, proposed: "IRA_02.pdf")]
@@ -111,7 +111,7 @@ import Foundation
     @Test func aCardFiledWhileTheSheetWasOpenIsSkippedNotFailed() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingBatchStale")
         defer { try? FileManager.default.removeItem(at: root) }
-        let ira = root.appendingPathComponent("Docs/IRA 7863")
+        let ira = root.appendingPathComponent("Docs/IRA 9312")
         try FileManager.default.createDirectory(at: ira, withIntermediateDirectories: true)
         let cards = [try statement(root, "01.pdf", into: ira, account: ira, proposed: "IRA_01.pdf"),
                      try statement(root, "02.pdf", into: ira, account: ira, proposed: "IRA_02.pdf")]
@@ -130,13 +130,13 @@ import Foundation
     @Test func aCardGivenAnotherHomeSinceTheSheetOpenedIsSkipped() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingBatchRehomed")
         defer { try? FileManager.default.removeItem(at: root) }
-        let ira = root.appendingPathComponent("Docs/IRA 7863"), roth = root.appendingPathComponent("Docs/Roth 4657")
+        let ira = root.appendingPathComponent("Docs/IRA 9312"), roth = root.appendingPathComponent("Docs/Roth 5442")
         for d in [ira, roth] { try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true) }
         let shown = try statement(root, "01.pdf", into: ira, account: ira, proposed: "IRA_01.pdf")
         let now = FilingSuggestion(filePath: shown.filePath, fileName: shown.fileName, size: 1, modificationDate: nil,
                                    candidates: [FilingDestination(path: roth.path, confidence: .high, reasons: ["r"], newSegments: [],
                                                                   fromContent: true,
-                                                                  account: FilingAccount(root: roth.path, ending: "4657", institution: "x",
+                                                                  account: FilingAccount(root: roth.path, ending: "5442", institution: "x",
                                                                                          archived: false, kind: .statement))])
         let m = FileSyncManager(defaults: ScratchDefaults("FilingBatchApplyTests.5"))
         m.filingSuggestions = [now]

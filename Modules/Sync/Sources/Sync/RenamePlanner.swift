@@ -30,7 +30,7 @@ public struct RenameStep: Sendable, Equatable, Identifiable {
         /// The name was already in the grammar and keeps its slot; only its spelling changes.
         /// `4. Apr 2021.pdf` → `04. Apr 2021.pdf`. Cannot collide, and is the bulk of the backlog.
         case tidied
-        /// A raw name taking a slot it didn't have. `9829custbill07182023.pdf` →
+        /// A raw name taking a slot it didn't have. `9954custbill07182023.pdf` →
         /// `07. Jul 2023.pdf`.
         case placed
         /// An already-correct name whose slot moved to make room for a file inserted before it.
@@ -214,7 +214,7 @@ public enum RenamePlanner {
     /// Drops every step whose target is not free, folder-wide, and reports why.
     ///
     /// The trap this pass must not fall into: a raw original beside a copy somebody already renamed
-    /// (`9829custbill07182023.pdf` next to `07. Jul 2023.pdf`, same bill, same folder). Deciding
+    /// (`9954custbill07182023.pdf` next to `07. Jul 2023.pdf`, same bill, same folder). Deciding
     /// they are the same document needs a content fingerprint, so the pass never guesses: when two
     /// names want one slot it refuses both and says so.
     ///

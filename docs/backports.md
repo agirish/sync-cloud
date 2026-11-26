@@ -15745,7 +15745,7 @@ maintenance line has (measured as above, 2026-11-15: panel=0 on every line).
 
 ## Account folders laid out like his: a statement's own `Statements` folder, new accounts beside named ones, insurance by year — main only
 
-2026-11-15, for v7.2. To File sent Fidelity Roth IRA 4657 statements to that account's `Tax` folder (where his 2022 statements sit) and every Brokerage 1750 statement to the shared `Fidelity/Statements`, one to Kaiser on the word "Envelope"; Homesite bills went to `Home/Insurance` with no year, dated by next year's policy term. Now: statements skip tax folders and take an account's empty `Statements` folder, by year when the bank files by year; a bank with an account folder of its own beside a shared one gets a new folder per account (his call), laid out like that account; Claude no longer moves a statement whose account folder carries its number; a company home takes its year folder; a policy term is never a statement period.
+2026-11-15, for v7.2. To File sent Fidelity Roth IRA 5442 statements to that account's `Tax` folder (where his 2022 statements sit) and every Brokerage 1746 statement to the shared `Fidelity/Statements`, one to Kaiser on the word "Envelope"; Homesite bills went to `Home/Insurance` with no year, dated by next year's policy term. Now: statements skip tax folders and take an account's empty `Statements` folder, by year when the bank files by year; a bank with an account folder of its own beside a shared one gets a new folder per account (his call), laid out like that account; Claude no longer moves a statement whose account folder carries its number; a company home takes its year folder; a policy term is never a statement period.
 
 All of it is in the account phase (`AccountPlacement.swift`, `AccountProposal.swift`, `FileSyncManager+FilingAccounts.swift`), which no maintenance line carries (measured in the statement-names section above: placement=0 identity=0 on every line).
 
@@ -15894,7 +15894,7 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s alreadyFiled=%s groupCard=%s\
 ## A new account for Mother is named `<Type> <last4> (Mother)` — main only
 
 2026-11-18, for v7.2. His accounts that aren't his own carry their holder after the number
-(`Credit 8436 (Mother)`). A new account folder took that suffix only when the inbox folder's name
+(`Credit 9592 (Mother)`). A new account folder took that suffix only when the inbox folder's name
 had it. Now the account phase learns the holder names from the tree's own account folders and
 adds one when page 1 names that person and not him (a joint account stays his), using the people
 roster's `me`. It is in the account phase, which no maintenance line carries (measured in the
@@ -15950,7 +15950,7 @@ placed those, without the pass; `v3.x` and `v2.x` have no router. It is new hous
 2026-11-18, for v7.2. An account folder counted only once it held a regular run of dated
 statements, so the folder he made for a new card (`Credit 4321 (Mother)`) was invisible and its
 first statement got a second, new folder proposed. Now a folder named like an account beside a
-real one counts at once. And a number printed with a Unicode minus (`711840407−01`) splits as the
+real one counts at once. And a number printed with a Unicode minus (`946261935−01`) splits as the
 hyphen does, so one account reads one way. Both are in the account phase, which no maintenance line
 carries (measured in the account-folders section above).
 

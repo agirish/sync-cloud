@@ -123,10 +123,10 @@ import Testing
         let dir = try tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("statement.pdf")
-        try writePDF(["Chase statement account 2809 balance due 1234.56 thank you"], to: url)
+        try writePDF(["Chase statement account 3679 balance due 1234.56 thank you"], to: url)
 
         let present = try #require(PDFTextExtractor.readSync(url.path))
-        #expect(present.pages.first?.contains("2809") == true)
+        #expect(present.pages.first?.contains("3679") == true)
         #expect(PDFTextExtractor.readSync(url.path, isAvailable: { _ in false }) == nil)
     }
 
@@ -157,7 +157,7 @@ import Testing
         let dir = try tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let text = dir.appendingPathComponent("statement.pdf")
-        try writePDF(["Chase statement account 2809 balance due 1234.56 thank you"], to: text)
+        try writePDF(["Chase statement account 3679 balance due 1234.56 thank you"], to: text)
         let scan = dir.appendingPathComponent("scan.pdf")
         try writePDF([""], to: scan)
         let fake = dir.appendingPathComponent("not-really.pdf")

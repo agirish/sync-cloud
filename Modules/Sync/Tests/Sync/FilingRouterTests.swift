@@ -107,10 +107,10 @@ import Testing
 
     /// A year is not always a token: `tokenize` keeps a foil's expiry `20NOV2026` as one token, so
     /// years are read from the raw text. A long digit run such as the control number
-    /// `20241808200001` must yield nothing.
+    /// `20247137952485` must yield nothing.
     @Test func yearsAreReadOutOfTheTextRatherThanItsTokens() {
         #expect(FilingRouter.yearsInText("Expiration Date 20NOV2026") == ["2026"])
-        #expect(FilingRouter.yearsInText("Control Number 20241808200001").isEmpty)
+        #expect(FilingRouter.yearsInText("Control Number 20247137952485").isEmpty)
         #expect(FilingRouter.yearsInText("term 2019-2020 renewed") == ["2019", "2020"])
         #expect(FilingRouter.tokenize("20NOV2026").filter(FilingRouter.isYearToken).isEmpty,
                 "the tokenizer would have to change to see this, which the memory forbids")
@@ -362,11 +362,11 @@ import Testing
         #expect(FilingRouter.tokenize("PG&E-2023 bill.pdf") == ["pg", "2023", "bill"])
         #expect(FilingRouter.tokenize("a of the and") == [])          // stop words and length < 2
         #expect(FilingRouter.tokenize("Form W-2") == ["form"])        // "w" and "2" are both < 2 chars
-        #expect(FilingRouter.tokenize("9829custbill07182023") == ["9829custbill07182023"])
+        #expect(FilingRouter.tokenize("9954custbill07182023") == ["9954custbill07182023"])
     }
 
     @Test func identifiersAndYearsAreRecognised() {
-        #expect(FilingRouter.isIdentifier("1892"))
+        #expect(FilingRouter.isIdentifier("2124"))
         #expect(FilingRouter.isIdentifier("aa00cvpbhp1"))
         #expect(!FilingRouter.isIdentifier("kaiser"))
         #expect(!FilingRouter.isIdentifier("w2"))                     // too short to discriminate

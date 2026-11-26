@@ -154,14 +154,14 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
     @Test func personBucketNeedsTheWholeNameAndNothingElse() {
         let profile = build([dir("Granny", [file("a.pdf")]),
                              dir("Mom", [file("b.pdf")]),
-                             dir("Credit 1892 (Granny)", [file("c.pdf")]),
+                             dir("Credit 2124 (Granny)", [file("c.pdf")]),
                              dir("Granny 2024", [file("d.pdf")]),
                              dir("Mother Maiden", [file("e.pdf")]),
                              dir("Receipts", [file("f.pdf")])])
         #expect(profile.folders["Granny"]?.role == .personBucket)
         #expect(profile.folders["Mom"]?.role == .personBucket, "an alias is a name form too")
         #expect(profile.folders["Mother Maiden"]?.role == .personBucket, "a full name is a form")
-        #expect(profile.folders["Credit 1892 (Granny)"]?.role == .destination)
+        #expect(profile.folders["Credit 2124 (Granny)"]?.role == .destination)
         #expect(profile.folders["Granny 2024"]?.role == .destination)
         #expect(profile.folders["Receipts"]?.role == .destination,
                 "a folder naming nobody must not be a person bucket")

@@ -187,7 +187,7 @@ import EventsTestSupport
         let root = try makeCanonicalTempRoot(prefix: "RenamePass")
         defer { try? FileManager.default.removeItem(at: root) }
         let bucket = try writeBucket(root, "2021", [("01", "Mar"), ("02", "Apr"), ("03", "May")])
-        try writeBytes(bucket.appendingPathComponent("9829custbill02182021.pdf"), bytes: 8)
+        try writeBytes(bucket.appendingPathComponent("9954custbill02182021.pdf"), bytes: 8)
 
         let manager = FileSyncManager()
         let undo = UndoManager()
@@ -205,7 +205,7 @@ import EventsTestSupport
         undo.undo()
         await waitUntil("the whole cascade reverted in one step") {
             ((try? names(in: bucket)) ?? []) == ["01. Mar 2021.pdf", "02. Apr 2021.pdf",
-                                                 "03. May 2021.pdf", "9829custbill02182021.pdf"]
+                                                 "03. May 2021.pdf", "9954custbill02182021.pdf"]
         }
     }
 
@@ -214,7 +214,7 @@ import EventsTestSupport
         let root = try makeCanonicalTempRoot(prefix: "RenamePass")
         defer { try? FileManager.default.removeItem(at: root) }
         let bucket = try writeBucket(root, "2021", [("01", "Mar"), ("02", "Apr"), ("03", "May")])
-        try writeBytes(bucket.appendingPathComponent("9829custbill02182021.pdf"), bytes: 8)
+        try writeBytes(bucket.appendingPathComponent("9954custbill02182021.pdf"), bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "2021", year: "2021")
@@ -229,7 +229,7 @@ import EventsTestSupport
         await manager.applyRenamePlans([plan])
 
         #expect(try names(in: bucket) == ["01. Mar 2021.pdf", "01. May 2021.pdf",
-                                          "02. Apr 2021.pdf", "9829custbill02182021.pdf"],
+                                          "02. Apr 2021.pdf", "9954custbill02182021.pdf"],
                 "no partial cascade may reach the disk")
         #expect(manager.banner?.message.contains("had already changed") == true)
     }
@@ -342,7 +342,7 @@ import EventsTestSupport
     @MainActor
     @Test func aCohortThatFailsPartWayIsRolledBackToTheNumberingItStartedWith() async throws {
         let original = ["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf",
-                        "9829custbill02182021.pdf"]
+                        "9954custbill02182021.pdf"]
         let fm = try mockBucket("/prov/2021", original)
 
         let manager = FileSyncManager(fileManager: fm)
@@ -390,7 +390,7 @@ import EventsTestSupport
     @MainActor
     @Test func aRollbackThatCannotPutAFileBackSaysSoRatherThanOverwriting() async throws {
         let original = ["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf",
-                        "9829custbill02182021.pdf"]
+                        "9954custbill02182021.pdf"]
         let fm = try mockBucket("/prov/2021", original)
 
         let manager = FileSyncManager(fileManager: fm)
@@ -642,7 +642,7 @@ import EventsTestSupport
         let readable = FileSyncManager.liveFiles(in: bills, fileManager: fm)
         #expect(readable?.count == 3)
         #expect(FileSyncManager.liveIncomingName(
-            for: "9829custbill06182021.pdf", destination: bills.path, providerRoot: "/prov",
+            for: "9954custbill06182021.pdf", destination: bills.path, providerRoot: "/prov",
             profile: profile, fileManager: fm) == "04. Jun 2021.pdf")
 
         // The identical folder, now unlistable.
@@ -651,7 +651,7 @@ import EventsTestSupport
         #expect(FileSyncManager.liveFiles(in: bills, fileManager: fm) == nil,
                 "a folder that could not be listed is not a folder holding no files")
         let blocked = FileSyncManager.liveIncomingName(
-            for: "9829custbill06182021.pdf", destination: bills.path, providerRoot: "/prov",
+            for: "9954custbill06182021.pdf", destination: bills.path, providerRoot: "/prov",
             profile: profile, fileManager: fm)
         #expect(blocked == nil, "the caller must fall back to the file's own name")
         // Not 01, the slot an empty folder hands out, which would collide with the March bill.

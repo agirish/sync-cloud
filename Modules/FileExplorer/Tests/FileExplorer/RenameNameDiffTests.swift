@@ -25,9 +25,9 @@ import Testing
 
     /// A stripped vendor prefix, the mirror case: something goes, nothing arrives.
     @Test func aStrippedPrefixIsARemovalWithNoInsertion() {
-        let parts = RenameNameDiff.parts(current: "9829custbill.pdf", proposed: "custbill.pdf")
+        let parts = RenameNameDiff.parts(current: "9954custbill.pdf", proposed: "custbill.pdf")
         #expect(parts.prefix == "")
-        #expect(parts.removed == "9829")
+        #expect(parts.removed == "9954")
         #expect(parts.inserted == "")
         #expect(parts.suffix == "custbill.pdf")
     }
@@ -179,7 +179,7 @@ import Testing
     /// One step doing something else is enough to withdraw the claim.
     @Test func aMixedPassSharesNothing() {
         let steps = [Self.step("1. Jan 31 2021.pdf", "01. Jan 31 2021.pdf"),
-                     Self.step("9829custbill.pdf", "07. Jul 2023.pdf",
+                     Self.step("9954custbill.pdf", "07. Jul 2023.pdf",
                                reason: "Placed into the folder's ordinal grammar.")]
         #expect(RenamePlanSummary.sharedEdit(steps) == nil)
         #expect(RenamePlanSummary.sharedReason(steps) == nil,

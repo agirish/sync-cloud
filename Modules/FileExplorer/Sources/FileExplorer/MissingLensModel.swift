@@ -225,7 +225,7 @@ struct MissingLensModel {
     // MARK: Words
 
     /// An account's name on its row: the last two folders that say which account it is.
-    /// `Finance/US/Investments/Schwab/Roth IRA 8260/Statements` reads `Schwab · Roth IRA 8260`.
+    /// `Finance/US/Investments/Schwab/Roth IRA 9573/Statements` reads `Schwab · Roth IRA 9573`.
     static func title(_ account: Account) -> String {
         let parts = account.path.split(separator: "/").map(String.init).filter { $0.lowercased() != "statements" }
         return parts.suffix(2).joined(separator: " · ")

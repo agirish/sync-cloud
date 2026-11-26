@@ -92,15 +92,15 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
         let docs = root.appendingPathComponent("Docs")
         for m in 1...6 {
-            try writeBytes(docs.appendingPathComponent(String(format: "Bank Accounts/Bank of America/Checking 5696/2025/eStmt_2025-%02d-28.pdf", m)),
+            try writeBytes(docs.appendingPathComponent(String(format: "Bank Accounts/Bank of America/Checking 6701/2025/eStmt_2025-%02d-28.pdf", m)),
                            Data(repeating: 0x41, count: 64))
             let month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"][m - 1]
-            try writeBytes(docs.appendingPathComponent(String(format: "Credit Accounts/Chase/Credit 1768/2025/%02d. %@ 2025.pdf", m, month)),
+            try writeBytes(docs.appendingPathComponent(String(format: "Credit Accounts/Chase/Credit 1833/2025/%02d. %@ 2025.pdf", m, month)),
                            Data(repeating: 0x41, count: 64))
         }
         try FileManager.default.createDirectory(at: docs.appendingPathComponent("Bank Accounts/Chase"), withIntermediateDirectories: true)
         let inbox = root.appendingPathComponent("Inbox")
-        let statement = inbox.appendingPathComponent("Chase/Checking 0779/2026/03. Mar 2026.pdf")
+        let statement = inbox.appendingPathComponent("Chase/Checking 0896/2026/03. Mar 2026.pdf")
         try writeBytes(statement, Data(repeating: 0x41, count: 64))
         let m = FileSyncManager(defaults: ScratchDefaults("FilingTypedPathTests.3"))
         m.setFilingScansSubfolders(true, for: inbox.path)
@@ -110,10 +110,10 @@ import Foundation
         await m.findFilingSuggestions(folder: inbox, providerRoot: docs)
         let card = try #require(m.filingSuggestions.first { $0.filePath == statement.path })
         let best = try #require(card.best)
-        #expect(best.path == docs.path + "/Bank Accounts/Chase/Checking 0779/2026", "\(card.candidates.map(\.path))")
-        #expect(best.newSegments == ["Checking 0779", "2026"])
+        #expect(best.path == docs.path + "/Bank Accounts/Chase/Checking 0896/2026", "\(card.candidates.map(\.path))")
+        #expect(best.newSegments == ["Checking 0896", "2026"])
         #expect(best.confidence == .medium, "a new folder is never High")
-        #expect(best.reasons.first?.contains("named like Checking 5696") == true, "\(best.reasons)")
+        #expect(best.reasons.first?.contains("named like Checking 6701") == true, "\(best.reasons)")
         #expect(best.createsAccountFolder)
     }
 
@@ -123,12 +123,12 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
         let docs = root.appendingPathComponent("Docs")
         for (m, month) in ["Jan", "Feb", "Mar", "Apr", "May", "Jun"].enumerated() {
-            try writeBytes(docs.appendingPathComponent(String(format: "Credit Accounts/Chase/Credit 1768/2025/%02d. %@ 2025.pdf", m + 1, month)),
+            try writeBytes(docs.appendingPathComponent(String(format: "Credit Accounts/Chase/Credit 1833/2025/%02d. %@ 2025.pdf", m + 1, month)),
                            Data(repeating: 0x41, count: 64))
         }
         let inbox = root.appendingPathComponent("Inbox")
-        let lease = inbox.appendingPathComponent("Chase/Auto Lease 2388/2026/03. Mar 2026.pdf")
-        let other = inbox.appendingPathComponent("Chase/Auto Lease 2388/2026/04. Apr 2026.pdf")
+        let lease = inbox.appendingPathComponent("Chase/Auto Lease 3072/2026/03. Mar 2026.pdf")
+        let other = inbox.appendingPathComponent("Chase/Auto Lease 3072/2026/04. Apr 2026.pdf")
         try writeBytes(lease, Data(repeating: 0x41, count: 64))
         try writeBytes(other, Data(repeating: 0x42, count: 64))
         let m = FileSyncManager(defaults: ScratchDefaults("FilingTypedPathTests.4"))
@@ -136,7 +136,7 @@ import Foundation
         m.filingContentExtractor = { _ in [] }
         m.filingSnippetExtractor = {
             switch $0 {
-            case lease.path: return "Thank you for being a CHASE AUTO customer. Lease Information | Account Number 0014202388 | Amount Due $498.97"
+            case lease.path: return "Thank you for being a CHASE AUTO customer. Lease Information | Account Number 0963963072 | Amount Due $498.97"
             case other.path: return "Thank you for being a CHASE AUTO customer. Lease Information | Account Number 0014209999 | Amount Due $498.97"
             default: return nil
             }
@@ -145,7 +145,7 @@ import Foundation
         await m.findFilingSuggestions(folder: inbox, providerRoot: docs)
         let best = try #require(m.filingSuggestions.first { $0.filePath == lease.path }?.best)
         // No other lease to copy: laid out like Chase's live account beside it, by year.
-        #expect(best.path == docs.path + "/Credit Accounts/Chase/Auto Lease 2388/2026", "\(best.path)")
+        #expect(best.path == docs.path + "/Credit Accounts/Chase/Auto Lease 3072/2026", "\(best.path)")
         #expect(best.confidence == .medium && best.createsAccountFolder)
         let unproposed = try #require(m.filingSuggestions.first { $0.filePath == other.path })
         #expect(unproposed.best?.createsAccountFolder != true, "its number isn't the folder's")
@@ -158,11 +158,11 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
         let docs = root.appendingPathComponent("Docs")
         for (m, month) in ["Jan", "Feb", "Mar", "Apr", "May", "Jun"].enumerated() {
-            try writeBytes(docs.appendingPathComponent(String(format: "Bank Accounts/Chase/Checking 0779/2025/%02d. %@ 2025.pdf", m + 1, month)),
+            try writeBytes(docs.appendingPathComponent(String(format: "Bank Accounts/Chase/Checking 0896/2025/%02d. %@ 2025.pdf", m + 1, month)),
                            Data(repeating: 0x41, count: 64))
         }
         let inbox = root.appendingPathComponent("Inbox")
-        let statement = inbox.appendingPathComponent("Chase/Checking 0779/2026/03. Mar 2026.pdf")
+        let statement = inbox.appendingPathComponent("Chase/Checking 0896/2026/03. Mar 2026.pdf")
         try writeBytes(statement, Data(repeating: 0x41, count: 64))
         let m = FileSyncManager(defaults: ScratchDefaults("FilingTypedPathTests.5"))
         m.setFilingScansSubfolders(true, for: inbox.path)
@@ -171,7 +171,7 @@ import Foundation
         m.filingTokensFromText = { _ in [] }
         await m.findFilingSuggestions(folder: inbox, providerRoot: docs)
         let best = try #require(m.filingSuggestions.first { $0.filePath == statement.path }?.best)
-        #expect(best.path == docs.path + "/Bank Accounts/Chase/Checking 0779/2026", "\(best.path)")
+        #expect(best.path == docs.path + "/Bank Accounts/Chase/Checking 0896/2026", "\(best.path)")
         #expect(!best.createsAccountFolder, "the account exists; only its year is new")
         #expect(best.confidence == .medium)
     }

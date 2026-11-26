@@ -16,7 +16,7 @@ struct FilingRoutePath: Equatable {
     /// A quiet note after the path: "new 2026 folder", a year made inside an account it has.
     var note: String? = nil
 
-    /// "Documents › Finance › Credit 22002 › 2026", for tests, tooltips and VoiceOver.
+    /// "Documents › Finance › Credit 44928 › 2026", for tests, tooltips and VoiceOver.
     var text: String { crumbs.map(\.name).joined(separator: " › ") }
 
     /// The words VoiceOver reads: the path, with its tags and note.
@@ -257,7 +257,7 @@ struct FilingRoutePathText: View {
         var text = Text("")
         for (i, crumb) in path.crumbs.enumerated() {
             if i > 0 { text = text + Text(" › ").foregroundStyle(.tertiary) }
-            // Wrapped only between folders, never inside a name: "Credit 22002" stays one piece.
+            // Wrapped only between folders, never inside a name: "Credit 44928" stays one piece.
             text = text + Text(crumb.name.replacingOccurrences(of: " ", with: "\u{00A0}"))
                 .fontWeight(crumb.bold ? .semibold : .regular)
                 .foregroundStyle(crumb.bold ? Color.primary : Color.secondary)

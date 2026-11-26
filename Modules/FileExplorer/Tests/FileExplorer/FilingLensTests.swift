@@ -28,9 +28,9 @@ import Sync
         #expect(FilingConfidenceTier.of(nil as FilingConfidence?) == .low)
     }
 
-    private func statement(_ name: String, _ confidence: FilingConfidence = .high, account root: String = "/root/IRA 7863",
+    private func statement(_ name: String, _ confidence: FilingConfidence = .high, account root: String = "/root/IRA 9312",
                            fromAI: Bool = false) -> FilingSuggestion {
-        let acct = FilingAccount(root: root, ending: "7863", institution: "schwab", archived: false, kind: .statement)
+        let acct = FilingAccount(root: root, ending: "9312", institution: "schwab", archived: false, kind: .statement)
         return FilingSuggestion(filePath: "/root/TODO/\(name)", fileName: name, size: 1, modificationDate: nil,
                                 candidates: [FilingDestination(path: root, confidence: confidence, reasons: [], newSegments: [],
                                                                fromContent: true, fromAI: fromAI, account: acct)])
@@ -68,8 +68,8 @@ import Sync
     /// "210 matched, in 21 accounts": accounts while every Matched file has one, folders otherwise,
     /// and only what moves.
     @Test func theReadoutCountsWhatMovesAndWhere() {
-        let filed = statement("03.pdf").alreadyFiled(at: ["IRA 7863"])
-        let accounts = FilingCardSections.matchedPlaces([statement("01.pdf"), statement("02.pdf", account: "/root/Roth 4657"), filed])
+        let filed = statement("03.pdf").alreadyFiled(at: ["IRA 9312"])
+        let accounts = FilingCardSections.matchedPlaces([statement("01.pdf"), statement("02.pdf", account: "/root/Roth 5442"), filed])
         #expect(accounts.files == 2 && accounts.places == 2 && accounts.accounts)
         let mixed = FilingCardSections.matchedPlaces([statement("01.pdf"), suggestion("byname", .high), suggestion("m", .medium)])
         #expect(mixed.files == 2 && mixed.places == 2 && !mixed.accounts)

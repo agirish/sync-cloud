@@ -5007,7 +5007,7 @@ public struct LensWorkspaceView: View {
             }
             LensSetupSampleRow {
                 Pill(.mini, tint: glassHue.accentColor, text: "to name")
-                Text("9829custbill.pdf").scaledFont(.caption.monospaced()).lineLimit(1)
+                Text("9954custbill.pdf").scaledFont(.caption.monospaced()).lineLimit(1)
                 Image(systemName: "arrow.right").scaledFont(.system(size: 9)).foregroundStyle(.tertiary)
                 Text("07. Jul 2023.pdf").scaledFont(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
             }

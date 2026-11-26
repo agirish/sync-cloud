@@ -4,32 +4,32 @@ import Foundation
 ///
 /// Refine with Claude sends the start of a file's first page so the model can tell what the
 /// document is. A statement prints its account number there, and a tax form a taxpayer number. The
-/// model needs a number's ending, since account folders are named by it (`Checking 7863`), and
+/// model needs a number's ending, since account folders are named by it (`Checking 9312`), and
 /// never the rest. So a number goes as the app shows one: `••` and its last four digits.
 ///
 /// Three kinds of number are cut:
 /// - one the page labels as its account, loan, card, policy, member or contract number
 ///   (``DocumentFacts/ownNumbers(in:)``), when it has more than four digits;
 /// - any run of ``longRun`` or more digits, hyphens inside it counted through
-///   (`4829173650`, `123-45-6789`, `Z26-141750`), wherever it is and whatever it is called;
+///   (`4829173650`, `123-45-6789`, `Z26-221746`), wherever it is and whatever it is called;
 /// - a card number printed in groups (`4829 1736 5012 3456`), and a taxpayer number printed with
 ///   spaces (`123 45 6789`).
 ///
 /// Left as printed: a date (`2026-03-31`, `03-31-2026`, `20260331`), a span of years (`2024-2026`),
 /// an amount (`$1234567`, `Rs. 2500000`, `1234567.89`), a tax form's name beside its year
-/// (`1099-2025`), and a number the page already masks (`XXXX XXXX XXXX 1768`). Anything shorter
+/// (`1099-2025`), and a number the page already masks (`XXXX XXXX XXXX 1833`). Anything shorter
 /// than ``longRun`` digits with no label is left too: a year, a ZIP code, a form number, a page
 /// count. So is a number mixed with letters whose digit runs are all short (`AB12CD34EF56`).
 ///
 /// Erring toward a cut is the point. A phone number or a ZIP+4 loses its start, which costs a
 /// folder choice nothing; a number left whole cannot be taken back.
 enum ExcerptNumberMask {
-    /// What stands for the digits cut from a number, as on a card: `••7863`.
+    /// What stands for the digits cut from a number, as on a card: `••9312`.
     static let bullets = "••"
     /// The fewest digits an unlabelled run has before it is cut.
     static let longRun = 7
 
-    /// A run of digits, hyphens joining its parts: `4829173650`, `3841-7863`, `2026-03-31`.
+    /// A run of digits, hyphens joining its parts: `4829173650`, `3841-9312`, `2026-03-31`.
     private static let hyphenRun = try! NSRegularExpression(pattern: #"\d+(?:-\d+)*"#)
     /// A card number in groups of four, the last of them possibly shorter; American Express's
     /// four, six and five; a taxpayer number's three, two and four. One space or two between.
@@ -53,7 +53,7 @@ enum ExcerptNumberMask {
         var cuts: [NSRange] = []
 
         // The numbers the page labels as its account's, however short and however spaced
-        // (`Account Number 3841 7863`). Found by their digits, so the ending sent is the ending
+        // (`Account Number 3841 9312`). Found by their digits, so the ending sent is the ending
         // filing matches on.
         for number in DocumentFacts.ownNumbers(in: page) where !number.masked && number.digits.count > 4 {
             let pattern = #"(?<!\d)"#

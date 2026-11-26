@@ -2,31 +2,31 @@ import Foundation
 
 /// A statement from a bank the tree knows, for an account no folder holds yet: a new account folder
 /// named and placed like the accounts beside it (decision 7, design §2.8). Chase checking statements,
-/// with BofA's `Bank Accounts/Bank of America/Checking 5696` filed by year, become
-/// `Bank Accounts/Chase/Checking 0779/2026`. Always NEW, never above Medium, and the path is the
+/// with BofA's `Bank Accounts/Bank of America/Checking 6701` filed by year, become
+/// `Bank Accounts/Chase/Checking 0896/2026`. Always NEW, never above Medium, and the path is the
 /// user's to edit before anything is created.
 public enum AccountProposal {
 
     public struct Proposal: Sendable, Equatable {
-        /// The new account folder, relative to the walked root (`Bank Accounts/Chase/Checking 0779`).
+        /// The new account folder, relative to the walked root (`Bank Accounts/Chase/Checking 0896`).
         public let accountRoot: String
         /// Below it, the year folder when the accounts it copies file by year ("" otherwise).
         public let yearFolder: String
         /// The trailing segments that don't exist yet.
         public let newSegments: [String]
         public let ending: String
-        /// The account it was named after (`Bank Accounts/Bank of America/Checking 5696`), for the
+        /// The account it was named after (`Bank Accounts/Bank of America/Checking 6701`), for the
         /// card's "named like" line; nil when it fell back to the bank's folder alone.
         public let namedLike: String?
 
         public var folder: String { yearFolder.isEmpty ? accountRoot : accountRoot + "/" + yearFolder }
     }
 
-    /// The type and number a source folder names (`Checking 0779` → ("Checking", "0779")), from the
+    /// The type and number a source folder names (`Checking 0896` → ("Checking", "0896")), from the
     /// deepest hint segment that has both; nil when none does.
     /// The type, number and name an inbox folder gives an account. Only the account-level folder
     /// counts, the deepest one that isn't a year (a bank-level `ScholarShare 529` names none), and its
-    /// own spelling is the name (`Credit 31001 (Mother)`, `401k 4138`).
+    /// own spelling is the name (`Credit 61009 (Mother)`, `401k 4847`).
     static func typeAndDigits(inHint hint: String) -> (type: String, digits: String, name: String)? {
         guard let seg = hint.split(separator: "/").map(String.init)
             .last(where: { !FolderProfileEntry.looksLikeYear($0) }) else { return nil }
@@ -40,7 +40,7 @@ public enum AccountProposal {
     }
 
     /// The proposal for a statement whose page names `institution` and matches no account. `type`
-    /// comes from the folder it arrived in (`Checking 0779`), so a statement loose in an inbox, or
+    /// comes from the folder it arrived in (`Checking 0896`), so a statement loose in an inbox, or
     /// in a folder naming no type and number, gets no proposal; `ending` from the page, else that
     /// folder.
     public static func propose(institution: String, type: String?, ending: String?, name: String? = nil,
@@ -81,7 +81,7 @@ public enum AccountProposal {
         let accountRoot = parent + "/" + accountName
         // Inside it, the layout of the account it copies (`<year>`, `Statements/<year>`); with no
         // account of its type to copy, of the bank's own live account beside it (`Fidelity/Brokerage
-        // 1750` laid out like `Fidelity/Roth IRA 4657`).
+        // 1746` laid out like `Fidelity/Roth IRA 5442`).
         var inside = ""
         let layout = model ?? index.accounts.first { a in
             !a.archived && a.institution == institution && (a.root as NSString).deletingLastPathComponent == parent
@@ -98,7 +98,7 @@ public enum AccountProposal {
     }
 
     /// The names the tree's account folders carry after their number, as the holder of an account
-    /// that isn't the user's own (`Credit 8436 (Mother)`).
+    /// that isn't the user's own (`Credit 9592 (Mother)`).
     static func holderNames(in tree: [FileNode]) -> Set<String> {
         var out: Set<String> = []
         func visit(_ nodes: [FileNode], depth: Int) {

@@ -12,12 +12,12 @@ import Testing
         let tree = [
             dir("/root/Utilities", [file("/root/Utilities/Jul 2023.pdf", size: 402_394),
                                     file("/root/Utilities/u-only.txt")]),
-            dir("/root/Downloads", [file("/root/Downloads/9829custbill07182023.pdf", size: 402_401),
+            dir("/root/Downloads", [file("/root/Downloads/9954custbill07182023.pdf", size: 402_401),
                                 file("/root/Downloads/d-only.txt")]),
         ]
         let hashes = [
             "/root/Utilities/Jul 2023.pdf": "BYTES-A",
-            "/root/Downloads/9829custbill07182023.pdf": "BYTES-B",
+            "/root/Downloads/9954custbill07182023.pdf": "BYTES-B",
             "/root/Utilities/u-only.txt": "UA", "/root/Downloads/d-only.txt": "UB",
         ]
         return (tree, hashes)
@@ -30,7 +30,7 @@ import Testing
         let groups = DuplicateFinder.findGroups(
             tree: tree, fileHashes: hashes,
             textFingerprints: ["/root/Utilities/Jul 2023.pdf": "FP",
-                               "/root/Downloads/9829custbill07182023.pdf": "FP"])
+                               "/root/Downloads/9954custbill07182023.pdf": "FP"])
 
         #expect(groups.count == 1)
         #expect(groups[0].matchType == .sameText)
@@ -47,7 +47,7 @@ import Testing
         // …but the user can still resolve it themselves once they have looked.
         #expect(groups[0].isFullyResolvableByRemoval)
         #expect(groups[0].allowsKeeperChoice)
-        #expect(groups[0].recommendedRemovalPaths == ["/root/Downloads/9829custbill07182023.pdf"])
+        #expect(groups[0].recommendedRemovalPaths == ["/root/Downloads/9954custbill07182023.pdf"])
     }
 
     /// The pair is not grouped: with no document read (the feature is off then, which is why the
@@ -55,8 +55,8 @@ import Testing
     /// on a fingerprint on one side only, which is not evidence.
     @Test(arguments: [
         (fingerprints: [String: String](), detectSameText: true),
-        (["/root/Utilities/Jul 2023.pdf": "FP", "/root/Downloads/9829custbill07182023.pdf": "FP"], false),
-        (["/root/Utilities/Jul 2023.pdf": "FP-A", "/root/Downloads/9829custbill07182023.pdf": "FP-B"], true),
+        (["/root/Utilities/Jul 2023.pdf": "FP", "/root/Downloads/9954custbill07182023.pdf": "FP"], false),
+        (["/root/Utilities/Jul 2023.pdf": "FP-A", "/root/Downloads/9954custbill07182023.pdf": "FP-B"], true),
         (["/root/Utilities/Jul 2023.pdf": "FP"], true),
     ])
     func theRestampedPairIsNotGrouped(fingerprints: [String: String], detectSameText: Bool) {

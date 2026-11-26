@@ -517,7 +517,7 @@ public enum FilingRouter {
     /// the tokenizer would silently stop stored anchors matching; years never feed anchor lookup.
     ///
     /// A year is a four-digit `19xx`/`20xx` run that isn't part of a longer digit run: it finds
-    /// `2026` in `20NOV2026` and refuses `2024` in the control number `20241808200001`.
+    /// `2026` in `20NOV2026` and refuses `2024` in the control number `20247137952485`.
     static func yearsInText(_ text: String) -> Set<String> {
         var out: Set<String> = []
         var digits = ""

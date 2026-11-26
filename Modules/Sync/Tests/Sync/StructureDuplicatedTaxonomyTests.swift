@@ -144,16 +144,16 @@ import Testing
     /// but these are two correct branches sharing a document that belongs to both: the content
     /// version of the name-parallel trap the rule was written to avoid.
     @Test func combinedStatementsInTwoAccountFoldersFireAndShouldNot() {
-        let profile = Self.profile(["Bank/Checking 5670/2017": 12, "Bank/Savings 3931/2017": 12])
+        let profile = Self.profile(["Bank/Checking 6691/2017": 12, "Bank/Savings 4708/2017": 12])
         let groups = (1...12).map { month in
-            Self.sameTextGroup(["Bank/Checking 5670/2017/statement-\(month).pdf",
-                                "Bank/Savings 3931/2017/statement-\(month).pdf"])
+            Self.sameTextGroup(["Bank/Checking 6691/2017/statement-\(month).pdf",
+                                "Bank/Savings 4708/2017/statement-\(month).pdf"])
         }
         let findings = StructureDuplicatedTaxonomy.findings(groups: groups, in: profile)
         #expect(findings.count == 1,
                 "the rule as it stands fires here — recorded, not endorsed")
         #expect(findings.first?.detail
-                == .duplicatedTaxonomy(counterpart: "Bank/Savings 3931/2017",
+                == .duplicatedTaxonomy(counterpart: "Bank/Savings 4708/2017",
                                        matchedDocuments: 12))
         // The share threshold is not the discriminator: this pair clears every value from a fifth
         // to the whole folder, so no tuning of `minimumShare` separates it from a real duplicated
@@ -169,16 +169,16 @@ import Testing
     /// fires, but this is one folder mid-filing, and the pair dissolves once the staging copies
     /// are cleared.
     @Test func anInboxStagingFolderFiresWhileItIsStillBeingFiled() {
-        let profile = Self.profile(["Cards/Credit 2809/2024": 13, "Cards/TODO": 13])
+        let profile = Self.profile(["Cards/Credit 3679/2024": 13, "Cards/TODO": 13])
         let groups = (1...10).map { index in
-            Self.sameTextGroup(["Cards/Credit 2809/2024/doc-\(index).pdf",
+            Self.sameTextGroup(["Cards/Credit 3679/2024/doc-\(index).pdf",
                                 "Cards/TODO/doc-\(index).pdf"])
         }
         let findings = StructureDuplicatedTaxonomy.findings(groups: groups, in: profile)
         #expect(findings.count == 1, "recorded as the rule's current behaviour")
         // The subject is the lexicographically first of the pair, a stable identity, pinned exactly
         // rather than either way by an `||`, which would leave the counterpart and count unchecked.
-        #expect(findings.first?.subject == "Cards/Credit 2809/2024")
+        #expect(findings.first?.subject == "Cards/Credit 3679/2024")
         #expect(findings.first?.detail
                 == .duplicatedTaxonomy(counterpart: "Cards/TODO", matchedDocuments: 10))
     }

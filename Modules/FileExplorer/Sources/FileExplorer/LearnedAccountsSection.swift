@@ -65,7 +65,7 @@ private struct LearnedAccountRow: View {
 }
 
 enum LearnedAccountText {
-    /// "taught Nov 13 · 10 filed", "folder missing · not used", "2 accounts end in 4139 at Chase".
+    /// "taught Nov 13 · 10 filed", "folder missing · not used", "2 accounts end in 4859 at Chase".
     static func detail(_ a: LearnedAccount, sharesEnding: Int, folderExists: Bool) -> String {
         if !folderExists { return "folder missing · not used" }
         var parts = ["taught " + a.taughtAt.formatted(.dateTime.month(.abbreviated).day()),

@@ -85,9 +85,9 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
     @Test("Real provider names give up their month and year")
     func minesRealNames() throws {
         let cases: [(String, Int, Int)] = [
-            ("9829custbill07182023.pdf", 7, 2023),                       // MMDDYYYY
+            ("9954custbill07182023.pdf", 7, 2023),                       // MMDDYYYY
             ("20240128-statements-6604-.pdf", 1, 2024),                  // YYYYMMDD
-            ("STMTCMB100_20201101_5203_Elder_1154171_239175.PDF", 11, 2020),
+            ("STMTCMB100_20201101_6474_Elder_4012327_460118.PDF", 11, 2020),
             ("Statement12312020-5.pdf", 12, 2020),
             ("ATTBill_1897_Feb2022.pdf", 2, 2022),                       // glued MonYYYY
             ("DetailedBillApr2025.pdf", 4, 2025),                        // no separator at all
@@ -117,7 +117,7 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
             // A datestamp with a time glued on. Its first eight digits read as 2020-11-01, so the
             // whole delimited run must be exactly eight long. Loosening that to "at least eight"
             // must fail here; the two names above parse neither way, so they can't catch it.
-            "STMTCMB100_202011011530_5203.PDF",
+            "STMTCMB100_202011011530_6474.PDF",
             "09a6d2b6-78e6-4f3a-83e0-ea1ac09ff81a.pdf",          // UUID
         ] {
             #expect(FileNameDate.mine(name) == nil, "\(name) should not yield a month")
@@ -288,8 +288,8 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
         // four files, so it is not "fixed", and the December statement arriving is `4.` too.
         let names = ["1. Mar 2026.pdf", "2. Jun 2026.pdf", "3. Sep 2026.pdf"]
         #expect(plan(names, year: "2026").steps.isEmpty)
-        let p = plan(names + ["9829custbill12182026.pdf"], year: "2026")
-        #expect(targets(p) == ["9829custbill12182026.pdf": "4. Dec 2026.pdf"])
+        let p = plan(names + ["9954custbill12182026.pdf"], year: "2026")
+        #expect(targets(p) == ["9954custbill12182026.pdf": "4. Dec 2026.pdf"])
         // Non-vacuity: the same one-digit names a month apart are a monthly folder, and padded.
         #expect(plan(["1. Jan 2026.pdf", "2. Feb 2026.pdf", "3. Mar 2026.pdf"], year: "2026")
             .steps.count == 3)
@@ -335,25 +335,25 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
     func placesIntoPositionFolder() {
         // HDFC Credit/2010's real shape: Apr=01, Jul=02, Sep=03 — position, not month number.
         let p = plan(["01. Apr 2010.pdf", "02. Jul 2010.pdf", "03. Sep 2010.pdf",
-                      "9829custbill10182010.pdf"], year: "2010")
+                      "9954custbill10182010.pdf"], year: "2010")
         #expect(p.scheme == .position)
-        #expect(targets(p) == ["9829custbill10182010.pdf": "04. Oct 2010.pdf"])
+        #expect(targets(p) == ["9954custbill10182010.pdf": "04. Oct 2010.pdf"])
     }
 
     @Test("A raw bill takes its month's slot in a month-numbered folder")
     func placesIntoMonthNumberFolder() {
         // PG&E/2021's real shape: Mar=03 … Nov=11, with slots 1 and 2 standing empty.
         let p = plan(["03. Mar 2021.pdf", "04. Apr 2021.pdf", "05. May 2021.pdf",
-                      "9829custbill12182021.pdf"], year: "2021")
+                      "9954custbill12182021.pdf"], year: "2021")
         #expect(p.scheme == .monthNumber)
-        #expect(targets(p) == ["9829custbill12182021.pdf": "12. Dec 2021.pdf"])
+        #expect(targets(p) == ["9954custbill12182021.pdf": "12. Dec 2021.pdf"])
         // The discriminating half: the very same files under a folder whose names vouch for
         // POSITION put December at slot 04, not 12. So this test reads the scheme rather than
         // counting files.
         let positional = plan(["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf",
-                               "9829custbill12182021.pdf"], year: "2021")
+                               "9954custbill12182021.pdf"], year: "2021")
         #expect(positional.scheme == .position)
-        #expect(targets(positional) == ["9829custbill12182021.pdf": "04. Dec 2021.pdf"])
+        #expect(targets(positional) == ["9954custbill12182021.pdf": "04. Dec 2021.pdf"])
     }
 
     @Test("Numbering is per extension — a csv/pdf pair shares one slot")
@@ -381,10 +381,10 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
     @Test("A raw original beside its renamed copy is skipped, never renamed onto it")
     func refusesToCollideWithTheRenamedCopy() throws {
         // A real pair: same bill, same folder, one renamed and one not.
-        let p = plan(["07. Jul 2023.pdf", "9829custbill07182023.pdf"], year: "2023")
+        let p = plan(["07. Jul 2023.pdf", "9954custbill07182023.pdf"], year: "2023")
         #expect(p.steps.isEmpty)
         let skip = try #require(p.skips.first)
-        #expect(skip.fileName == "9829custbill07182023.pdf")
+        #expect(skip.fileName == "9954custbill07182023.pdf")
         #expect(skip.reason.contains("07. Jul 2023.pdf"))
     }
 
@@ -401,14 +401,14 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
     func refusesToStampTheWrongYear() throws {
         // PG&E's January 2024 bill filed under 2023/ — the misfiling the survey found. Renaming it
         // `01. Jan 2023.pdf` would bury the evidence under a name that looks right.
-        let p = plan(["11. Nov 2023.pdf", "12. Dec 2023.pdf", "9829custbill01182024.pdf"],
+        let p = plan(["11. Nov 2023.pdf", "12. Dec 2023.pdf", "9954custbill01182024.pdf"],
                      year: "2023")
         #expect(p.steps.isEmpty)
         let skip = try #require(p.skips.first)
         #expect(skip.reason.contains("Jan 2024"))
         #expect(skip.reason.contains("2023"))
         // Non-vacuity: the same bill in its own year IS placed.
-        #expect(plan(["11. Nov 2024.pdf", "12. Dec 2024.pdf", "9829custbill01182024.pdf"],
+        #expect(plan(["11. Nov 2024.pdf", "12. Dec 2024.pdf", "9954custbill01182024.pdf"],
                      year: "2024").steps.count == 1)
     }
 
@@ -430,8 +430,8 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
     func backFillCascades() throws {
         // `HDFC Credit/2010`'s shape: position-numbered, and February arrives before March.
         let p = plan(["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf",
-                      "9829custbill02182021.pdf"], year: "2021")
-        #expect(targets(p) == ["9829custbill02182021.pdf": "01. Feb 2021.pdf",
+                      "9954custbill02182021.pdf"], year: "2021")
+        #expect(targets(p) == ["9954custbill02182021.pdf": "01. Feb 2021.pdf",
                                "01. Mar 2021.pdf": "02. Mar 2021.pdf",
                                "02. Apr 2021.pdf": "03. Apr 2021.pdf",
                                "03. May 2021.pdf": "04. May 2021.pdf"])
@@ -460,9 +460,9 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
         // Under `.monthNumber` the slot IS the month, so an arriving February takes slot 02 and
         // March keeps 03. Renumbering would be actively wrong.
         let p = plan(["03. Mar 2021.pdf", "04. Apr 2021.pdf", "07. Jul 2021.pdf",
-                      "9829custbill02182021.pdf"], year: "2021")
+                      "9954custbill02182021.pdf"], year: "2021")
         #expect(p.scheme == .monthNumber)
-        #expect(targets(p) == ["9829custbill02182021.pdf": "02. Feb 2021.pdf"])
+        #expect(targets(p) == ["9954custbill02182021.pdf": "02. Feb 2021.pdf"])
         #expect(p.renumbered == 0)
     }
 
@@ -488,7 +488,7 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
         // collision guard refuses them, and with a cascade that has to take the rest of the cohort
         // with it: applying the survivors would leave April on a slot March also claims.
         let p = plan(["1. Mar 2021.pdf", "01. Mar 2021.pdf", "02. Apr 2021.pdf",
-                      "9829custbill02182021.pdf"], year: "2021")
+                      "9954custbill02182021.pdf"], year: "2021")
         #expect(p.steps.isEmpty, "no step may survive a cascade that cannot be completed")
         #expect(!p.skips.isEmpty)
         #expect(p.skips.contains { $0.reason.contains("renumbering this folder cannot complete") })
@@ -515,14 +515,14 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
         // `2. Feb` only needs widening — right whether or not the shift around it happens — so it
         // must not be swept into the cohort and lost with it. `1. Mar`/`01. Mar` doom the cascade.
         let p = plan(["1. Mar 2021.pdf", "01. Mar 2021.pdf", "2. Feb 2021.pdf",
-                      "9829custbill01182021.pdf"], year: "2021")
+                      "9954custbill01182021.pdf"], year: "2021")
         #expect(targets(p) == ["2. Feb 2021.pdf": "02. Feb 2021.pdf"])
         #expect(p.renumbered == 0)
     }
 
     @Test("Two placements under month numbering cannot claim one slot")
     func monthNumberedPlacementsDoNotShareASlot() {
-        // A folder with no year of its own — `HDFC Forex 9055` — can take January of two years in
+        // A folder with no year of its own — `HDFC Forex 9754` — can take January of two years in
         // one pass. Read off an immutable `taken`, both would be told slot 01 is free.
         let p = plan(["03. Mar 2020.pdf", "05. May 2020.pdf", "07. Jul 2020.pdf",
                       "bill01152020.pdf", "bill01152021.pdf"])
@@ -547,13 +547,13 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
         // move up. Taking the placement alone would be a half-applied cascade, leaving two files on
         // slot 01.
         let p = plan(["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf"],
-                     year: "2021", incoming: "9829custbill02182021.pdf")
-        let step = p.steps.first { $0.currentName == "9829custbill02182021.pdf" }
+                     year: "2021", incoming: "9954custbill02182021.pdf")
+        let step = p.steps.first { $0.currentName == "9954custbill02182021.pdf" }
         #expect(step?.proposedName == "01. Feb 2021.pdf")
         #expect(step?.cohort != 0, "the planner still describes the whole renumbering")
         // …and the manager's one-file door declines it precisely because of that cohort.
         #expect(FileSyncManager.incomingName(
-            for: "9829custbill02182021.pdf", into: "/T", relativePath: "T",
+            for: "9954custbill02182021.pdf", into: "/T", relativePath: "T",
             folderFiles: files(["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf"]),
             profile: FolderProfile(profileId: "t", root: "/",
                                    folders: ["T": entry("T", naming: "ordinal-month",
@@ -561,7 +561,7 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
                                    personTokens: [])) == nil)
         // The discriminating half: an APPEND needs no cascade and is still offered.
         #expect(FileSyncManager.incomingName(
-            for: "9829custbill06182021.pdf", into: "/T", relativePath: "T",
+            for: "9954custbill06182021.pdf", into: "/T", relativePath: "T",
             folderFiles: files(["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf"]),
             profile: FolderProfile(profileId: "t", root: "/",
                                    folders: ["T": entry("T", naming: "ordinal-month",
@@ -588,24 +588,24 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
         // Jan–Aug renamed two-digit, the rest raw, plus a January 2024 bill filed here.
         let p = plan((1...8).map { String(format: "%02d. %@ 2023.pdf",
                                           $0, OrdinalMonthName.monthAbbreviations[$0 - 1]) }
-                     + ["9829custbill09182023.pdf", "9829custbill10182023.pdf",
-                        "9829custbill01182024.pdf"],
+                     + ["9954custbill09182023.pdf", "9954custbill10182023.pdf",
+                        "9954custbill01182024.pdf"],
                      year: "2023")
         // Jan–Aug is contiguous from January, where the two schemes are indistinguishable — so the
         // inference stays on the tree's majority reading, and both give Sep slot 09 regardless.
         #expect(p.scheme == .position)
-        #expect(targets(p) == ["9829custbill09182023.pdf": "09. Sep 2023.pdf",
-                               "9829custbill10182023.pdf": "10. Oct 2023.pdf"])
+        #expect(targets(p) == ["9954custbill09182023.pdf": "09. Sep 2023.pdf",
+                               "9954custbill10182023.pdf": "10. Oct 2023.pdf"])
         // The 2024 bill is reported as a possible misfiling and is NOT given a 2023 name.
         #expect(p.skips.count == 1)
-        #expect(p.skips.first?.fileName == "9829custbill01182024.pdf")
+        #expect(p.skips.first?.fileName == "9954custbill01182024.pdf")
     }
 
     @Test("PG&E 2022, not renamed at all, is numbered end to end")
     func pgeTwentyTwentyTwo() {
         // Eleven raw bills and no conforming sibling: placed in date order only because placements
         // rank against each other; ranked against the original list, all eleven compute slot 1.
-        let raw = (1...11).map { m in String(format: "9829custbill%02d182022.pdf", m) }
+        let raw = (1...11).map { m in String(format: "9954custbill%02d182022.pdf", m) }
         let p = plan(raw, year: "2022")
         #expect(p.steps.count == 11)
         #expect(p.placed == 11)
@@ -704,15 +704,15 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
         #expect(FileNameDate.mine("2026-06-15.pdf")?.month == 6)
         #expect(FileNameDate.mine("06-15-2026.pdf")?.month == 6)
         // An account reference whose runs are the wrong widths stays refused.
-        #expect(FileNameDate.mine("STMTCMB100_5203_9911.pdf") == nil)
+        #expect(FileNameDate.mine("STMTCMB100_6474_9911.pdf") == nil)
         // `DD MM YYYY` is refused outright — `15 06 2026` cannot be told from a US June 15th.
         #expect(FileNameDate.mine("bill 15 13 2026.pdf") == nil)
     }
 
     @Test("The 8-digit datestamp now reports its day, and its month is unchanged")
     func datestampReportsDay() {
-        #expect(FileNameDate.mine("9829custbill07182023.pdf")?.day == 18)
-        #expect(FileNameDate.mine("9829custbill07182023.pdf")?.month == 7)
+        #expect(FileNameDate.mine("9954custbill07182023.pdf")?.day == 18)
+        #expect(FileNameDate.mine("9954custbill07182023.pdf")?.month == 7)
         #expect(FileNameDate.mine("20240128-statements-6604.pdf")?.day == 28)
         // Two stamps in one month still answer the month — folding the day into that key would
         // turn a known month with an unknown day into a refusal.

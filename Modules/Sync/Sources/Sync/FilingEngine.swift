@@ -190,7 +190,7 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
         }
         let parent = (path as NSString).deletingLastPathComponent
         let renamed = parent + "/" + trimmed
-        // The account folder itself renamed (`Checking 0779` → `Chase Checking`): its account
+        // The account folder itself renamed (`Checking 0896` → `Chase Checking`): its account
         // follows, so what this teaches names the folder that is made.
         var acct = account
         if let a = account, a.root == path {
@@ -270,7 +270,7 @@ public struct FilingAccount: Sendable, Equatable, Hashable {
     /// Statement, tax form or other, from page 1.
     public let kind: DocumentFacts.Kind
 
-    /// The account folder's own name carries the number (`Brokerage 1750`): what the tree says,
+    /// The account folder's own name carries the number (`Brokerage 1746`): what the tree says,
     /// which no lesson outranks, so filing these elsewhere teaches nothing.
     public var isNamedByFolder: Bool {
         AccountIndex.accountDigits(inFolderNamed: (root as NSString).lastPathComponent)
@@ -1423,7 +1423,7 @@ public enum FilingEngine {
             }
             // **Past the shortlist, a paid answer that read the page beats a weak home.** The
             // shortlist rule trusts the router because its High is calibrated; its Low is not a
-            // claim worth defending. A file named `SON110226IMMZNRECORD.pdf` gives the router
+            // claim worth defending. A file named `SON634127IMMZNRECORD.pdf` gives the router
             // nothing, so its weak `Finance/US/Social Security/2026` (from "Age" on the page) kept
             // the card while Claude, having read the page, said `Health/Medical/Kaiser`. Anything
             // short of that (a medium or high home, a blind or low answer) keeps the card, and

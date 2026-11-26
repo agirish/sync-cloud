@@ -59,7 +59,7 @@ import Testing
     static func makeScan(_ reads: Reads, withRouter: Bool) throws -> (FileSyncManager, URL) {
         let root = try makeCanonicalTempRoot(prefix: "FilingWiring")
         try writeBytes(root.appendingPathComponent("Documents/Home/Utilities/PG&E/2023/.keep"), bytes: 1)
-        try writeBytes(root.appendingPathComponent("Downloads/9829custbill.pdf"))
+        try writeBytes(root.appendingPathComponent("Downloads/9954custbill.pdf"))
         let m = FileSyncManager()
         m.filingContentExtractor = { p in reads.withLock { $0.tokens.append(p) }; return ["pge"] }
         m.filingSnippetExtractor = { p in reads.withLock { $0.snippets.append(p) }; return "PG&E gas and electric 2023" }
@@ -78,7 +78,7 @@ import Testing
         let (m, root) = try Self.makeScan(reads, withRouter: true)
         defer { try? FileManager.default.removeItem(at: root) }
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
-        let bill = reads.withLock { $0.snippets }.filter { $0.hasSuffix("9829custbill.pdf") }
+        let bill = reads.withLock { $0.snippets }.filter { $0.hasSuffix("9954custbill.pdf") }
         #expect(bill.count == 1, "page read \(bill.count) times, expected once")
         #expect(reads.withLock { $0.tokens }.isEmpty, "the token extractor re-read a page the router already had")
     }
@@ -91,7 +91,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
         #expect(!reads.withLock { $0.tokens }.isEmpty, "the content extractor must still be the reader here")
-        #expect(reads.withLock { $0.snippets }.filter { $0.hasSuffix("9829custbill.pdf") }.isEmpty)
+        #expect(reads.withLock { $0.snippets }.filter { $0.hasSuffix("9954custbill.pdf") }.isEmpty)
     }
 
     /// The index is rebuilt only when the taxonomy moves: it costs ~85 ms on a real tree, and the

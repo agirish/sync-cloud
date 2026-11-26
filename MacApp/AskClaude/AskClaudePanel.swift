@@ -2138,7 +2138,7 @@ enum AskClaudeLinks {
     }
 
     /// Whether `name` ends in a file extension: a dot and one to five letters or digits, not all
-    /// digits ("Tax.pdf" does; "Checking 6436" and "v1.2" don't).
+    /// digits ("Tax.pdf" does; "Checking 7259" and "v1.2" don't).
     static func hasExtension(_ name: String) -> Bool {
         let ext = (name as NSString).pathExtension
         return (1...5).contains(ext.count) && ext.allSatisfy { $0.isLetter || $0.isNumber } && !ext.allSatisfy(\.isNumber)

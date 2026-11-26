@@ -183,11 +183,11 @@ import Foundation
     /// separately), so an account last-4 can't be matched on. The verification pass keeps it from
     /// becoming a saved rule that never fires.
     @Test func aPureDigitIdentifierIsNotOfferedEvenWhenTheMemoryKnowsIt() throws {
-        let index = Self.index(memory: ["Finance/US/Chase 8829": ["chase": 4.0]],
-                               ids: ["Finance/US/Chase 8829": ["8829": 6.0]])
-        let p = try #require(propose("chase 8829 statement.pdf", into: "Finance/US/Chase 8829",
+        let index = Self.index(memory: ["Finance/US/Chase 9197": ["chase": 4.0]],
+                               ids: ["Finance/US/Chase 9197": ["9197": 6.0]])
+        let p = try #require(propose("chase 9197 statement.pdf", into: "Finance/US/Chase 9197",
                                      evidence: .init(index: index)))
-        for variant in p.variants { #expect(!variant.summary.contains("8829")) }
+        for variant in p.variants { #expect(!variant.summary.contains("9197")) }
         #expect(p.defaultVariant.conditions == [.mentionsAll(["chase"])])
     }
 

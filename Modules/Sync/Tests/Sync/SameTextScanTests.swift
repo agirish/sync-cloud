@@ -21,7 +21,7 @@ import Testing
         // Different bytes and different sizes — the case a (name, size) or (size, page count)
         // pre-filter would never even offer to the reader.
         try writeBytes(root.appendingPathComponent("Utilities/Jul 2023.pdf"), bytes: 6000, fill: 0x41)
-        try writeBytes(root.appendingPathComponent("Downloads/9829custbill.pdf"), bytes: 6040, fill: 0x42)
+        try writeBytes(root.appendingPathComponent("Downloads/9954custbill.pdf"), bytes: 6040, fill: 0x42)
         try writeBytes(root.appendingPathComponent("Utilities/u-only.txt"), bytes: 8, fill: 0x61)
         try writeBytes(root.appendingPathComponent("Downloads/d-only.txt"), bytes: 12, fill: 0x62)
 
@@ -44,7 +44,7 @@ import Testing
 
         // Both copies still on disk, and the group still listed for a per-group look.
         #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("Utilities/Jul 2023.pdf").path))
-        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("Downloads/9829custbill.pdf").path))
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("Downloads/9954custbill.pdf").path))
         #expect(manager.duplicateGroups.contains { $0.matchType == .sameText })
     }
 

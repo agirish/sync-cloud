@@ -17,7 +17,7 @@ public struct DocumentFacts: Sendable, Equatable {
         public let masked: Bool
         /// Printed after an account-number label, rather than found masked somewhere on the page.
         public var labelled: Bool = true
-        /// The last four digits, as printed: what a card shows (••7863) and what is learned.
+        /// The last four digits, as printed: what a card shows (••9312) and what is learned.
         public var ending: String { String(digits.suffix(4)) }
     }
 
@@ -78,7 +78,7 @@ public struct DocumentFacts: Sendable, Equatable {
         #"\b(?:(?:account|acct|loan|card|policy|member|contract)\b(?:[^|\n]{0,12}?|[ \t]*\n[ \t]*)(?:\bnumber|\bno\b\.?|#)(?:\s*ending\s*in)?|account\s*(?:ending(?:\s*in)?|#)|ending\s+in|(?:account|acct)\s*(?=:))[\s:#.()]*"#,
         options: [.caseInsensitive])
     private static let numberAfterLabel = try! NSRegularExpression(pattern: #"^[Xx\*•]{0,24}[\dXx\*•][\dXx\*• \-]{1,24}\d"#)
-    /// A masked run (`XXXX XXXX XXXX 1768`, `******4121`, `XXXX-XXXXX6-22002`), bounded so a page of
+    /// A masked run (`XXXX XXXX XXXX 1833`, `******4824`, `XXXX-XXXXX6-44928`), bounded so a page of
     /// asterisks can't make the match backtrack for seconds.
     private static let maskedAnywhere = try! NSRegularExpression(pattern:
         #"(?<![\w*•])[Xx\*•]{3,24}+(?:[ \-]{0,2}+[Xx\*•\d]{1,8}+){0,6}+"#)
@@ -87,14 +87,14 @@ public struct DocumentFacts: Sendable, Equatable {
     /// The person's number, not an account's.
     private static let taxpayerWords = try! NSRegularExpression(pattern: #"\b(?:tin|ssn|social|taxpayer)\b"#, options: [.caseInsensitive])
     /// A number named on a payment or transfer line belongs to the other account
-    /// (`AutoPay from account ending in 5696`, `Transfer to account number 4121`).
+    /// (`AutoPay from account ending in 6701`, `Transfer to account number 4824`).
     /// Payment and transfer phrases, not a bare "from" (`Statement From 01/01 To 01/31`).
     private static let otherAccountWords = try! NSRegularExpression(pattern:
         #"\b(?:auto[- ]?pay|transfer(?:red|s)?|linked|(?:paid|payments?|debit(?:ed)?|deposit(?:ed)?|fund(?:ed|ing)?|draft(?:ed)?)\s+(?:from|to|into)|from\s+(?:your\s+)?(?:account|acct|checking|savings))\b"#,
         options: [.caseInsensitive])
 
     static func ownNumbers(in page: String) -> [OwnNumber] {
-        // A Unicode minus or other dash (`711840407−01`) reads as the hyphen it stands for, so a
+        // A Unicode minus or other dash (`946261935−01`) reads as the hyphen it stands for, so a
         // number splits the same way however the bank's PDF printed it. One UTF-16 unit each, so
         // offsets are unchanged.
         let page = page.replacingOccurrences(of: "[\u{2010}-\u{2015}\u{2212}\u{FE58}\u{FE63}\u{FF0D}]", with: "-",
@@ -125,8 +125,8 @@ public struct DocumentFacts: Sendable, Equatable {
             if onPaymentLine(ns, before: m.range.location) { continue }
             let end = m.range.location + m.range.length
             var after = ns.substring(with: NSRange(location: end, length: min(60, ns.length - end)))
-            // The value may sit on the next line (`Account Number\n3841-7863`) or carry one letter
-            // of prefix (`Z26-141750`).
+            // The value may sit on the next line (`Account Number\n3841-9312`) or carry one letter
+            // of prefix (`Z26-221746`).
             after = String(after.drop(while: { $0.isWhitespace || $0 == "|" || $0 == ":" }))
             let raw0 = ns.substring(with: NSRange(location: end, length: min(60, ns.length - end)))
             // The label's own trailing whitespace may hold the line break (`Account Number:\n…`).
@@ -149,13 +149,13 @@ public struct DocumentFacts: Sendable, Equatable {
                     let intoAmount = (nextChar == "," || nextChar == ".") && following.first?.isNumber == true && digits.count <= 3
                     if intoDate || intoAmount || digits.count < 3 { groups.removeLast() }
                 }
-                // Then any stray short run left at the end (`3841-7863 2`).
+                // Then any stray short run left at the end (`3841-9312 2`).
                 while groups.count > 1, let last = groups.last, last.filter(\.isNumber).count < 3 { groups.removeLast() }
                 let raw = groups.joined(separator: " ")
-                // A value on the next line must be the line's own (`Account Number\n3841-7863`),
+                // A value on the next line must be the line's own (`Account Number\n3841-9312`),
                 // not the start of an address (`18450 OAK HOLLOW`).
                 // A short number with words after it on its own line is a street address; an account
-                // number is longer (`000012345678 DRE …` is still the account's).
+                // number is longer (`065197013576 DRE …` is still the account's).
                 if crossedLine, raw.filter(\.isNumber).count <= 6 {
                     let rest = a.substring(from: n.range.location + n.range.length)
                     let restOfLine = rest.prefix { $0 != "\n" }
@@ -170,10 +170,10 @@ public struct DocumentFacts: Sendable, Equatable {
         let head = String(page.prefix(2500)) as NSString
         for m in maskedAnywhere.matches(in: head as String, range: NSRange(location: 0, length: head.length)) {
             var s = head.substring(with: m.range).trimmingCharacters(in: .whitespaces)
-            // A taxpayer mask (`XXX-XX-7396`) inside the run is the person's: cut it out.
+            // A taxpayer mask (`XXX-XX-8508`) inside the run is the person's: cut it out.
             s = ssnMask.stringByReplacingMatches(in: s, range: NSRange(location: 0, length: (s as NSString).length), withTemplate: " ")
             guard (s.reversed().prefix { $0.isNumber }).count >= 3 || s.filter(\.isNumber).count >= 3 else { continue }
-            // `AutoPay from account ending in ****4121`: another account's, masked or not.
+            // `AutoPay from account ending in ****4824`: another account's, masked or not.
             if onPaymentLine(head, before: m.range.location) { continue }
             add(s, at: m.range.location, labelled: false)
         }
@@ -191,7 +191,7 @@ public struct DocumentFacts: Sendable, Equatable {
 
     /// The numbers to match an account by: the labelled ones when the page has any, since a page
     /// that names its own account number and also a masked one is naming that other account in
-    /// passing (`transfer to DISCOVER BANK SAV account ******4121`).
+    /// passing (`transfer to DISCOVER BANK SAV account ******4824`).
     var matchingNumbers: [OwnNumber] {
         let labelled = ownNumbers.filter(\.labelled)
         return labelled.isEmpty ? ownNumbers : labelled
@@ -419,7 +419,7 @@ public struct AccountIndex: Sendable {
         public let institution: String
         /// The institution folder's own name, for display (`Charles Schwab`, `HDFC Bank`).
         public var institutionName: String = ""
-        /// Under an archive folder (`…/Charles Schwab/Archive/Roth IRA Automated 2336`).
+        /// Under an archive folder (`…/Charles Schwab/Archive/Roth IRA Automated 2912`).
         public let archived: Bool
     }
 
@@ -494,7 +494,7 @@ public struct AccountIndex: Sendable {
             if !rel.isEmpty, !isInbox(rel) {
                 let digits = accountDigits(inFolderNamed: node.name)
                 // The highest such folder is the account; below it are its years. Unless a folder
-                // below carries account digits of its own (`401k/Fidelity 4138`): then this one is
+                // below carries account digits of its own (`401k/Fidelity 4847`): then this one is
                 // a category, and the accounts are below it.
                 if !digits.isEmpty, StatementFamily.hasRegularFamily(below: node) || isNewAccountFolder(node, siblings: siblings),
                    !Self.hasNamedAccountBelow(node) {
@@ -584,7 +584,7 @@ public struct AccountIndex: Sendable {
             let path = parts.joined(separator: "/")
             if isArchiveName(last) || isArchived(path) { archived = true; parts.removeLast(); continue }
             if last.contains(where: \.isNumber) { parts.removeLast(); continue }
-            // Archived anywhere above, too (`HDFC Bank/Archive/HDFC Forex/HDFC Forex 9055`).
+            // Archived anywhere above, too (`HDFC Bank/Archive/HDFC Forex/HDFC Forex 9754`).
             let above = parts.dropLast()
             let archivedAbove = above.contains(where: isArchiveName)
                 || (1...max(1, above.count)).contains { isArchived(above.prefix($0).joined(separator: "/")) }

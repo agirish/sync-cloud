@@ -9,8 +9,8 @@ import Testing
 @Suite struct StatementOrdinalsTests {
 
     /// A governed year folder.
-    static let folder = "/T/Finance/US/Credit Accounts/American Express/Credit 1001/2025"
-    static let rel = "Finance/US/Credit Accounts/American Express/Credit 1001/2025"
+    static let folder = "/T/Finance/US/Credit Accounts/American Express/Credit 1009/2025"
+    static let rel = "Finance/US/Credit Accounts/American Express/Credit 1009/2025"
 
     private func files(_ names: [String], in folder: String = folder) -> [FolderFile] {
         names.map { FolderFile(path: folder + "/" + $0, name: $0) }
@@ -40,7 +40,7 @@ import Testing
 
     @Test func theRuleGovernsOnlyTheFoldersHeRenamedToIt() {
         #expect(StatementOrdinals.governs("Finance/US"))
-        #expect(StatementOrdinals.governs("Finance/US/Bank Accounts/Chase/Checking 0779/2026"))
+        #expect(StatementOrdinals.governs("Finance/US/Bank Accounts/Chase/Checking 0896/2026"))
         #expect(StatementOrdinals.governs("finance/us/Credit Accounts"), "his volume ignores case")
         #expect(StatementOrdinals.governs("Vehicles/Tesla/Lease Statements/2026"))
         #expect(!StatementOrdinals.governs("Finance/USA/2026"), "a component, not a prefix of letters")
@@ -101,7 +101,7 @@ import Testing
         #expect(r.count == 9, "the nine one-digit names gain their zero; 10. to 12. are already two digits")
         #expect(r["1. Jan 2025.pdf"] == "01. Jan 2025.pdf")
         #expect(r["9. Sep 2025.pdf"] == "09. Sep 2025.pdf")
-        // Two statements in one month are two positions: thirteen in BoA 5696's 2014.
+        // Two statements in one month are two positions: thirteen in BoA 6701's 2014.
         let boa = ["01. Jan 2014.pdf", "02. Feb 2014.pdf", "03. Mar 2014.pdf", "04. Apr 2014.pdf", "05. May 2014.pdf",
                    "06. Jun 2014.pdf", "07. Jul 2014.pdf", "08. Aug 2014.pdf", "09. Sep 2014.pdf", "10. Oct 2014.pdf",
                    "11. Nov 2014 -1.pdf", "12. Nov 2014 -2.pdf", "13. Dec 2014.pdf"]
@@ -109,7 +109,7 @@ import Testing
     }
 
     @Test func aRangeSortsByItsEndMonth() {
-        // Schwab Checking 6436's 2021, as he renamed it.
+        // Schwab Checking 7259's 2021, as he renamed it.
         #expect(renames(["1. Jan 2021.pdf", "2. Feb 2021.pdf", "3. Mar 2021.pdf", "4. Apr-Jun 2021.PDF",
                          "5. Jul-Sep 2021.PDF", "6. Oct 2021.PDF", "7. Nov-Dec 2021.PDF"]).isEmpty)
         // A range the rename missed (`May - Jun`) is placed by June, after April and before July.
@@ -154,7 +154,7 @@ import Testing
     }
 
     @Test func theBacklogPassNumbersNoRawNameAlreadyThere() {
-        // A date in a name doesn't make a statement: BoA Credit 6397's 2024 holds a renewal notice,
+        // A date in a name doesn't make a statement: BoA Credit 7189's 2024 holds a renewal notice,
         // and counting it would renumber December.
         #expect(renames(["1. Jan 2024.pdf", "Renewal Notice - Jun 2024.pdf", "2. Dec 2024.pdf"]).isEmpty)
         // Nor his raw bank names, which wait for him to read and rename them.
@@ -162,7 +162,7 @@ import Testing
     }
 
     @Test func aFolderThatBreaksTheRuleIsProposedWhole() {
-        // Discover 2241's 2019 as the rename left it: `Oct  2019` (two spaces) kept 10. beside Nov's.
+        // Discover 2897's 2019 as the rename left it: `Oct  2019` (two spaces) kept 10. beside Nov's.
         let r = renames(["1. Jan 2019.pdf", "2. Feb 2019.pdf", "3. Mar 2019.pdf", "4. Apr 2019.pdf",
                          "5. May 2019.pdf", "6. Jun 2019.pdf", "7. Jul 2019.pdf", "8. Aug 2019.pdf",
                          "9. Sep 2019.pdf", "10. Oct  2019.pdf", "10. Nov 2019.pdf", "11. Dec 2019.pdf"])
@@ -170,7 +170,7 @@ import Testing
         #expect(r["10. Nov 2019.pdf"] == "11. Nov 2019.pdf")
         #expect(r["11. Dec 2019.pdf"] == "12. Dec 2019.pdf")
         #expect(r["1. Jan 2019.pdf"] == "01. Jan 2019.pdf")
-        // Citi 8806's 2019: a month written out, and a collision with it.
+        // Citi 9601's 2019: a month written out, and a collision with it.
         #expect(renames(["0. Summary 2019.pdf", "1. Aug 2019.pdf", "1. July 2019.pdf", "2. Sep 2019.PDF"])
                 == ["1. July 2019.pdf": "1. Jul 2019.pdf", "1. Aug 2019.pdf": "2. Aug 2019.pdf",
                     "2. Sep 2019.PDF": "3. Sep 2019.PDF"])
@@ -210,7 +210,7 @@ import Testing
     }
 
     @Test func aSecondStatementOfAMonthGoesAfterTheFirst() {
-        // Chase 3931's 2016 holds two July statements, `1.` and `2.`. June arriving shifts both,
+        // Chase 4708's 2016 holds two July statements, `1.` and `2.`. June arriving shifts both,
         // through each other's names, so the renames come in an order that never collides.
         guard let l = FileSyncManager.incomingLanding(
             for: "s.pdf", as: "06. Jun 2016.pdf", into: Self.folder, relativePath: Self.rel,

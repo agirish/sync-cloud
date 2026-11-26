@@ -13,7 +13,7 @@ import SwiftUI
 
     private func statement(_ rel: String, to dest: String, account root: String, newSegments: [String] = [],
                            confidence: FilingConfidence = .high, proposed: String? = nil) -> FilingSuggestion {
-        let acct = FilingAccount(root: root, ending: "2002", institution: "american express", archived: false, kind: .statement)
+        let acct = FilingAccount(root: root, ending: "5652", institution: "american express", archived: false, kind: .statement)
         return FilingSuggestion(filePath: Self.todo + "/" + rel, fileName: (rel as NSString).lastPathComponent, size: 1,
                                 modificationDate: nil,
                                 candidates: [FilingDestination(path: dest, confidence: confidence, reasons: ["r"],
@@ -25,26 +25,26 @@ import SwiftUI
     /// "From" is relative to the scanned folder, "Moves to" to the tree, both in full; the account
     /// and its year are bold, and a year made inside an account it has is a quiet note.
     @Test func fromAndMovesToAreWrittenOutInFull() {
-        let account = Self.docs + "/Finance/US/Credit Accounts/American Express/Credit 22002"
-        let s = statement("Finance/American Express/Credit 2002/2026/01. Jan 2026.pdf", to: account + "/2026",
+        let account = Self.docs + "/Finance/US/Credit Accounts/American Express/Credit 44928"
+        let s = statement("Finance/American Express/Credit 5652/2026/01. Jan 2026.pdf", to: account + "/2026",
                           account: account, newSegments: ["2026"])
         let lines = FilingRouteText.lines(members: [s], destination: s.best, scannedRoot: Self.todo)
         #expect(lines.map(\.label) == ["From", "Moves to"])
-        #expect(lines[0].path.text == "TODO › Finance › American Express › Credit 2002 › 2026")
-        #expect(lines[1].path.text == "Documents › Finance › US › Credit Accounts › American Express › Credit 22002 › 2026")
-        #expect(lines[1].path.crumbs.filter(\.bold).map(\.name) == ["Credit 22002", "2026"])
+        #expect(lines[0].path.text == "TODO › Finance › American Express › Credit 5652 › 2026")
+        #expect(lines[1].path.text == "Documents › Finance › US › Credit Accounts › American Express › Credit 44928 › 2026")
+        #expect(lines[1].path.crumbs.filter(\.bold).map(\.name) == ["Credit 44928", "2026"])
         #expect(lines[1].path.note == "new 2026 folder", "a year inside an existing account is quiet")
         #expect(lines[1].path.crumbs.allSatisfy { $0.tag == nil })
     }
 
     /// A new account gets the accent tag on the account, and nothing shouts about its year.
     @Test func aNewAccountIsTaggedOnTheAccount() {
-        let account = Self.docs + "/Finance/Chase/Checking 0779"
+        let account = Self.docs + "/Finance/Chase/Checking 0896"
         let s = statement("Chase/a.pdf", to: account + "/2026", account: account,
-                          newSegments: ["Checking 0779", "2026"], confidence: .medium)
+                          newSegments: ["Checking 0896", "2026"], confidence: .medium)
         let path = FilingRouteText.movesTo(s.best!, providerRoot: Self.docs)
         #expect(path.crumbs.compactMap(\.tag) == ["new account"])
-        #expect(path.crumbs.first { $0.tag != nil }?.name == "Checking 0779")
+        #expect(path.crumbs.first { $0.tag != nil }?.name == "Checking 0896")
         #expect(path.note == nil)
         #expect(FilingRouteText.offersCreateAs(s.best!), "Create as is offered for the account it invents")
         let year = statement("x.pdf", to: Self.docs + "/Card/2026", account: Self.docs + "/Card", newSegments: ["2026"])
@@ -62,7 +62,7 @@ import SwiftUI
         #expect(lowLines.map(\.label) == ["From", "Best guess"])
         #expect(lowLines[0].path.text == "TODO")
 
-        let account = Self.docs + "/IRA 7863"
+        let account = Self.docs + "/IRA 9312"
         let a = statement("Schwab/2025/a.pdf", to: account, account: account)
         let b = statement("Schwab/2026/b.pdf", to: account, account: account)
         let from = FilingRouteText.from([a, b], scannedRoot: Self.todo)
@@ -79,20 +79,20 @@ import SwiftUI
 
     /// The group card's title and "why" line, as the mockup words them.
     @Test func theGroupCardSaysWhoHowManyAndWhy() {
-        let account = Self.docs + "/Credit 22002"
+        let account = Self.docs + "/Credit 44928"
         let items = FilingCardGrouping.items([statement("01. Jan 2026.pdf", to: account, account: account),
                                               statement("10. Oct 2026.pdf", to: account, account: account)])
         guard case .group(let g) = items.first else { Issue.record("expected a group"); return }
-        #expect(FilingGroupText.title(g) == "American Express ••2002 · 2 statements")
+        #expect(FilingGroupText.title(g) == "American Express ••5652 · 2 statements")
         #expect(FilingGroupText.why(g) == "Jan and Oct 2026 · account number on page 1 of both")
     }
 
     /// Trash takes only copies proven byte for byte; one matched by its text alone stays, and the
     /// card says to compare it.
     @Test func trashTakesOnlyProvenCopies() {
-        let account = Self.docs + "/Credit 22002"
-        let proven = statement("01. Jan 2026.pdf", to: account, account: account).alreadyFiled(at: ["Credit 22002"], proven: true)
-        let lookalike = statement("02. Feb 2026.pdf", to: account, account: account).alreadyFiled(at: ["Credit 22002"], proven: false)
+        let account = Self.docs + "/Credit 44928"
+        let proven = statement("01. Jan 2026.pdf", to: account, account: account).alreadyFiled(at: ["Credit 44928"], proven: true)
+        let lookalike = statement("02. Feb 2026.pdf", to: account, account: account).alreadyFiled(at: ["Credit 44928"], proven: false)
         let items = FilingCardGrouping.items([statement("03. Mar 2026.pdf", to: account, account: account), proven, lookalike])
         guard case .group(let g) = items.first else { Issue.record("expected a group"); return }
         #expect(FilingGroupText.removable(g).map(\.fileName) == ["01. Jan 2026.pdf"])
@@ -124,10 +124,10 @@ import SwiftUI
 
     /// Each row says what page 1 is and the name it takes, and only what To File read.
     @Test func aRowSaysWhatPageOneIsAndTheNameItTakes() {
-        #expect(FilingFileText.pageLine(DocumentFacts(page: "Statement Period\nClosing Date 01/29/2026\nAccount Ending 6-22002"))
+        #expect(FilingFileText.pageLine(DocumentFacts(page: "Statement Period\nClosing Date 01/29/2026\nAccount Ending 6-44928"))
                 == "Statement · Jan 29, 2026")
         #expect(FilingFileText.pageLine(DocumentFacts(page: "Immunization Record\nName")) == "Page 1 begins “Immunization Record”")
-        let account = Self.docs + "/Credit 22002"
+        let account = Self.docs + "/Credit 44928"
         let renamed = statement("01. Jan 2026.pdf", to: account, account: account, proposed: "2026-01-29.pdf")
         #expect(FilingFileText.landing(renamed)?.text == "2026-01-29.pdf")
         #expect(FilingFileText.landing(statement("a.pdf", to: account, account: account))?.text == "a.pdf",
@@ -142,7 +142,7 @@ import SwiftUI
 @Suite struct FilingBatchPlanTests {
     static let docs = "/D"
 
-    private func statement(_ name: String, account: String, ending: String = "7863",
+    private func statement(_ name: String, account: String, ending: String = "9312",
                            confidence: FilingConfidence = .high) -> FilingSuggestion {
         let acct = FilingAccount(root: account, ending: ending, institution: "charles schwab", archived: false, kind: .statement)
         return FilingSuggestion(filePath: "/D/TODO/" + name, fileName: name, size: 1, modificationDate: nil,
@@ -160,15 +160,15 @@ import SwiftUI
     /// The sheet lists every Matched card that has something to move, and nothing else: a Check
     /// first card handed in, and a group whose files are all filed already, stay out.
     @Test func theSheetListsMatchedCardsOnly() {
-        let ira = [statement("01.pdf", account: "/D/IRA 7863"), statement("02.pdf", account: "/D/IRA 7863")]
-        let filed = [statement("a.pdf", account: "/D/Roth 4657", ending: "4657").alreadyFiled(at: ["Roth 4657"]),
-                     statement("b.pdf", account: "/D/Roth 4657", ending: "4657").alreadyFiled(at: ["Roth 4657"])]
-        let medium = statement("m.pdf", account: "/D/New 0779", ending: "0779", confidence: .medium)
+        let ira = [statement("01.pdf", account: "/D/IRA 9312"), statement("02.pdf", account: "/D/IRA 9312")]
+        let filed = [statement("a.pdf", account: "/D/Roth 5442", ending: "5442").alreadyFiled(at: ["Roth 5442"]),
+                     statement("b.pdf", account: "/D/Roth 5442", ending: "5442").alreadyFiled(at: ["Roth 5442"])]
+        let medium = statement("m.pdf", account: "/D/New 0896", ending: "0896", confidence: .medium)
         let items = FilingCardGrouping.items(ira + filed + [byName("Receipt.pdf", to: "/D/Receipts"), medium])
         let lines = FilingBatchPlan.lines(items, scannedRoot: "/D/TODO")
         #expect(lines.map(\.title) == ["Charles Schwab", "Receipt.pdf"])
         #expect(lines.map(\.count) == [2, 1])
-        #expect(lines[0].ending == "7863" && lines[0].source == nil)
+        #expect(lines[0].ending == "9312" && lines[0].source == nil)
         #expect(lines[1].source == "by its name", "a name-placed file is marked so")
         #expect(FilingBatchPlan.title(lines) == "File 3 files into 2 folders?")
         #expect(FilingBatchPlan.title(Array(lines.prefix(1))) == "File 2 statements into 1 account?")
@@ -177,14 +177,14 @@ import SwiftUI
     /// Unticked cards stay as cards: the button counts and files the rest, and the footer says what
     /// stays.
     @Test func untickingLeavesACardBehind() {
-        let items = FilingCardGrouping.items([statement("01.pdf", account: "/D/IRA 7863"), statement("02.pdf", account: "/D/IRA 7863"),
-                                              statement("c.pdf", account: "/D/Card 2002", ending: "2002"),
-                                              statement("d.pdf", account: "/D/Card 2002", ending: "2002")])
+        let items = FilingCardGrouping.items([statement("01.pdf", account: "/D/IRA 9312"), statement("02.pdf", account: "/D/IRA 9312"),
+                                              statement("c.pdf", account: "/D/Card 5652", ending: "5652"),
+                                              statement("d.pdf", account: "/D/Card 5652", ending: "5652")])
         let lines = FilingBatchPlan.lines(items, scannedRoot: "/D/TODO")
         let off: Set<String> = [lines[1].id]
         #expect(FilingBatchPlan.fileCount(lines, unticked: off) == 2)
         #expect(FilingBatchPlan.ticked(lines, unticked: off).map(\.id) == [lines[0].id])
-        #expect(FilingBatchPlan.footer(lines, unticked: off) == "Unticked: Charles Schwab ••2002 (2) stays as its card.")
+        #expect(FilingBatchPlan.footer(lines, unticked: off) == "Unticked: Charles Schwab ••5652 (2) stays as its card.")
         #expect(FilingBatchPlan.footer(lines, unticked: []) == nil)
         #expect(FilingBatchPlan.title(lines, unticked: off) == "File 2 statements into 1 account?")
         #expect(FilingBatchPlan.fileCount(lines, unticked: Set(lines.map(\.id))) == 0)
@@ -194,7 +194,7 @@ import SwiftUI
 @MainActor
 @Suite struct FilingFileActionTests {
     private let s = FilingSuggestion(filePath: "/D/TODO/01. Jan 2026.pdf", fileName: "01. Jan 2026.pdf", size: 1, modificationDate: nil,
-                                     candidates: [FilingDestination(path: "/D/Credit 22002/2026", confidence: .high, reasons: ["r"],
+                                     candidates: [FilingDestination(path: "/D/Credit 44928/2026", confidence: .high, reasons: ["r"],
                                                                     newSegments: [], proposedName: "2026-01-29.pdf")])
 
     /// The menu's items in order, Pull Out only in a group's rows, Copy Destination Path only with a
@@ -245,7 +245,7 @@ import SwiftUI
         runner.perform(.copyPath, on: s, members: [s])
         #expect(board.string(forType: .string) == "/D/TODO/01. Jan 2026.pdf")
         runner.perform(.copyDestinationPath, on: s, members: [s])
-        #expect(board.string(forType: .string) == "/D/Credit 22002/2026/2026-01-29.pdf", "where it lands, under its new name")
+        #expect(board.string(forType: .string) == "/D/Credit 44928/2026/2026-01-29.pdf", "where it lands, under its new name")
     }
 }
 
@@ -260,7 +260,7 @@ import SwiftUI
 
 /// What the first adversarial review of the cards found, pinned.
 @Suite struct FilingCardsReviewOneTests {
-    private func statement(_ name: String, account root: String, ending: String = "7863", archived: Bool = false,
+    private func statement(_ name: String, account root: String, ending: String = "9312", archived: Bool = false,
                            to dest: String? = nil, newSegments: [String] = [], proposed: String? = nil) -> FilingSuggestion {
         let acct = FilingAccount(root: root, ending: ending, institution: "charles schwab", archived: archived, kind: .statement)
         return FilingSuggestion(filePath: "/D/TODO/" + name, fileName: name, size: 1, modificationDate: nil,
@@ -273,15 +273,15 @@ import SwiftUI
     /// The sheet says what a batch makes, copies and where it files: new folders, copies into
     /// other accounts, and the archive.
     @Test func theSheetSaysWhatItMakesCopiesAndWhere() {
-        let archived = statement("a.pdf", account: "/D/Archive/IRA 7863", archived: true)
-        let roth = FilingCopy(path: "/D/Roth IRA 4657/2026", proposedName: nil,
-                              account: FilingAccount(root: "/D/Roth IRA 4657", ending: "4657", institution: "charles schwab",
+        let archived = statement("a.pdf", account: "/D/Archive/IRA 9312", archived: true)
+        let roth = FilingCopy(path: "/D/Roth IRA 5442/2026", proposedName: nil,
+                              account: FilingAccount(root: "/D/Roth IRA 5442", ending: "5442", institution: "charles schwab",
                                                      archived: false, kind: .statement))
-        let year = statement("b.pdf", account: "/D/Card 2002", ending: "2002", to: "/D/Card 2002/2026", newSegments: ["2026"])
+        let year = statement("b.pdf", account: "/D/Card 5652", ending: "5652", to: "/D/Card 5652/2026", newSegments: ["2026"])
         let lines = FilingBatchPlan.lines([.single(archived), .single(year)], scannedRoot: "/D/TODO",
                                           copies: { $0.fileName == "b.pdf" ? [roth] : [] })
         #expect(lines[0].extras == ["into the archive"])
-        #expect(lines[1].extras == ["also copies into Roth IRA 4657"])
+        #expect(lines[1].extras == ["also copies into Roth IRA 5442"])
         #expect(lines[1].to.note == "new 2026 folder", "the new year folder reaches the sheet's line")
     }
 
@@ -297,23 +297,23 @@ import SwiftUI
 
     /// A folded group still says its files take new names.
     @Test func aFoldedGroupSaysItRenames() {
-        let a = statement("01.pdf", account: "/D/IRA 7863", proposed: "IRA_01.pdf")
-        let b = statement("02.pdf", account: "/D/IRA 7863", proposed: "02.pdf")
+        let a = statement("01.pdf", account: "/D/IRA 9312", proposed: "IRA_01.pdf")
+        let b = statement("02.pdf", account: "/D/IRA 9312", proposed: "02.pdf")
         guard case .group(let g) = FilingCardGrouping.items([a, b]).first else { Issue.record("expected a group"); return }
         #expect(FilingGroupText.renaming(g) == "1 of 2 take new names, like IRA_01.pdf")
-        let keep = [statement("01.pdf", account: "/D/IRA 7863"), statement("02.pdf", account: "/D/IRA 7863")]
+        let keep = [statement("01.pdf", account: "/D/IRA 9312"), statement("02.pdf", account: "/D/IRA 9312")]
         guard case .group(let k) = FilingCardGrouping.items(keep).first else { Issue.record("expected a group"); return }
         #expect(FilingGroupText.renaming(k) == nil)
     }
 
     /// The page-1 view says "(marked)" only when it marked something, and marks whole numbers only.
     @Test func thePageViewMarksOnlyWhatItFinds() {
-        let s = statement("01.pdf", account: "/D/IRA 7863")
-        #expect(FilingPageRender.matchedLine(s, facts: nil, marked: false) == "account ••7863")
-        #expect(FilingPageRender.matchedLine(s, facts: nil, marked: true) == "account ••7863 (marked)")
-        #expect(FilingPageRender.wholeRange(of: "7863", in: "Ref 178630 · Account ending 7863")
-                == NSRange(location: 28, length: 4), "never the 7863 inside 178630")
-        #expect(FilingPageRender.wholeRange(of: "7863", in: "Ref 178630") == nil)
+        let s = statement("01.pdf", account: "/D/IRA 9312")
+        #expect(FilingPageRender.matchedLine(s, facts: nil, marked: false) == "account ••9312")
+        #expect(FilingPageRender.matchedLine(s, facts: nil, marked: true) == "account ••9312 (marked)")
+        #expect(FilingPageRender.wholeRange(of: "9312", in: "Ref 193120 · Account ending 9312")
+                == NSRange(location: 28, length: 4), "never the 9312 inside 193120")
+        #expect(FilingPageRender.wholeRange(of: "9312", in: "Ref 193120") == nil)
     }
 
     /// VoiceOver hears which path is which.
@@ -368,10 +368,10 @@ import SwiftUI
     /// so a group's ⋯ is never empty.
     @Test func theDestinationFolderIsTheDeepestThatExists() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("DeepestExisting-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("Credit 22002"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Credit 44928"), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        #expect(FilingRouteText.deepestExisting(root.path + "/Credit 22002/2026") == root.path + "/Credit 22002")
-        #expect(FilingRouteText.deepestExisting(root.path + "/Credit 22002") == root.path + "/Credit 22002")
+        #expect(FilingRouteText.deepestExisting(root.path + "/Credit 44928/2026") == root.path + "/Credit 44928")
+        #expect(FilingRouteText.deepestExisting(root.path + "/Credit 44928") == root.path + "/Credit 44928")
     }
 
     /// A group's Quick Look and Trash act on the selected row, only while it is a member and the
@@ -426,8 +426,8 @@ import SwiftUI
     }
 
     @Test func aReceiptNamesTheLastTwoFolders() {
-        let dest = FilingDestination(path: "/D/Finance/US/Credit Accounts/American Express/Credit 22002/2026",
+        let dest = FilingDestination(path: "/D/Finance/US/Credit Accounts/American Express/Credit 44928/2026",
                                      confidence: .high, reasons: [], newSegments: ["2026"])
-        #expect(FilingReceiptLayout.place(dest, providerRoot: "/D") == "Credit 22002 › 2026")
+        #expect(FilingReceiptLayout.place(dest, providerRoot: "/D") == "Credit 44928 › 2026")
     }
 }

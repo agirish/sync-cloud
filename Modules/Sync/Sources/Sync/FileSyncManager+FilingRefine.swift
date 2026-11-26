@@ -100,7 +100,7 @@ extension FileSyncManager {
         return scope.filter {
             // A statement already matched to its account at High is settled: asking would pay
             // for an answer the account match outranks. So is one whose account folder carries the
-            // number page 1 or his inbox folder gives (`Roth IRA 4657`, a new `Brokerage 1750`):
+            // number page 1 or his inbox folder gives (`Roth IRA 5442`, a new `Brokerage 1746`):
             // Claude sees neither the inbox path nor the accounts, and once put all eight of a
             // bank's statements in one folder.
             $0.providerRoot == root && $0.best?.remembered != true && !hidden.isHidden($0.filePath)

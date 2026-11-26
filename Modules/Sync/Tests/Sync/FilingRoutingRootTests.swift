@@ -19,7 +19,7 @@ import Foundation
 
     private func makeTree(_ prefix: String) throws -> Tree {
         let t = Tree(root: try makeCanonicalTempRoot(prefix: prefix))
-        try writeBytes(t.fileInto.appendingPathComponent("Bank Accounts/Bank of America/Checking 5696/2025/eStmt_2025-12-28.pdf"), bytes: 64)
+        try writeBytes(t.fileInto.appendingPathComponent("Bank Accounts/Bank of America/Checking 6701/2025/eStmt_2025-12-28.pdf"), bytes: 64)
         try writeBytes(t.documents.appendingPathComponent("Vehicles/Tesla/Insurance/Policy 2025.pdf"), bytes: 64)
         // The inbox's own folders name the account; it must never be a home for its own files.
         try writeBytes(t.inbox.appendingPathComponent("Tesla Insurance Policy 2026.pdf"), bytes: 64)
@@ -139,10 +139,10 @@ import Foundation
     @Test func scanningFileIntoItselfKeepsItsHomes() async throws {
         let t = try makeTree("FilingRootSelf")
         defer { try? FileManager.default.removeItem(at: t.root) }
-        try writeBytes(t.fileInto.appendingPathComponent("Checking statement 5696 2026.pdf"), bytes: 64)
+        try writeBytes(t.fileInto.appendingPathComponent("Checking statement 6701 2026.pdf"), bytes: 64)
         let m = manager(surveying: t)
         await m.findFilingSuggestions(folder: t.fileInto, providerRoot: t.fileInto)
-        let card = try #require(m.filingSuggestions.first { $0.fileName == "Checking statement 5696 2026.pdf" })
+        let card = try #require(m.filingSuggestions.first { $0.fileName == "Checking statement 6701 2026.pdf" })
         #expect(!card.candidates.isEmpty, "the homes inside File Into stay offered")
     }
 
@@ -169,8 +169,8 @@ import Foundation
     }
 
     @Test func theModelsFolderMenuLeadsWithFileInto() {
-        let all: Set<String> = ["A", "B", "Finance", "Finance/US", "Finance/US/Bank", "Finance/US/Bank/Checking 5696"]
+        let all: Set<String> = ["A", "B", "Finance", "Finance/US", "Finance/US/Bank", "Finance/US/Bank/Checking 6701"]
         let menu = FileSyncManager.preferringSubtree("Finance/US", in: ["A", "B", "Finance"], all: all)
-        #expect(menu == ["Finance/US", "Finance/US/Bank", "Finance/US/Bank/Checking 5696"], "\(menu)")
+        #expect(menu == ["Finance/US", "Finance/US/Bank", "Finance/US/Bank/Checking 6701"], "\(menu)")
     }
 }

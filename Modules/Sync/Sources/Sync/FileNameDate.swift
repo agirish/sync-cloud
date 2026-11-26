@@ -2,7 +2,7 @@ import Foundation
 
 /// The month and year a raw filename already carries, when it carries exactly one of each.
 ///
-/// Providers often put the date in the name (`9829custbill07182023.pdf`,
+/// Providers often put the date in the name (`9954custbill07182023.pdf`,
 /// `20240128-statements-6604.pdf`, `ATTBill_1897_Feb2022.pdf`), so many renames need no model call.
 /// This mines it, purely, with no disk and no clock.
 ///
@@ -164,7 +164,7 @@ public enum FileNameDate {
     /// month. Shape-disjoint like ``datestamp``: `(4,2,2)` reads year-first, `(2,2,4)` year-last.
     /// `15 06 2026` matches no reading, and an ambiguous `05-06-2023` makes it abstain, as there.
     /// Adjacent runs of exactly those widths keep account numbers out
-    /// (`STMTCMB100_20201101_5203` runs 3, 8 and 4 wide).
+    /// (`STMTCMB100_20201101_6474` runs 3, 8 and 4 wide).
     static func delimitedDate(in runs: [Substring]) -> Mined? {
         var found: Set<Int> = []      // month * 10000 + year, matching `datestamp`'s key
         var days: Set<Int> = []

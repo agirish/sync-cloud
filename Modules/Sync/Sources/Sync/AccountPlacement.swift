@@ -2,8 +2,8 @@ import Foundation
 
 /// Where inside an account folder a statement goes, copied from the account's own newest
 /// statements (design §4), and what it is called there: his `NN. Mon YYYY` name (decision OR).
-/// `Traditional IRA 7863` keeps 2025's statements loose in the account folder, so October 2026's
-/// goes there as `10. Oct 2026.PDF`; `Trust Brokerage 2 - 3494` files by `Statements/<year>`, so it
+/// `Traditional IRA 9312` keeps 2025's statements loose in the account folder, so October 2026's
+/// goes there as `10. Oct 2026.PDF`; `Trust Brokerage 2 - 4011` files by `Statements/<year>`, so it
 /// goes to a new `Statements/2026`.
 public enum AccountPlacement {
 
@@ -37,7 +37,7 @@ public enum AccountPlacement {
             }
             return Placement(folder: tax.name, newSegments: [], name: nil)
         }
-        // Statements filed in a tax folder (`Roth IRA 4657/Tax` holds 2022's) were his misfiles,
+        // Statements filed in a tax folder (`Roth IRA 5442/Tax` holds 2022's) were his misfiles,
         // never the account's layout.
         let families = StatementFamily.families(below: node)
             .mapValues { $0.filter { !isTaxFolder($0.folder) } }

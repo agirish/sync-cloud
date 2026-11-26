@@ -42,7 +42,7 @@ import Testing
     {"schemaVersion":1,"profileId":"father","salt":"abc123","idfFolderBase":2096,
      "folders":{"Finance/US/Income Tax/2023":
        {"docs":12,"anchors":[["turbotax",4.2],["deduction",3.1]],
-        "idHashes":[["3437e15c04d360ef",5.0]],"folderModified":1754000000}}}
+        "idHashes":[["d3ec1ab5806ce104",5.0]],"folderModified":1754000000}}}
     """
 
     @Test func readsTheActiveProfileAndItsMemory() throws {
@@ -68,7 +68,7 @@ import Testing
         let entry = try #require(loaded.memory?.folders["Finance/US/Income Tax/2023"])
         #expect(entry.docs == 12)
         #expect(entry.anchors.first == FilingMemoryToken(token: "turbotax", weight: 4.2))
-        #expect(entry.idHashes.first?.token == "3437e15c04d360ef")
+        #expect(entry.idHashes.first?.token == "d3ec1ab5806ce104")
     }
 
     /// A year inside a descriptive name. `IRS Docs - 2024` sits beside the bare-year folders with no
@@ -207,9 +207,9 @@ import Testing
 
     /// The hash format is the contract with the builder. A change wouldn't fail, it would silently
     /// stop every identifier matching, so it is pinned against an independently computed literal:
-    /// `sha256("abc123" + "1892")[0..<16]`.
+    /// `sha256("abc123" + "2124")[0..<16]`.
     @Test func theIdentifierHashMatchesTheBuilder() {
-        #expect(FilingMemory.hash("1892", salt: "abc123") == "3437e15c04d360ef")
+        #expect(FilingMemory.hash("2124", salt: "abc123") == "d3ec1ab5806ce104")
         #expect(FilingMemory.hash("kaiser", salt: "s") == "3529b1a559fe505a")
     }
 }

@@ -16,7 +16,7 @@ struct FilingReceipt: Identifiable, Equatable {
     let section: FilingSectionKind
     let index: Int
     var text: String
-    /// "Credit 22002 › 2026", set in the monospaced face after the text.
+    /// "Credit 44928 › 2026", set in the monospaced face after the text.
     var place: String?
     /// The undo step it can take back: Undo shows only while that is the step ⌘Z would take.
     var undoActionName: String?
@@ -67,7 +67,7 @@ enum FilingReceiptLayout {
         return out
     }
 
-    /// "Filed 2 → Credit 22002 › 2026": the last two folders of where the files went.
+    /// "Filed 2 → Credit 44928 › 2026": the last two folders of where the files went.
     static func place(_ dest: FilingDestination, providerRoot: String?) -> String {
         FilingRouteText.movesTo(dest, providerRoot: providerRoot).crumbs.suffix(2).map(\.name).joined(separator: " › ")
     }

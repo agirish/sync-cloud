@@ -8,7 +8,7 @@ import Foundation
 @Suite struct FilingArchiveOfferTests {
 
     private nonisolated static func page(_ month: String) -> String {
-        "Charles Schwab & Co., Inc.\nStatement Period: \(month) 1, 2026 to \(month) 28, 2026\nRoth IRA Account Number: 4401-2336"
+        "Charles Schwab & Co., Inc.\nStatement Period: \(month) 1, 2026 to \(month) 28, 2026\nRoth IRA Account Number: 4401-2912"
     }
 
     /// The archived account and two inbox statements; `months` names their periods.
@@ -30,7 +30,7 @@ import Foundation
             // "May 2025": that year; a bare month is 2026.
             let parts = month.split(separator: " ")
             let year = parts.count == 2 ? String(parts[1]) : "2026"
-            pages[f.path] = "Charles Schwab & Co., Inc.\nStatement Period: \(parts[0]) 1, \(year) to \(parts[0]) 28, \(year)\nRoth IRA Account Number: 4401-2336"
+            pages[f.path] = "Charles Schwab & Co., Inc.\nStatement Period: \(parts[0]) 1, \(year) to \(parts[0]) 28, \(year)\nRoth IRA Account Number: 4401-2912"
         }
         let m = FileSyncManager(defaults: ScratchDefaults("FilingArchiveOfferTests.1"))
         let undo = UndoManager()
@@ -50,19 +50,19 @@ import Foundation
     }
 
     @Test func theBankFolderBetweenTheArchiveAndTheAccountStays() async throws {
-        let f = try await fixture("Between", archive: "Investments/Archive/Charles Schwab/Roth IRA 2336")
+        let f = try await fixture("Between", archive: "Investments/Archive/Charles Schwab/Roth IRA 2912")
         defer { try? FileManager.default.removeItem(at: f.root) }
         let offer = try #require(f.m.archiveOffer(for: f.group))
-        #expect(offer.target == f.docs.path + "/Investments/Charles Schwab/Roth IRA 2336", "\(offer.target)")
+        #expect(offer.target == f.docs.path + "/Investments/Charles Schwab/Roth IRA 2912", "\(offer.target)")
     }
 
     @Test func noOfferWhenOnlyOneIsNewerOrTheFolderBesideIsTaken() async throws {
-        let one = try await fixture("OneNewer", archive: "Investments/Charles Schwab/Archive/Roth IRA 2336",
+        let one = try await fixture("OneNewer", archive: "Investments/Charles Schwab/Archive/Roth IRA 2912",
                                     months: ["May 2025", "August 2025"])
         defer { try? FileManager.default.removeItem(at: one.root) }
         #expect(one.group.toFile.count == 2, "one card for both, in its 2025 folder")
         #expect(one.m.archiveOffer(for: one.group) == nil, "only August is newer than June, the newest it holds")
-        let taken = try await fixture("Taken", archive: "Investments/Charles Schwab/Archive/Roth IRA 2336")
+        let taken = try await fixture("Taken", archive: "Investments/Charles Schwab/Archive/Roth IRA 2912")
         defer { try? FileManager.default.removeItem(at: taken.root) }
         let offer = try #require(taken.m.archiveOffer(for: taken.group))
         try FileManager.default.createDirectory(atPath: offer.target, withIntermediateDirectories: true)
@@ -73,11 +73,11 @@ import Foundation
     /// A ⌘Z whose folder move-back refuses (the folder changed since) leaves learned accounts
     /// pointing where the folder is, not at the empty archive path.
     @Test func aFolderThatCantGoBackKeepsWhatPointsAtIt() async throws {
-        let f = try await fixture("NoBack", archive: "Investments/Charles Schwab/Archive/Roth IRA 2336")
+        let f = try await fixture("NoBack", archive: "Investments/Charles Schwab/Archive/Roth IRA 2912")
         defer { try? FileManager.default.removeItem(at: f.root) }
-        let live = "Investments/Charles Schwab/Roth IRA 2336"
+        let live = "Investments/Charles Schwab/Roth IRA 2912"
         f.m.filingLearnedAccounts = [LearnedAccount(id: UUID(), institution: "charles schwab", institutionName: "Charles Schwab",
-                                                    ending: "9999", folder: "Investments/Charles Schwab/Archive/Roth IRA 2336",
+                                                    ending: "9999", folder: "Investments/Charles Schwab/Archive/Roth IRA 2912",
                                                     surveyRoot: f.docs.path, taughtAt: Date(), taughtBy: .groupRedirect,
                                                     filedCount: 1, teaching: [])]
         let offer = try #require(f.m.archiveOffer(for: f.group))
@@ -100,11 +100,11 @@ import Foundation
         let root = try makeCanonicalTempRoot(prefix: "FilingArchiveOffer")
         defer { try? FileManager.default.removeItem(at: root) }
         let docs = root.appendingPathComponent("Docs")
-        let archived = docs.path + "/Investments/Charles Schwab/Archive/Roth IRA 2336"
+        let archived = docs.path + "/Investments/Charles Schwab/Archive/Roth IRA 2912"
         for (i, month) in ["Jan", "Feb", "Mar", "Apr", "May", "Jun"].enumerated() {
             try writeBytes(URL(fileURLWithPath: archived + String(format: "/2025/%02d. %@ 2025.pdf", i + 1, month)),
                            Data(repeating: UInt8(i), count: 64))
-            try writeBytes(docs.appendingPathComponent(String(format: "Investments/Charles Schwab/Brokerage 8071/2025/%02d. %@ 2025.pdf", i + 1, month)),
+            try writeBytes(docs.appendingPathComponent(String(format: "Investments/Charles Schwab/Brokerage 9390/2025/%02d. %@ 2025.pdf", i + 1, month)),
                            Data(repeating: UInt8(i + 10), count: 64))
         }
         let inbox = root.appendingPathComponent("Inbox")
@@ -129,38 +129,38 @@ import Foundation
         m.setFilingScansSubfolders(true, for: inbox.path)
         await m.findFilingSuggestions(folder: inbox, providerRoot: docs)
         m.filingLearnedAccounts = [LearnedAccount(id: UUID(), institution: "charles schwab", institutionName: "Charles Schwab",
-                                                  ending: "9999", folder: "Investments/Charles Schwab/Archive/Roth IRA 2336",
+                                                  ending: "9999", folder: "Investments/Charles Schwab/Archive/Roth IRA 2912",
                                                   surveyRoot: docs.path, taughtAt: Date(), taughtBy: .groupRedirect,
                                                   filedCount: 1, teaching: [])]
         guard case .group(let group) = try #require(FilingCardGrouping.items(m.filingSuggestions).first { 
             if case .group = $0 { return true } else { return false } }) else { Issue.record("no group"); return }
         #expect(group.account?.archived == true)
         let offer = try #require(m.archiveOffer(for: group))
-        let live = docs.path + "/Investments/Charles Schwab/Roth IRA 2336"
+        let live = docs.path + "/Investments/Charles Schwab/Roth IRA 2912"
         #expect(offer.target == live && offer.archiveName == "Archive")
 
         #expect(await m.moveOutOfArchiveThenFile(group, offer: offer) == 2)
         #expect(FileManager.default.fileExists(atPath: live + "/2026/03. Mar 2026.pdf"))
         #expect(!FileManager.default.fileExists(atPath: archived))
-        #expect(m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Roth IRA 2336", "re-pointed")
+        #expect(m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Roth IRA 2912", "re-pointed")
 
         undo.undo()
         // The re-point waits in the file-operation queue behind the moves back: wait for it too.
         await waitUntil("the account and statements are back, pointed back", timeout: 10) {
             FileManager.default.fileExists(atPath: archived) && FileManager.default.fileExists(atPath: mar.path)
-                && m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Archive/Roth IRA 2336"
+                && m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Archive/Roth IRA 2912"
         }
         #expect(FileManager.default.fileExists(atPath: mar.path) && FileManager.default.fileExists(atPath: apr.path),
                 "one ⌘Z puts the statements back")
         #expect(FileManager.default.fileExists(atPath: archived + "/2025/01. Jan 2025.pdf"), "and the account back in the archive")
         #expect(!FileManager.default.fileExists(atPath: live))
-        #expect(m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Archive/Roth IRA 2336")
+        #expect(m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Archive/Roth IRA 2912")
     }
 
 
     /// The bank folder exists only inside the archive: the move makes it beside, and ⌘Z removes it.
     @Test func theMoveMakesTheBankFolderAndUndoTakesItAway() async throws {
-        let f = try await fixture("Parent", archive: "Investments/Archive/Charles Schwab/Roth IRA 2336")
+        let f = try await fixture("Parent", archive: "Investments/Archive/Charles Schwab/Roth IRA 2912")
         defer { try? FileManager.default.removeItem(at: f.root) }
         let offer = try #require(f.m.archiveOffer(for: f.group))
         #expect(await f.m.moveOutOfArchiveThenFile(f.group, offer: offer) == 2)
@@ -176,7 +176,7 @@ import Foundation
 
     /// Statements loose in the account's own folder: ⌘Z still puts the account back in the archive.
     @Test func aFlatAccountGoesBackIntoTheArchive() async throws {
-        let f = try await fixture("Flat", archive: "Investments/Charles Schwab/Archive/Roth IRA 2336", flat: true)
+        let f = try await fixture("Flat", archive: "Investments/Charles Schwab/Archive/Roth IRA 2912", flat: true)
         defer { try? FileManager.default.removeItem(at: f.root) }
         let offer = try #require(f.m.archiveOffer(for: f.group))
         #expect(await f.m.moveOutOfArchiveThenFile(f.group, offer: offer) == 2)
@@ -188,25 +188,25 @@ import Foundation
 
     /// ⇧⌘Z moves it out again and points what referred to it there too.
     @Test func redoMovesItOutAndPointsThere() async throws {
-        let f = try await fixture("Redo", archive: "Investments/Charles Schwab/Archive/Roth IRA 2336")
+        let f = try await fixture("Redo", archive: "Investments/Charles Schwab/Archive/Roth IRA 2912")
         defer { try? FileManager.default.removeItem(at: f.root) }
         f.m.filingLearnedAccounts = [LearnedAccount(id: UUID(), institution: "charles schwab", institutionName: "Charles Schwab",
-                                                    ending: "9999", folder: "Investments/Charles Schwab/Archive/Roth IRA 2336",
+                                                    ending: "9999", folder: "Investments/Charles Schwab/Archive/Roth IRA 2912",
                                                     surveyRoot: f.docs.path, taughtAt: Date(), taughtBy: .groupRedirect,
                                                     filedCount: 1, teaching: [])]
         let offer = try #require(f.m.archiveOffer(for: f.group))
         #expect(await f.m.moveOutOfArchiveThenFile(f.group, offer: offer) == 2)
         f.undo.undo()
-        await waitUntil("the undo or redo settles", timeout: 10) { f.m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Archive/Roth IRA 2336" }
+        await waitUntil("the undo or redo settles", timeout: 10) { f.m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Archive/Roth IRA 2912" }
         #expect(f.undo.canRedo)
         f.undo.redo()
-        await waitUntil("the undo or redo settles", timeout: 10) { f.m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Roth IRA 2336" }
+        await waitUntil("the undo or redo settles", timeout: 10) { f.m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Roth IRA 2912" }
         #expect(FileManager.default.fileExists(atPath: offer.target + "/2025/01. Jan 2025.pdf"), "out again")
-        #expect(f.m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Roth IRA 2336", "and pointed there")
+        #expect(f.m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Roth IRA 2912", "and pointed there")
     }
 
     @Test func aStatementOnlyInTheCloudRefusesTheMove() async throws {
-        let f = try await fixture("Cloud", archive: "Investments/Charles Schwab/Archive/Roth IRA 2336", cloudOnly: true)
+        let f = try await fixture("Cloud", archive: "Investments/Charles Schwab/Archive/Roth IRA 2912", cloudOnly: true)
         defer { try? FileManager.default.removeItem(at: f.root) }
         let offer = try #require(f.m.archiveOffer(for: f.group))
         #expect(await f.m.moveOutOfArchiveThenFile(f.group, offer: offer) == 0)

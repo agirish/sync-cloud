@@ -16,12 +16,12 @@ import Foundation
         let f = DocumentFacts(page: """
             Chase Freedom
             Statement Period: 02/20/26 - 03/19/26
-            Account number: XXXX XXXX XXXX 1768
-            AutoPay from account ending in 5696
-            Transfer from account number 0004121
+            Account number: XXXX XXXX XXXX 1833
+            AutoPay from account ending in 6701
+            Transfer from account number 0874824
             """)
-        #expect(f.matchingNumbers.map(\.ending) == ["1768"], "\(f.ownNumbers)")
-        let tree = [dir("Bank Accounts", [dir("Bank Accounts/Chase", [account("Bank Accounts/Chase/Checking 5696")])])]
+        #expect(f.matchingNumbers.map(\.ending) == ["1833"], "\(f.ownNumbers)")
+        let tree = [dir("Bank Accounts", [dir("Bank Accounts/Chase", [account("Bank Accounts/Chase/Checking 6701")])])]
         #expect(AccountIndex.build(tree: tree).match(f).account == nil, "not the checking account it is paid from")
     }
 
@@ -49,29 +49,29 @@ import Foundation
         let filler = String(repeating: "Your balance and activity are below. ", count: 10)
         let f = DocumentFacts(page: "Fidelity Investments\nStatement Period: February 1, 2026 to February 28, 2026\n\(filler)\nYour 2025 Form 1099 is available")
         #expect(f.kind == .statement)
-        #expect(DocumentFacts(page: "Form 1099-DIV 2025\nFidelity Investments\nAccount Number Z26-141750").kind == .taxForm)
+        #expect(DocumentFacts(page: "Form 1099-DIV 2025\nFidelity Investments\nAccount Number Z26-221746").kind == .taxForm)
     }
 
     @Test func aYearInsideAFolderNameMovesWithTheStatement() throws {
-        let node = account("Bank/Chase/Checking 5696", folder: "Statements 2025")
+        let node = account("Bank/Chase/Checking 6701", folder: "Statements 2025")
         let p = AccountPlacement.place(in: node, period: .init(year: 2026, month: 1), taxForm: false, fileName: "x.pdf")
         #expect(p.folder == "Statements 2026", "\(p.folder)")
         #expect(p.newSegments == ["Statements 2026"])
     }
 
     @Test func aCategoryWithDigitsDoesntSwallowTheAccountsBelow() {
-        let tree = [dir("Investments", [dir("Investments/401k", [dir("Investments/401k/Fidelity", [account("Investments/401k/Fidelity/HPE 4138")])])])]
+        let tree = [dir("Investments", [dir("Investments/401k", [dir("Investments/401k/Fidelity", [account("Investments/401k/Fidelity/HPE 4847")])])])]
         let roots = AccountIndex.build(tree: tree).accounts.map(\.root)
-        #expect(roots == ["Investments/401k/Fidelity/HPE 4138"], "\(roots)")
+        #expect(roots == ["Investments/401k/Fidelity/HPE 4847"], "\(roots)")
     }
 
     @Test func aProposalNeverGoesIntoAnInbox() {
         let tree = [dir("Inbox", [dir("Inbox/Chase", [])]),
                     dir("Money", [dir("Money/Chase", []), dir("Money/Citi", [account("Money/Citi/Checking 1111")])])]
         // A type no account has, so the parent is the bank's own folder: the inbox one sorts first.
-        let p = AccountProposal.propose(institution: "chase", type: "Auto Lease", ending: "0779",
+        let p = AccountProposal.propose(institution: "chase", type: "Auto Lease", ending: "0896",
                                         index: AccountIndex.build(tree: tree), tree: tree, period: nil)
         #expect(p?.accountRoot.hasPrefix("Inbox") != true, "\(p?.accountRoot ?? "nil")")
-        #expect(p?.accountRoot == "Money/Chase/Auto Lease 0779", "\(p?.accountRoot ?? "nil")")
+        #expect(p?.accountRoot == "Money/Chase/Auto Lease 0896", "\(p?.accountRoot ?? "nil")")
     }
 }

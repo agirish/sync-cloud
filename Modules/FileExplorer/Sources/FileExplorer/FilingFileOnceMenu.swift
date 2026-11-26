@@ -39,13 +39,13 @@ struct FilingFileOnceMenu: View {
 enum FilingCopiesText {
     static func accountName(_ c: FilingCopy) -> String { (c.account.root as NSString).lastPathComponent }
 
-    /// "Roth IRA 4657", or "Roth IRA ••4657" when the folder's name doesn't carry the number.
+    /// "Roth IRA 5442", or "Roth IRA ••5442" when the folder's name doesn't carry the number.
     static func accountLabel(_ c: FilingCopy) -> String {
         let name = accountName(c)
         return name.contains(c.account.ending) ? name : name + " ••" + c.account.ending
     }
 
-    /// "Fidelity ••4657", "Fidelity", "statements", "everything", for a preference's row.
+    /// "Fidelity ••5442", "Fidelity", "statements", "everything", for a preference's row.
     static func label(_ scope: FilingPreference.Scope, copies: [FilingCopy]) -> String {
         // The bank as its folder spells it, else its name in title case: never the lower-case key.
         func bank(_ institution: String) -> String {

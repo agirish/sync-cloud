@@ -23,9 +23,9 @@ import Foundation
     }
 
     @Test func statementsLooseInTheAccountFolderStayThereInHisName() {
-        let account = dir("Traditional IRA 7863", ymd("Brokerage Statement_", 2025, 1...7, "_863.PDF") + [
+        let account = dir("Traditional IRA 9312", ymd("Brokerage Statement_", 2025, 1...7, "_863.PDF") + [
             dir("Statements", [dir("2021", (1...9).map { file(String(format: "%d. ", $0) + ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep"][$0 - 1] + " 2021.pdf") })]),
-            file("Traditional_IRA_XXX863_Transactions_20250817-013343.csv"),
+            file("Traditional_IRA_XXX417_Transactions_20250817-180301.csv"),
         ])
         let p = AccountPlacement.place(in: account, period: .init(year: 2026, month: 10, day: 31), taxForm: false,
                                        fileName: "10. Oct 2026.pdf")
@@ -35,7 +35,7 @@ import Foundation
     }
 
     @Test func aStatementsYearLayoutGetsANewYearFolder() {
-        let account = dir("Trust Brokerage 2 - 3494", [dir("Statements", [
+        let account = dir("Trust Brokerage 2 - 4011", [dir("Statements", [
             dir("2024", ymd("Brokerage Statement_", 2024, 1...12, "_494.PDF")),
             dir("2025", ymd("Brokerage Statement_", 2025, 1...12, "_494.PDF")),
         ])])
@@ -46,10 +46,10 @@ import Foundation
     }
 
     @Test func aBankNamedAccountStillGetsHisName() {
-        // Amex Credit 22002 as he keeps it: bank-named, with months missing (Aug, Oct, Dec 2022;
+        // Amex Credit 44928 as he keeps it: bank-named, with months missing (Aug, Oct, Dec 2022;
         // Jan, Jun, Jul, Dec 2023; Apr, Jun–Sep 2024). Decision OR names the new statement `01. Jan 2026.pdf`: his
         // name, and two digits, since a gap of a month or two is a monthly card he skipped.
-        let account = dir("Credit 22002", [
+        let account = dir("Credit 44928", [
             dir("2022", ["2022-08-29", "2022-10-28", "2022-12-29"].map { file($0 + ".pdf") }),
             dir("2023", ["2023-01-29", "2023-06-28", "2023-07-28", "2023-12-29"].map { file($0 + ".pdf") }),
             dir("2024", ["2024-04-28", "2024-06-28", "2024-07-29", "2024-08-29", "2024-09-27"].map { file($0 + ".pdf") }),
@@ -61,7 +61,7 @@ import Foundation
 
     @Test func transactionHistoriesDontDecideWhereStatementsGo() {
         // The newest files in the account folder are reports with no monthly cadence.
-        let account = dir("Trust Brokerage 1 - 2766", [
+        let account = dir("Trust Brokerage 1 - 3634", [
             file("META Transaction History - Jan to Jul 2026.pdf"),
             file("Balance Verification Letter - May 2026.pdf"),
             dir("2025", ymd("Brokerage Statement_", 2025, 1...12, "_766.PDF")),
@@ -74,13 +74,13 @@ import Foundation
     }
 
     @Test func noPeriodMeansNoYearFolderAndNotHigh() {
-        let account = dir("Checking 6436", [dir("2023", ymd("Statement_", 2023, 1...12, ".pdf"))])
+        let account = dir("Checking 7259", [dir("2023", ymd("Statement_", 2023, 1...12, ".pdf"))])
         let p = AccountPlacement.place(in: account, period: nil, taxForm: false, fileName: "statement.pdf")
         #expect(p.folder == "" && p.yearUnknown && p.name == nil, "never the newest filed year: \(p)")
     }
 
     @Test func aCSVExportDoesntDecideWhereAPDFGoesOrWhatItIsCalled() {
-        let account = dir("Traditional IRA 7863", [
+        let account = dir("Traditional IRA 9312", [
             dir("2025", ymd("Brokerage Statement_", 2025, 1...12, "_863.PDF")),
             dir("Exports", ymd("Brokerage Statement_", 2026, 1...6, "_863.csv")),
         ])
@@ -90,7 +90,7 @@ import Foundation
 
     @Test func aMonthFolderIsReDated() {
         let months = ["Jan", "Feb", "Mar", "Apr"]
-        let account = dir("Credit 9278", [dir("2025", (1...4).map { m in
+        let account = dir("Credit 9840", [dir("2025", (1...4).map { m in
             dir(String(format: "2025/%02d. %@ 2025", m, months[m - 1]), [file(String(format: "%02d. %@ 2025.pdf", m, months[m - 1]))]) })])
         let p = AccountPlacement.place(in: account, period: .init(year: 2026, month: 2), taxForm: false, fileName: "x.pdf")
         #expect(p.folder == "2026/02. Feb 2026", "\(p)")
@@ -98,30 +98,30 @@ import Foundation
     }
 
     @Test func taxFormsGoToTheAccountsTaxFolderOrItsRoot() {
-        let withTax = dir("Roth IRA 8260", [dir("Tax", [file("5498 2024.pdf")]),
+        let withTax = dir("Roth IRA 9573", [dir("Tax", [file("5498 2024.pdf")]),
                                             dir("Statements", [dir("2021", ymd("Statement_", 2021, 1...12, ".pdf"))])])
         #expect(AccountPlacement.place(in: withTax, period: .init(year: 2025, month: 12, day: 31), taxForm: true,
                                        fileName: "Tax - 5498 2025.pdf").folder == "Tax")
-        let noTax = dir("Trust Brokerage 1 - 2766", [dir("2025", ymd("Brokerage Statement_", 2025, 1...12, "_766.PDF"))])
+        let noTax = dir("Trust Brokerage 1 - 3634", [dir("2025", ymd("Brokerage Statement_", 2025, 1...12, "_766.PDF"))])
         let p = AccountPlacement.place(in: noTax, period: .init(year: 2025, month: 12, day: 31), taxForm: true,
                                        fileName: "Tax - 1099 2025.pdf")
         #expect(p.folder == "" && p.name == nil, "the root is the tax home, and a form keeps its name")
     }
 
     @Test func hisNameNeedsOnlyTheMonth() {
-        let account = dir("Credit 22002", [dir("2025", ymd("Statement_", 2025, 1...12, ".pdf"))])
+        let account = dir("Credit 44928", [dir("2025", ymd("Statement_", 2025, 1...12, ".pdf"))])
         let p = AccountPlacement.place(in: account, period: .init(year: 2026, month: 3), taxForm: false, fileName: "x.pdf")
         #expect(p.name == "03. Mar 2026.pdf", "a period with no day still names the statement")
-        let ordinal = dir("Credit 1768", [dir("2025", (1...6).map { file(String(format: "%02d. ", $0) + ["Jan","Feb","Mar","Apr","May","Jun"][$0 - 1] + " 2025.pdf") })])
+        let ordinal = dir("Credit 1833", [dir("2025", (1...6).map { file(String(format: "%02d. ", $0) + ["Jan","Feb","Mar","Apr","May","Jun"][$0 - 1] + " 2025.pdf") })])
         #expect(AccountPlacement.place(in: ordinal, period: .init(year: 2026, month: 2), taxForm: false,
                                        fileName: "x.pdf").name == "02. Feb 2026.pdf")
     }
 
     @Test func theOrdinalIsPaddedByCadenceNotCopied() {
         let mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-        // BofA Credit 6397: a monthly account whose newest name slipped to one digit. February is
+        // BofA Credit 7189: a monthly account whose newest name slipped to one digit. February is
         // `02.`, not a copy of January's `1.`.
-        let monthly = dir("Credit 6397", [
+        let monthly = dir("Credit 7189", [
             dir("2025", (1...12).map { file(String(format: "%02d. ", $0) + mon[$0 - 1] + " 2025.pdf") }),
             dir("2026", [file("1. Jan 2026.pdf")])])
         #expect(AccountPlacement.place(in: monthly, period: .init(year: 2026, month: 2), taxForm: false,
@@ -193,7 +193,7 @@ import Foundation
     @Test func aStatementGoesToItsAccountAtHighAndTheModelIsNotAsked() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingAccountScan")
         defer { try? FileManager.default.removeItem(at: root) }
-        let account = root.appendingPathComponent("Docs/Bank Accounts/Bank of America/Checking 5696")
+        let account = root.appendingPathComponent("Docs/Bank Accounts/Bank of America/Checking 6701")
         for m in 1...6 {
             try writeBytes(account.appendingPathComponent(String(format: "2025/eStmt_2025-%02d-28.pdf", m)), Data(repeating: 0x41, count: 64))
         }
@@ -209,7 +209,7 @@ import Foundation
         let page = """
         Bank of America Advantage Banking
         for February 26, 2026 to March 27, 2026
-        Account number: 2370 2420 5696
+        Account number: 2370 2420 6701
         """
         m.filingContentExtractor = { _ in [] }
         m.filingSnippetExtractor = { $0 == statement.path ? page : nil }
@@ -226,7 +226,7 @@ import Foundation
         #expect(best.path == account.path + "/2026", "\(best.path)")
         #expect(best.newSegments == ["2026"])
         #expect(best.confidence == .high)
-        #expect(best.account?.ending == "5696" && best.account?.institution == "bank of america")
+        #expect(best.account?.ending == "6701" && best.account?.institution == "bank of america")
         #expect(best.proposedName == "03. Mar 2026.pdf" && best.nameOrigin == .template,
                 "his name, dated from the page, not the bank's `eStmt_`: \(String(describing: best.proposedName))")
         #expect(!card.isBatchEligible, "an account match is read from the page, so it needs a click")
@@ -239,7 +239,7 @@ import Foundation
     @Test func aMonthFromTheFileNameIsNeverHigh() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingAccountNameMonth")
         defer { try? FileManager.default.removeItem(at: root) }
-        let account = root.appendingPathComponent("Docs/Bank Accounts/Bank of America/Checking 5696")
+        let account = root.appendingPathComponent("Docs/Bank Accounts/Bank of America/Checking 6701")
         for m in 1...6 {
             try writeBytes(account.appendingPathComponent(String(format: "2025/eStmt_2025-%02d-28.pdf", m)), Data(repeating: 0x41, count: 64))
         }
@@ -250,7 +250,7 @@ import Foundation
         let page = """
         Bank of America Advantage Banking
         Account summary
-        Account number: 2370 2420 5696
+        Account number: 2370 2420 6701
         """
         m.filingContentExtractor = { _ in [] }
         m.filingSnippetExtractor = { $0 == statement.path ? page : nil }
@@ -261,7 +261,7 @@ import Foundation
         let card = try #require(m.filingSuggestions.first { $0.filePath == statement.path })
         let best = try #require(card.best)
         #expect(best.path == account.path + "/2026", "the name's month still places it: \(best.path)")
-        #expect(best.account?.ending == "5696")
+        #expect(best.account?.ending == "6701")
         #expect(best.confidence == .medium)
         #expect(best.reasons.contains { $0.contains("month from the file name") }, "\(best.reasons)")
     }
@@ -272,7 +272,7 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
         let tax = root.appendingPathComponent("Docs/Finance/US/Income Tax")
         try writeBytes(tax.appendingPathComponent("2024/Income/Form W-2/W-2 2024.pdf"), Data(repeating: 0x41, count: 64))
-        let account = root.appendingPathComponent("Docs/Bank Accounts/Bank of America/Checking 5696")
+        let account = root.appendingPathComponent("Docs/Bank Accounts/Bank of America/Checking 6701")
         for m in 1...6 {
             try writeBytes(account.appendingPathComponent(String(format: "2025/eStmt_2025-%02d-28.pdf", m)), Data(repeating: 0x41, count: 64))
         }
@@ -300,7 +300,7 @@ import Foundation
         try writeBytes(med.appendingPathComponent("Daughter/Visits/2025/1. Jan 5 2025 - Pediatrics - After Visit Summary.pdf"), Data(repeating: 0x41, count: 64))
         try writeBytes(med.appendingPathComponent("Son/Visits/2025/1. Feb 2 2025 - Pediatrics - After Visit Summary.pdf"), Data(repeating: 0x41, count: 64))
         try writeBytes(med.appendingPathComponent("Insurance/EOBs/2025/Kaiser EOB - Jan 2 2025.pdf"), Data(repeating: 0x41, count: 64))
-        let account = root.appendingPathComponent("Docs/Bank Accounts/Bank of America/Checking 5696")
+        let account = root.appendingPathComponent("Docs/Bank Accounts/Bank of America/Checking 6701")
         for m in 1...6 {
             try writeBytes(account.appendingPathComponent(String(format: "2025/eStmt_2025-%02d-28.pdf", m)), Data(repeating: 0x41, count: 64))
         }
@@ -328,7 +328,7 @@ import Foundation
     @Test func aQuarterlyCardIsNamedForItsMonths() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingAccountQuarter")
         defer { try? FileManager.default.removeItem(at: root) }
-        let account = root.appendingPathComponent("Docs/Bank Accounts/Bank of America/Savings 5582")
+        let account = root.appendingPathComponent("Docs/Bank Accounts/Bank of America/Savings 6587")
         for (m, mon) in [(3, "Mar"), (6, "Jun"), (9, "Sep"), (12, "Dec")] {
             try writeBytes(account.appendingPathComponent("2025/\(m). \(mon) 2025.pdf"), Data(repeating: 0x41, count: 64))
         }
@@ -339,7 +339,7 @@ import Foundation
         let page = """
         Bank of America Advantage Savings
         Statement Period January 1, 2026 - March 31, 2026
-        Account number: 2370 2420 5582
+        Account number: 2370 2420 6587
         """
         m.filingContentExtractor = { _ in [] }
         m.filingSnippetExtractor = { $0 == statement.path ? page : nil }
@@ -362,7 +362,7 @@ import Foundation
             try writeBytes(insurance.appendingPathComponent(name), Data(repeating: 0x41, count: 64))
         }
         // An account elsewhere, so the scan reads page 1 as it does on a real tree.
-        let account = root.appendingPathComponent("Docs/Bank Accounts/Bank of America/Checking 5696")
+        let account = root.appendingPathComponent("Docs/Bank Accounts/Bank of America/Checking 6701")
         for m in 1...6 {
             try writeBytes(account.appendingPathComponent(String(format: "2025/eStmt_2025-%02d-28.pdf", m)), Data(repeating: 0x41, count: 64))
         }

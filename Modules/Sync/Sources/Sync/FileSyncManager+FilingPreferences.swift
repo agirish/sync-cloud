@@ -3,7 +3,7 @@ import Foundation
 
 /// Whether a statement naming several accounts is copied into each or filed once (decision 11), at
 /// a scope: one account, one bank, every statement, everything. The narrowest that applies wins,
-/// so "copy for ••4657" beats "file once for Fidelity".
+/// so "copy for ••5442" beats "file once for Fidelity".
 public struct FilingPreference: Codable, Equatable, Identifiable, Sendable {
     public enum Scope: Codable, Equatable, Hashable, Sendable {
         case account(institution: String, ending: String)
@@ -26,7 +26,7 @@ public struct FilingPreference: Codable, Equatable, Identifiable, Sendable {
     public var scope: Scope
     /// true: copy into every account the statement names. false: file once, into the first.
     public var copies: Bool
-    /// What the scope names, for Automations: "Fidelity ••4657", "Fidelity", "statements".
+    /// What the scope names, for Automations: "Fidelity ••5442", "Fidelity", "statements".
     public var label: String
     public var createdAt: Date
 

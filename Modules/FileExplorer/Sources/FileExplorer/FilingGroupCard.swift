@@ -2,7 +2,7 @@ import SwiftUI
 import Sync
 import Design
 
-/// Every statement going to one account folder, as one card: "Charles Schwab ••7863 · 10
+/// Every statement going to one account folder, as one card: "Charles Schwab ••9312 · 10
 /// statements", filed with one click (design §5.1, cards mockup v6). What File N does is always on
 /// the card: From where, Moves to where, the folders it makes, the dates and the evidence, and what
 /// it leaves (copies already filed, duplicates in the inbox). Its files are rows to look at.
@@ -258,7 +258,7 @@ enum FilingGroupText {
         }
     }
 
-    /// "American Express ••2002 · 2 statements"; for Claude's group, "Fidelity statement · 6 files".
+    /// "American Express ••5652 · 2 statements"; for Claude's group, "Fidelity statement · 6 files".
     static func title(_ g: FilingCardGroup) -> String {
         let n = g.members.count
         let ending = g.account.map { " ••" + $0.ending } ?? ""

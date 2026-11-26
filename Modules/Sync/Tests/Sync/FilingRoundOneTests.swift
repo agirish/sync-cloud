@@ -12,21 +12,21 @@ import Foundation
         #expect(endings("Credit Union\nMember # 1234567" + period) == ["4567"])
         #expect(endings("Bank\nAcct: 12345678" + period) == ["5678"])
         #expect(endings("Bank\nAccount Number (1234-5678)" + period) == ["5678"])
-        #expect(endings("Bank\nAccount\nNumber 3841-7863" + period) == ["7863"])
+        #expect(endings("Bank\nAccount\nNumber 3841-9312" + period) == ["9312"])
     }
 
     @Test func aNumberIsNotWhatFollowsIt() {
         #expect(endings("Bank\nAccount # 5678 1,234.56" + period) == ["5678"])
-        #expect(endings("Bank\nAccount Number 3841-7863 2 of 6" + period) == ["7863"])
+        #expect(endings("Bank\nAccount Number 3841-9312 2 of 6" + period) == ["9312"])
         #expect(endings("Bank\nAccount # 1234-5678 2026-03-31" + period) == ["5678"])
         #expect(!endings("Bank\nAccount Number:\n18450 OAK HOLLOW" + period).contains("8450"), "an address on the next line")
-        #expect(endings("Bank\nAccount ending in 1768, thank you" + period) == ["1768"])
+        #expect(endings("Bank\nAccount ending in 1833, thank you" + period) == ["1833"])
     }
 
     @Test func paymentPhrasesNotABareFrom() {
-        #expect(!endings("Bank\nAutoPay from account ending in ****4121\nAccount Number 0001768" + period).contains("4121"))
+        #expect(!endings("Bank\nAutoPay from account ending in ****4824\nAccount Number 0121833" + period).contains("4824"))
         #expect(endings("HDFC Bank\nStatement From : 01/03/2026 To : 31/03/2026 Account No : 50100012345678") == ["5678"])
-        #expect(!DocumentFacts(page: "XXX XX 7396 Bank" + period).ownNumbers.contains { $0.ending == "7396" }, "a spaced taxpayer mask")
+        #expect(!DocumentFacts(page: "XXX XX 8508 Bank" + period).ownNumbers.contains { $0.ending == "8508" }, "a spaced taxpayer mask")
     }
 
     @Test func datesOtherBanksPrint() {
@@ -67,11 +67,11 @@ import Foundation
     }
 
     @Test func copiesTravelWithEveryRebuildOfAHome() {
-        let acct = FilingAccount(root: "/D/Fidelity/Checking 0779", ending: "0779", institution: "fidelity", archived: false, kind: .statement)
-        var d = FilingDestination(path: "/D/Fidelity/Checking 0779", confidence: .medium, reasons: ["r"], newSegments: ["Checking 0779"],
+        let acct = FilingAccount(root: "/D/Fidelity/Checking 0896", ending: "0896", institution: "fidelity", archived: false, kind: .statement)
+        var d = FilingDestination(path: "/D/Fidelity/Checking 0896", confidence: .medium, reasons: ["r"], newSegments: ["Checking 0896"],
                                   account: acct)
         d.alsoCopiesTo = [FilingCopy(path: "/D/Fidelity/Roth", proposedName: nil,
-                                     account: FilingAccount(root: "/D/Fidelity/Roth", ending: "4657", institution: "fidelity", archived: false, kind: .statement))]
+                                     account: FilingAccount(root: "/D/Fidelity/Roth", ending: "5442", institution: "fidelity", archived: false, kind: .statement))]
         #expect(d.naming(nil).alsoCopiesTo.count == 1)
         #expect(d.naming("x.pdf", origin: .template).alsoCopiesTo.count == 1)
         #expect(d.withConfidence(.low).alsoCopiesTo.count == 1)
@@ -83,8 +83,8 @@ import Foundation
     @Test func aTaxFormLeadsItsCard() {
         let rule = FilingDestination(path: "/D/Rule", confidence: .high, reasons: ["r"], newSegments: [], remembered: true)
         let guess = FilingDestination(path: "/D/Home/Mortgage/Tax", confidence: .high, reasons: ["word"], newSegments: [])
-        let tax = FilingDestination(path: "/D/Schwab/Brokerage 2766/Tax", confidence: .medium, reasons: ["Account ••2766"], newSegments: [])
-        #expect(FileSyncManager.leading(tax, in: [rule, guess]).map(\.path) == ["/D/Rule", "/D/Schwab/Brokerage 2766/Tax", "/D/Home/Mortgage/Tax"])
+        let tax = FilingDestination(path: "/D/Schwab/Brokerage 3634/Tax", confidence: .medium, reasons: ["Account ••3634"], newSegments: [])
+        #expect(FileSyncManager.leading(tax, in: [rule, guess]).map(\.path) == ["/D/Rule", "/D/Schwab/Brokerage 3634/Tax", "/D/Home/Mortgage/Tax"])
     }
 }
 
@@ -97,7 +97,7 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
         let docs = root.appendingPathComponent("Docs")
         for (i, month) in ["Jan", "Feb", "Mar", "Apr", "May", "Jun"].enumerated() {
-            try writeBytes(docs.appendingPathComponent(String(format: "Credit/Chase/Credit 1768/2025/%02d. %@ 2025.pdf", i + 1, month)),
+            try writeBytes(docs.appendingPathComponent(String(format: "Credit/Chase/Credit 1833/2025/%02d. %@ 2025.pdf", i + 1, month)),
                            Data(repeating: UInt8(i), count: 40))
         }
         try FileManager.default.createDirectory(at: docs.appendingPathComponent("Bank/Chase/Joint"), withIntermediateDirectories: true)
@@ -111,7 +111,7 @@ import Foundation
         m.undoManager = undo
         m.filingContentExtractor = { _ in [] }
         m.filingTokensFromText = { _ in [] }
-        m.filingSnippetExtractor = { $0 == file.path ? "JPMorgan Chase Bank\nStatement Period: March 1, 2026 through March 28, 2026\nAccount Number: 000012344139" : nil }
+        m.filingSnippetExtractor = { $0 == file.path ? "JPMorgan Chase Bank\nStatement Period: March 1, 2026 through March 28, 2026\nAccount Number: 001169394859" : nil }
         m.setFilingScansSubfolders(true, for: inbox.path)
         await m.findFilingSuggestions(folder: inbox, providerRoot: docs)
         let card = try #require(m.filingSuggestions.first { $0.filePath == file.path })

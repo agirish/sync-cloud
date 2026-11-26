@@ -23,7 +23,7 @@ import Foundation
         for (i, month) in ["Jan", "Feb", "Mar", "Apr", "May", "Jun"].enumerated() {
             try writeBytes(docs.appendingPathComponent(String(format: "Bank Accounts/Chase/Joint Checking/2025/%02d. %@ 2025.pdf", i + 1, month)),
                            Data(repeating: 0x41, count: 64))
-            try writeBytes(docs.appendingPathComponent(String(format: "Credit Accounts/Chase/Credit 1768/2025/%02d. %@ 2025.pdf", i + 1, month)),
+            try writeBytes(docs.appendingPathComponent(String(format: "Credit Accounts/Chase/Credit 1833/2025/%02d. %@ 2025.pdf", i + 1, month)),
                            Data(repeating: 0x42, count: 64))
         }
         let m = FileSyncManager(defaults: ScratchDefaults("FilingLearnedAccountsTests.1"))
@@ -35,7 +35,7 @@ import Foundation
     }
 
     private nonisolated static func statement(_ ending: String, month: String, kind: String = "Statement Period") -> String {
-        "JPMorgan Chase Bank\n\(kind): \(month) 1, 2026 through \(month) 28, 2026\nAccount Number: 000012345\(ending)\nA PERSON"
+        "JPMorgan Chase Bank\n\(kind): \(month) 1, 2026 through \(month) 28, 2026\nAccount Number: 053793333\(ending)\nA PERSON"
     }
 
     private func write(_ f: Fixture, _ name: String) throws -> URL {
@@ -48,11 +48,11 @@ import Foundation
         let f = try fixture("Teach")
         defer { try? FileManager.default.removeItem(at: f.root) }
         let first = try write(f, "Chase/03. Mar 2026.pdf")
-        f.m.filingSnippetExtractor = { $0 == first.path ? Self.statement("4139", month: "March") : nil }
+        f.m.filingSnippetExtractor = { $0 == first.path ? Self.statement("4859", month: "March") : nil }
         await f.m.findFilingSuggestions(folder: f.inbox, providerRoot: f.docs)
         let card = try #require(f.m.filingSuggestions.first { $0.filePath == first.path })
-        #expect(card.best?.confidence != .high, "nothing names ••4139 yet")
-        #expect(f.m.rememberableEnding(for: [card]) == "4139")
+        #expect(card.best?.confidence != .high, "nothing names ••4859 yet")
+        #expect(f.m.rememberableEnding(for: [card]) == "4859")
         let chosen = f.docs.path + "/Bank Accounts/Chase/Joint Checking/2026"
         let result = await f.m.applyFilingSuggestion(
             card, to: FilingDestination(path: chosen, confidence: .high, reasons: ["You chose this folder"], newSegments: ["2026"]),
@@ -60,11 +60,11 @@ import Foundation
         #expect(result == .moved)
         let learned = try #require(f.m.filingLearnedAccounts.first)
         #expect(learned.folder == "Bank Accounts/Chase/Joint Checking", "the account, not its year")
-        #expect(learned.ending == "4139" && learned.institution == "chase" && learned.institutionName == "Chase")
+        #expect(learned.ending == "4859" && learned.institution == "chase" && learned.institutionName == "Chase")
 
-        // The next statement printing ••4139 goes there at High, placed by year.
+        // The next statement printing ••4859 goes there at High, placed by year.
         let next = try write(f, "Chase/04. Apr 2026.pdf")
-        f.m.filingSnippetExtractor = { $0 == next.path ? Self.statement("4139", month: "April") : nil }
+        f.m.filingSnippetExtractor = { $0 == next.path ? Self.statement("4859", month: "April") : nil }
         await f.m.findFilingSuggestions(folder: f.inbox, providerRoot: f.docs)
         let best = try #require(f.m.filingSuggestions.first { $0.filePath == next.path }?.best)
         #expect(best.path == chosen, "\(best.path)")
@@ -75,14 +75,14 @@ import Foundation
         let f = try fixture("Named")
         defer { try? FileManager.default.removeItem(at: f.root) }
         let file = try write(f, "Chase/03. Mar 2026.pdf")
-        f.m.filingSnippetExtractor = { $0 == file.path ? Self.statement("1768", month: "March") : nil }
+        f.m.filingSnippetExtractor = { $0 == file.path ? Self.statement("1833", month: "March") : nil }
         await f.m.findFilingSuggestions(folder: f.inbox, providerRoot: f.docs)
         let card = try #require(f.m.filingSuggestions.first { $0.filePath == file.path })
-        #expect(card.best?.account?.isNamedByFolder == true, "Credit 1768 names it")
+        #expect(card.best?.account?.isNamedByFolder == true, "Credit 1833 names it")
         #expect(await f.m.applyFilingSuggestion(
             card, to: FilingDestination(path: f.docs.path + "/Bank Accounts/Chase/Joint Checking", confidence: .high,
                                         reasons: ["r"], newSegments: []), teachAccount: true) == .moved)
-        #expect(f.m.filingLearnedAccounts.isEmpty, "Credit 1768's name would outrank it; nothing to list")
+        #expect(f.m.filingLearnedAccounts.isEmpty, "Credit 1833's name would outrank it; nothing to list")
     }
 
     @Test func nothingIsLearnedWithoutANumberOrFromATaxForm() async throws {
@@ -93,7 +93,7 @@ import Foundation
         f.m.filingSnippetExtractor = {
             switch $0 {
             case plain.path: return "JPMorgan Chase Bank\nStatement Period: March 1, 2026 through March 28, 2026\nA PERSON"
-            case form.path: return "JPMorgan Chase Bank\nForm 1099-INT Tax Year 2025\nAccount Number: 0000123454139"
+            case form.path: return "JPMorgan Chase Bank\nForm 1099-INT Tax Year 2025\nAccount Number: 0101704754859"
             default: return nil
             }
         }
@@ -117,7 +117,7 @@ import Foundation
         undo.groupsByEvent = false
         f.m.undoManager = undo
         let file = try write(f, "Chase/03. Mar 2026.pdf")
-        f.m.filingSnippetExtractor = { $0 == file.path ? Self.statement("4139", month: "March") : nil }
+        f.m.filingSnippetExtractor = { $0 == file.path ? Self.statement("4859", month: "March") : nil }
         await f.m.findFilingSuggestions(folder: f.inbox, providerRoot: f.docs)
         let card = try #require(f.m.filingSuggestions.first { $0.filePath == file.path })
         #expect(await f.m.applyFilingSuggestion(
@@ -146,7 +146,7 @@ import Foundation
     @Test func whatTheTreeSaysOutranksALearnedAccount() {
         func file(_ p: String) -> FileNode { FileNode(id: "/D/" + p, name: (p as NSString).lastPathComponent, isDirectory: false, fileSize: 9000) }
         func dir(_ p: String, _ c: [FileNode]) -> FileNode { FileNode(id: "/D/" + p, name: (p as NSString).lastPathComponent, isDirectory: true, children: c) }
-        let named = "Bank Accounts/Chase/Checking 4139"
+        let named = "Bank Accounts/Chase/Checking 4859"
         let joint = "Bank Accounts/Chase/Joint Checking"
         let other = "Bank Accounts/Chase/Household"
         let tree = [dir("Bank Accounts", [dir("Bank Accounts/Chase", [
@@ -158,8 +158,8 @@ import Foundation
             LearnedAccount(id: UUID(), institution: "chase", institutionName: "Chase", ending: ending, folder: folder,
                            surveyRoot: "/D", taughtAt: Date(), taughtBy: .singleRedirect, filedCount: 1, teaching: [])
         }
-        let facts = DocumentFacts(page: "JPMorgan Chase Bank\nStatement Period: March 1, 2026 through March 28, 2026\nAccount Number: 000012344139")
-        #expect(base.adding(learned: [learned(joint, "4139")], root: "/D", tree: tree).match(facts).account?.root == named)
+        let facts = DocumentFacts(page: "JPMorgan Chase Bank\nStatement Period: March 1, 2026 through March 28, 2026\nAccount Number: 001169394859")
+        #expect(base.adding(learned: [learned(joint, "4859")], root: "/D", tree: tree).match(facts).account?.root == named)
         let two = base.adding(learned: [learned(joint, "5555"), learned(other, "5555")], root: "/D", tree: tree)
         let factsB = DocumentFacts(page: "JPMorgan Chase Bank\nStatement Period: March 1, 2026 through March 28, 2026\nAccount Number: 000012345555")
         if case .ambiguous(let accounts) = two.match(factsB) {

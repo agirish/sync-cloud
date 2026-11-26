@@ -403,7 +403,7 @@ struct RenamePassLens: View {
     }
 
     /// A file the pass deliberately did not touch, listed with its reason, because "why is that one
-    /// still called `9829custbill…`" is the first question this feature invites.
+    /// still called `9954custbill…`" is the first question this feature invites.
     @ViewBuilder
     private func skipRow(_ skip: RenameSkip) -> some View {
         HStack(alignment: .top, spacing: 6) {

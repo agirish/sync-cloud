@@ -1,7 +1,7 @@
 import Foundation
 
 /// One card for every statement going to the same account folder: "10 Schwab statements →
-/// Traditional IRA 7863", filed with one click and undone with one ⌘Z (design §5.1). Files matched
+/// Traditional IRA 9312", filed with one click and undone with one ⌘Z (design §5.1). Files matched
 /// to an account by the number their page prints group; so, as a second pass, do Claude's
 /// suggestions sending files to the same folder for the same reason ("Fidelity statement · 6
 /// files"), which carry no account. Everything else stays a card of its own, and so does a file

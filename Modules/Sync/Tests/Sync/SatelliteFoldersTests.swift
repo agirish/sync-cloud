@@ -165,14 +165,14 @@ import Testing
     @Test("An inbox is never a home")
     func inboxesAreNotHomes() {
         // Without this the relation reads backwards on the real tree: the biggest folder in a family
-        // is often the pile everything was filed out of, and a real home (`Credit 2809/2024`) would
+        // is often the pile everything was filed out of, and a real home (`Credit 3679/2024`) would
         // be demoted in favour of its own inbox (`Chase/TODO`).
         var fps = (1...12).map { record("Finance/Chase/TODO/s\($0).pdf", "st\($0)") }
-        fps += (1...4).map { record("Finance/Chase/Credit 2809/2024/s\($0).pdf", "st\($0)") }
+        fps += (1...4).map { record("Finance/Chase/Credit 3679/2024/s\($0).pdf", "st\($0)") }
         let index = DocumentIdentityIndex.build(hashes: [], fingerprints: fps,
                                                 providerRoot: root, existsOnDisk: { _ in true })
         // The relation is there on the numbers alone …
-        let unguarded: Set<String>? = homes(index)["Finance/Chase/Credit 2809/2024"]
+        let unguarded: Set<String>? = homes(index)["Finance/Chase/Credit 3679/2024"]
         #expect(unguarded == ["Finance/Chase/TODO"])
         // … and the profile's own rule is what refuses it.
         #expect(homes(index, accepts: { !FolderProfile.isInboxPath($0) }).isEmpty)

@@ -7,7 +7,7 @@ struct FilingBatchLine: Identifiable, Equatable {
     let item: FilingCardItem
     /// "American Express", or the file's name for a card with no account.
     let title: String
-    /// "2002", shown "••2002" after the title; nil with no account.
+    /// "5652", shown "••5652" after the title; nil with no account.
     let ending: String?
     let count: Int
     let from: FilingRoutePath
@@ -15,7 +15,7 @@ struct FilingBatchLine: Identifiable, Equatable {
     /// What placed a card with no account: "by its name", "by a rule you taught". nil for an account.
     let source: String?
     /// What else filing it does, said on its line: "into the archive", "also copies into Roth IRA
-    /// 4657". The route's own new-folder tags are on `to`.
+    /// 5442". The route's own new-folder tags are on `to`.
     var extras: [String] = []
     var id: String { item.id }
     var accountRoot: String? { item.suggestions.first?.best?.account?.root }
@@ -70,7 +70,7 @@ enum FilingBatchPlan {
             + (accounts ? (places == 1 ? "account" : "accounts") : (places == 1 ? "folder" : "folders")) + "?"
     }
 
-    /// "Unticked: Charles Schwab ••7863 (10) stays as its card." nil with nothing unticked.
+    /// "Unticked: Charles Schwab ••9312 (10) stays as its card." nil with nothing unticked.
     static func footer(_ lines: [FilingBatchLine], unticked: Set<String>) -> String? {
         let off = lines.filter { unticked.contains($0.id) }
         guard !off.isEmpty else { return nil }

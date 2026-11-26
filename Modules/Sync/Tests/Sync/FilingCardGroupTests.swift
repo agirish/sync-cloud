@@ -10,7 +10,7 @@ import CoreText
 
     private func card(_ name: String, to folder: String, account: String?, confidence: FilingConfidence = .high,
                       proposed: String? = nil) -> FilingSuggestion {
-        let acct = account.map { FilingAccount(root: $0, ending: "7863", institution: "charles schwab", archived: false, kind: .statement) }
+        let acct = account.map { FilingAccount(root: $0, ending: "9312", institution: "charles schwab", archived: false, kind: .statement) }
         let dest = FilingDestination(path: folder, confidence: confidence, reasons: ["r"], newSegments: [],
                                      fromContent: true, proposedName: proposed, account: acct,
                                      nameOrigin: proposed == nil ? .planner : .template)
@@ -18,7 +18,7 @@ import CoreText
     }
 
     @Test func statementsForOneAccountFolderShareACard() {
-        let a = "/D/IRA 7863"
+        let a = "/D/IRA 9312"
         let s = [card("01. Jan 2026.pdf", to: a, account: a, proposed: "Brokerage Statement_2026-01-31_863.PDF"),
                  card("receipt.pdf", to: "/D/Receipts", account: nil),
                  card("02. Feb 2026.pdf", to: a, account: a, proposed: "Brokerage Statement_2026-02-28_863.PDF"),
@@ -31,14 +31,14 @@ import CoreText
     }
 
     @Test func aPulledOutFileAndALoneMemberAreCardsOfTheirOwn() {
-        let a = "/D/IRA 7863"
+        let a = "/D/IRA 9312"
         let s = [card("01.pdf", to: a, account: a), card("02.pdf", to: a, account: a)]
         let items = FilingCardGrouping.items(s, pulledOut: ["/In/02.pdf"])
         #expect(items.map(\.id) == ["/In/01.pdf", "/In/02.pdf"], "two singles once one is pulled out")
     }
 
     @Test func lowConfidenceAndMixedConfidenceDontGroup() {
-        let a = "/D/IRA 7863"
+        let a = "/D/IRA 9312"
         let low = [card("01.pdf", to: a, account: a, confidence: .low), card("02.pdf", to: a, account: a, confidence: .low)]
         #expect(FilingCardGrouping.items(low).count == 2)
         let mixed = [card("01.pdf", to: a, account: a, confidence: .high), card("02.pdf", to: a, account: a, confidence: .medium)]
@@ -87,10 +87,10 @@ import CoreText
     }
 
     @Test func alreadyFiledAndCopiesAreLeftBehind() {
-        let a = "/D/IRA 7863"
+        let a = "/D/IRA 9312"
         var dup = card("01 copy.pdf", to: a, account: a)
         dup.duplicateOf = "/In/01.pdf"
-        let s = [card("01.pdf", to: a, account: a), card("02.pdf", to: a, account: a).alreadyFiled(at: ["IRA 7863"]), dup]
+        let s = [card("01.pdf", to: a, account: a), card("02.pdf", to: a, account: a).alreadyFiled(at: ["IRA 9312"]), dup]
         guard case .group(let g) = FilingCardGrouping.items(s)[0] else { Issue.record("expected a group"); return }
         #expect(g.toFile.map(\.fileName) == ["01.pdf"])
         #expect(g.alreadyFiled.count == 1 && g.copies.count == 1)
@@ -138,7 +138,7 @@ import CoreText
     @Test func aGroupFilesAsOneUndo() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingGroupApply")
         defer { try? FileManager.default.removeItem(at: root) }
-        let account = root.appendingPathComponent("Docs/IRA 7863")
+        let account = root.appendingPathComponent("Docs/IRA 9312")
         try FileManager.default.createDirectory(at: account, withIntermediateDirectories: true)
         var cards: [FilingSuggestion] = []
         for m in ["01", "02"] {
@@ -146,7 +146,7 @@ import CoreText
             try writeBytes(f, Data(repeating: 0x41, count: 64))
             let dest = FilingDestination(path: account.path, confidence: .high, reasons: ["r"], newSegments: [],
                                          fromContent: true, proposedName: "Statement_\(m).pdf",
-                                         account: FilingAccount(root: account.path, ending: "7863", institution: "x",
+                                         account: FilingAccount(root: account.path, ending: "9312", institution: "x",
                                                                 archived: false, kind: .statement),
                                          nameOrigin: .template)
             cards.append(FilingSuggestion(filePath: f.path, fileName: "\(m).pdf", size: 64, modificationDate: nil, candidates: [dest]))
@@ -174,15 +174,15 @@ import CoreText
         defer { try? FileManager.default.removeItem(at: root) }
         let docs = root.appendingPathComponent("Docs")
         try FileManager.default.createDirectory(at: docs.appendingPathComponent("Bank Accounts/Chase"), withIntermediateDirectories: true)
-        let proposed = docs.path + "/Bank Accounts/Chase/Checking 0779/2026"
+        let proposed = docs.path + "/Bank Accounts/Chase/Checking 0896/2026"
         var cards: [FilingSuggestion] = []
         for m in ["01", "02"] {
             let f = root.appendingPathComponent("In/\(m).pdf")
             try writeBytes(f, Data(repeating: 0x41, count: 64))
-            let dest = FilingDestination(path: proposed, confidence: .medium, reasons: ["No folder holds Chase ••0779"],
-                                         newSegments: ["Checking 0779", "2026"], fromContent: true,
-                                         account: FilingAccount(root: docs.path + "/Bank Accounts/Chase/Checking 0779",
-                                                                ending: "0779", institution: "chase", archived: false, kind: .statement))
+            let dest = FilingDestination(path: proposed, confidence: .medium, reasons: ["No folder holds Chase ••0896"],
+                                         newSegments: ["Checking 0896", "2026"], fromContent: true,
+                                         account: FilingAccount(root: docs.path + "/Bank Accounts/Chase/Checking 0896",
+                                                                ending: "0896", institution: "chase", archived: false, kind: .statement))
             cards.append(FilingSuggestion(filePath: f.path, fileName: "\(m).pdf", size: 64, modificationDate: nil,
                                           candidates: [dest], providerRoot: docs.path))
         }
@@ -190,12 +190,12 @@ import CoreText
         m.filingLastProviderRoot = docs.path
         guard case .group(let group) = FilingCardGrouping.items(cards)[0] else { Issue.record("expected a group"); return }
         #expect(group.destination.createsAccountFolder)
-        let typed = try m.filingDestination(typed: "Bank Accounts/Chase/Total Checking 0779/2026", for: cards[0]).get()
-        #expect(typed.newSegments == ["Total Checking 0779", "2026"])
+        let typed = try m.filingDestination(typed: "Bank Accounts/Chase/Total Checking 0896/2026", for: cards[0]).get()
+        #expect(typed.newSegments == ["Total Checking 0896", "2026"])
         let filed = await m.applyFilingGroup(group, typed: typed)
         #expect(filed == 2)
         for n in ["01", "02"] {
-            #expect(FileManager.default.fileExists(atPath: docs.path + "/Bank Accounts/Chase/Total Checking 0779/2026/\(n).pdf"))
+            #expect(FileManager.default.fileExists(atPath: docs.path + "/Bank Accounts/Chase/Total Checking 0896/2026/\(n).pdf"))
         }
         #expect(!FileManager.default.fileExists(atPath: proposed), "the proposed folder is not made")
     }
@@ -204,7 +204,7 @@ import CoreText
         let root = try makeCanonicalTempRoot(prefix: "FilingGroupFiled")
         defer { try? FileManager.default.removeItem(at: root) }
         let account = root.appendingPathComponent("Docs/Fidelity/Statements")
-        let text = "Fidelity INVESTMENT REPORT January 1, 2026 - January 31, 2026 Account Number: Z26-141750 balance 1,234.56"
+        let text = "Fidelity INVESTMENT REPORT January 1, 2026 - January 31, 2026 Account Number: Z26-221746 balance 1,234.56"
         try writePDF(text, to: account.appendingPathComponent("2026/Statement01302026.pdf"))
         try writePDF(text, to: root.appendingPathComponent("In/01. Jan 2026.pdf"))
         try writePDF(text, to: root.appendingPathComponent("In/Brokerage/01. Jan 2026.pdf"))
@@ -212,7 +212,7 @@ import CoreText
         func card(_ rel: String) -> FilingSuggestion {
             let dest = FilingDestination(path: account.path + "/2026", confidence: .high, reasons: ["r"], newSegments: [],
                                          fromContent: true,
-                                         account: FilingAccount(root: account.path, ending: "1750", institution: "fidelity",
+                                         account: FilingAccount(root: account.path, ending: "1746", institution: "fidelity",
                                                                 archived: false, kind: .statement))
             return FilingSuggestion(filePath: root.path + "/In/" + rel, fileName: (rel as NSString).lastPathComponent, size: 10,
                                     modificationDate: nil, candidates: [dest], providerRoot: root.path + "/Docs")
@@ -231,7 +231,7 @@ import CoreText
         let root = try makeCanonicalTempRoot(prefix: "FilingGroupProof")
         defer { try? FileManager.default.removeItem(at: root) }
         let account = root.appendingPathComponent("Docs/Fidelity/Statements")
-        let text = "Fidelity INVESTMENT REPORT March 1, 2026 - March 31, 2026 Account Number: Z26-141750 balance 1,234.56"
+        let text = "Fidelity INVESTMENT REPORT March 1, 2026 - March 31, 2026 Account Number: Z26-221746 balance 1,234.56"
         let filed = account.appendingPathComponent("2026/Statement03312026.pdf")
         try writePDF(text, to: filed)
         let inbox = root.appendingPathComponent("In")
@@ -251,7 +251,7 @@ import CoreText
         func card(_ name: String) -> FilingSuggestion {
             let dest = FilingDestination(path: account.path + "/2026", confidence: .high, reasons: ["r"], newSegments: [],
                                          fromContent: true,
-                                         account: FilingAccount(root: account.path, ending: "1750", institution: "fidelity",
+                                         account: FilingAccount(root: account.path, ending: "1746", institution: "fidelity",
                                                                 archived: false, kind: .statement))
             return FilingSuggestion(filePath: inbox.path + "/" + name, fileName: name, size: 10,
                                     modificationDate: nil, candidates: [dest], providerRoot: root.path + "/Docs")

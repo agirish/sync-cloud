@@ -68,7 +68,7 @@ enum LensSearch {
 ///
 /// No token grammar at all: a row is a folder, with no confidence, kind (a plan spans whatever
 /// extensions the folder holds) or size to filter by. Free text over the folder path and the file
-/// names inside it, since the file you are looking for is often a name like `9829custbill…`.
+/// names inside it, since the file you are looking for is often a name like `9954custbill…`.
 ///
 /// It answers for the to-fix rows too (the `RiskyName` overload below). Any tokens those rows
 /// ever need belong here, on the one grammar the list uses.

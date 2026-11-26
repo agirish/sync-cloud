@@ -30,7 +30,7 @@ import Testing
         try writeBytes(root.appendingPathComponent("Archive/Records/.keep"), bytes: 1)
         try writeBytes(root.appendingPathComponent("Archive/Granny/.keep"), bytes: 1)
         try writeBytes(root.appendingPathComponent("Downloads/Mom - vaccination.pdf"))
-        try writeBytes(root.appendingPathComponent("Downloads/9829custbill.pdf"))
+        try writeBytes(root.appendingPathComponent("Downloads/9954custbill.pdf"))
 
         let m = FileSyncManager()
         // Contents-reading on (the default) with an extractor that yields tokens, so phase 2 runs
@@ -67,7 +67,7 @@ import Testing
                 "expected both loose files in the scan, got \(m.filingSuggestions.map(\.fileName))")
         #expect(!reads.paths.isEmpty,
                 "the content extractor was never called, so phase 2 did not run")
-        let bill = Self.best(m, named: "9829custbill.pdf", root: root)
+        let bill = Self.best(m, named: "9954custbill.pdf", root: root)
         #expect(bill != "Archive/Records", "the fixture's homeless file was itself pulled into the rule")
 
         let record = Self.best(m, named: "Mom - vaccination.pdf", root: root)

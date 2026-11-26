@@ -114,7 +114,7 @@ public enum FolderSurveyBuilder {
     /// - **Archive on its own name too**: the archived fact about what is below is carried by
     ///   `axes.lifecycle`, which propagates.
     /// - **Year before person**, so `2019` never needs a roster check.
-    /// - **Person only on an exact roster name.** `Credit 1892 (Mother)` mentions a person but is a
+    /// - **Person only on an exact roster name.** `Credit 2124 (Mother)` mentions a person but is a
     ///   destination.
     static func role(ownName: String, fileCount: Int, subfolderCount: Int,
                      roster: Set<String>) -> FolderRole {

@@ -690,7 +690,7 @@ extension FileSyncManager {
             // with no account number on page 1 drew a confident "Apple Card" from it).
             let readOnly = Set(readFacts.filter { $0.value.kind != .other }.keys)
                 // Any page matched to an account, at any confidence: its account says where it goes
-                // (a year-end summary for ••6397 is not the model's to send to another year).
+                // (a year-end summary for ••7189 is not the model's to send to another year).
                 .union(suggestions.filter { $0.candidates.contains { $0.account != nil } }.map(\.filePath))
             let toClassify = looseFiles.filter {
                 !readOnly.contains($0.id) && !remembered.contains($0.id)
