@@ -1767,7 +1767,7 @@ private struct AskClaudeThreadRow: View, Equatable {
         .accessibilityElement(children: .contain)
     }
 
-    /// "Girish - 2025" with "in Travel · 3" beside it; the full path is in each row's details. A
+    /// "Elder - 2025" with "in Travel · 3" beside it; the full path is in each row's details. A
     /// folder with two or more sure rows has a tick box for those alone (TE343).
     private func planGroupHeading(_ group: AskClaudePlan.Group, count: Int, plan: AskClaudePlan) -> some View {
         let (title, detail): (String, String?) = {
@@ -2115,8 +2115,8 @@ enum AskClaudeLinks {
     ///
     /// A name without an extension (a folder, nearly always) is often an ordinary word too: it
     /// links only spelled as the folder is, and never before 's. So "all-pages scans" leaves the
-    /// Scans folder alone and "Shweta's passport" leaves the Shweta folder, while
-    /// "Passport/Shweta" still links.
+    /// Scans folder alone and "Mother's passport" leaves the Mother folder, while
+    /// "Passport/Mother" still links.
     ///
     /// A name with an extension links in any case, unless another file's name differs from it
     /// only in case (iCloud's Notes.txt, Dropbox's notes.txt): then only the exact spelling links.
@@ -2228,7 +2228,7 @@ enum AskClaudeFilingAction: Equatable {
 
 /// How a card row says where it goes, short.
 enum AskClaudeThreadRowShortening {
-    /// `text` cut in the middle to `limit` characters: "Girish - 2025" stays, a long one keeps both ends.
+    /// `text` cut in the middle to `limit` characters: "Elder - 2025" stays, a long one keeps both ends.
     static func shortened(_ text: String, to limit: Int) -> String {
         guard text.count > limit else { return text }
         let head = (limit - 1) / 2, tail = limit - 1 - head

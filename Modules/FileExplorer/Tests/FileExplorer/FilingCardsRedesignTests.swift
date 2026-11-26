@@ -54,7 +54,7 @@ import SwiftUI
     /// A home it isn't sure of reads "Best guess"; files from different folders give the folder they
     /// share, and each row then names its own.
     @Test func bestGuessAndSeveralFolders() {
-        let low = FilingSuggestion(filePath: Self.todo + "/DIVIT.pdf", fileName: "DIVIT.pdf", size: 1, modificationDate: nil,
+        let low = FilingSuggestion(filePath: Self.todo + "/SON.pdf", fileName: "SON.pdf", size: 1, modificationDate: nil,
                                    candidates: [FilingDestination(path: Self.docs + "/Finance/US/Social Security/2026",
                                                                   confidence: .low, reasons: ["r"], newSegments: [])],
                                    providerRoot: Self.docs)

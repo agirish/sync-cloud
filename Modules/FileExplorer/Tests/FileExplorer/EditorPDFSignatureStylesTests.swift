@@ -335,10 +335,10 @@ import EventsTestSupport
         let fill = fill()
         let selected = try placeText(fill)
         #expect(fill.offersInitials(with: .signature) && !fill.offersInitials(with: .initials))
-        let signature = EditorPDFSignature(kind: .signature, look: .typed("Abhishek Girish"), face: .savoye)
+        let signature = EditorPDFSignature(kind: .signature, look: .typed("Father Elder"), face: .savoye)
         fill.add(signature, keep: true, makeInitials: true, ink: .black)
         let initials = try #require(fill.store.saved(.initials).first)
-        #expect(initials.look == .typed("AG") && initials.face == .savoye)
+        #expect(initials.look == .typed("FE") && initials.face == .savoye)
         #expect(fill.store.saved(.signature) == [signature])
         #expect(fill.armed == .signature(signature) && fill.color == .black)
         #expect(fill.items.first { $0.id == selected }?.color == .blue, "adding a signature recoloured the selected item")
@@ -368,7 +368,7 @@ import EventsTestSupport
     }
 
     @Test func initialsAreTheFirstLetterOfEachWord() {
-        #expect(EditorPDFSignature.initials(of: "Abhishek Girish") == "AG")
+        #expect(EditorPDFSignature.initials(of: "Father Elder") == "FE")
         #expect(EditorPDFSignature.initials(of: "  ada   lovelace byron king ") == "ALB")
         #expect(EditorPDFSignature.initials(of: "J. R. R. Tolkien") == "JRR")
         #expect(EditorPDFSignature.initials(of: "") == "")

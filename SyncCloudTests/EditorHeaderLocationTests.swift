@@ -207,15 +207,15 @@ import FileExplorer
     /// through iCloud Drive's linked `Documents`, so the folder is placed as the pane lists it.
     @Test func theRailsTrailIsTheLocationsLevelsPlusTheFoldersOwnTarget() throws {
         let trail = try #require(EditorHeaderLocation.folderTrail(
-            paneFolder: "/home/Documents/Family/Anuraag", sourceRoot: "/c", providerName: "iCloud",
+            paneFolder: "/home/Documents/Family/Uncle", sourceRoot: "/c", providerName: "iCloud",
             subfolders: ["Receipts"], links: ["/c": ["Documents": "/home/Documents"]]))
         #expect(trail.levels == [
             .init(name: "iCloud", target: ""),
             .init(name: "Documents", target: "Documents"),
             .init(name: "Family", target: "Documents/Family"),
-            .init(name: "Anuraag", target: nil),
+            .init(name: "Uncle", target: nil),
         ])
-        #expect(trail.currentTarget == "Documents/Family/Anuraag")
+        #expect(trail.currentTarget == "Documents/Family/Uncle")
         #expect(trail.subfolders == ["Receipts"])
     }
 

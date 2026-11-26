@@ -19,7 +19,7 @@ import Foundation
         #expect(endings("Bank\nAccount # 5678 1,234.56" + period) == ["5678"])
         #expect(endings("Bank\nAccount Number 3841-7863 2 of 6" + period) == ["7863"])
         #expect(endings("Bank\nAccount # 1234-5678 2026-03-31" + period) == ["5678"])
-        #expect(!endings("Bank\nAccount Number:\n73210 VIA VICENZA" + period).contains("3210"), "an address on the next line")
+        #expect(!endings("Bank\nAccount Number:\n18450 OAK HOLLOW" + period).contains("8450"), "an address on the next line")
         #expect(endings("Bank\nAccount ending in 1768, thank you" + period) == ["1768"])
     }
 

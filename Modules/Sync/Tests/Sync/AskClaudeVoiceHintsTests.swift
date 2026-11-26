@@ -25,7 +25,7 @@ import Testing
 
     @Test func aNameIsSplitIntoTheWordsSaid() {
         #expect(AskClaudeVoiceHints.words(of: "Statement_from_Ally (copy) – Oct, 2025") == ["Statement", "Ally", "Oct", "2025"])
-        #expect(AskClaudeVoiceHints.words(of: "Abhishek's H-1B v2.0 - final") == ["Abhishek's", "H-1B", "v2.0"])
+        #expect(AskClaudeVoiceHints.words(of: "Father's H-1B v2.0 - final") == ["Father's", "H-1B", "v2.0"])
         #expect(AskClaudeVoiceHints.words(of: "a 1 & the") == [])
     }
 

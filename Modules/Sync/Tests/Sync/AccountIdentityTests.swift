@@ -296,8 +296,8 @@ import Foundation
                     (1...6).map { file(bank + String(format: "/Credit 6397/2025/%02d. ", $0) + ["Jan","Feb","Mar","Apr","May","Jun"][$0 - 1] + " 2025.pdf") })]),
             ] + extra)])]
         }
-        let index = AccountIndex.build(tree: tree([dir(bank + "/Credit 4321 (Shweta)", [])]))
-        #expect(index.accounts.contains { $0.root == bank + "/Credit 4321 (Shweta)" && $0.identities.contains("4321") },
+        let index = AccountIndex.build(tree: tree([dir(bank + "/Credit 4321 (Mother)", [])]))
+        #expect(index.accounts.contains { $0.root == bank + "/Credit 4321 (Mother)" && $0.identities.contains("4321") },
                 "\(index.accounts.map(\.root))")
         let alone = AccountIndex.build(tree: [dir("Misc", [dir("Misc/Credit 4321", [])])])
         #expect(alone.accounts.isEmpty, "no account beside it, so nothing says accounts live here")
@@ -375,22 +375,22 @@ import Foundation
 
     // MARK: ScholarShare: a bank named only below the header
 
-    /// `Finance/US/Investments/ScholarShare/{Aditi,Divit}`, Aditi's 529 statements filed by year,
-    /// Divit's folder holding no statements yet, and Schwab's IRA beside them under `Investments`.
-    /// "Aditi" and "Divit" name folders all over a family's tree, as household names do.
+    /// `Finance/US/Investments/ScholarShare/{Daughter,Son}`, Daughter's 529 statements filed by year,
+    /// Son's folder holding no statements yet, and Schwab's IRA beside them under `Investments`.
+    /// "Daughter" and "Son" name folders all over a family's tree, as household names do.
     private var scholarShareTree: [FileNode] {
         let inv = "Finance/US/Investments"
         let ss = inv + "/ScholarShare"
         let schwab = inv + "/Charles Schwab"
         let quarters = [3, 6, 9, 12]
-        let household = (1...8).map { dir("P\($0)", [dir("P\($0)/Aditi", []), dir("P\($0)/Divit", [])]) }
+        let household = (1...8).map { dir("P\($0)", [dir("P\($0)/Daughter", []), dir("P\($0)/Son", [])]) }
         return [dir("Finance", [dir("Finance/US", [dir(inv, [
             dir(schwab, [dir(schwab + "/Traditional IRA 7863",
                 monthly(schwab + "/Traditional IRA 7863") { String(format: "Brokerage Statement_2025-%02d-28_863.PDF", $0) })]),
             dir(ss, [
-                dir(ss + "/Aditi", [2024, 2025].map { y in dir(ss + "/Aditi/\(y)", quarters.map { m in
-                    file(ss + "/Aditi/\(y)/" + String(format: "%02d. %@ %d.pdf", m, Self.months[m - 1], y)) }) }),
-                dir(ss + "/Divit", [file(ss + "/Divit/confirmPDF.cs-2.pdf")]),
+                dir(ss + "/Daughter", [2024, 2025].map { y in dir(ss + "/Daughter/\(y)", quarters.map { m in
+                    file(ss + "/Daughter/\(y)/" + String(format: "%02d. %@ %d.pdf", m, Self.months[m - 1], y)) }) }),
+                dir(ss + "/Son", [file(ss + "/Son/confirmPDF.cs-2.pdf")]),
             ]),
         ])])])] + household
     }
@@ -398,9 +398,9 @@ import Foundation
     /// A ScholarShare quarterly statement as page 1 reads: the header is the owner's address and
     /// performance boilerplate about "your investments"; the plan is named in a footnote.
     static func scholarSharePage(account: String, beneficiary: String, period: String) -> String {
-        "Abhishek Girish\n73210 Via Vicenza\nSan Ramon, CA 94583\nAccount Statement\nStatement Period: \(period)\n"
+        "Father Elder\n18450 Oak Hollow\nSpringfield, CA 90210\nAccount Statement\nStatement Period: \(period)\n"
             + String(repeating: "Your personal performance is based on the performance of your investments. ", count: 14)
-            + "\nAccount Owner: Abhishek Girish\nBeneficiary: \(beneficiary)\nAccount #: \(account)\nAccount Type: Individual 529\n"
+            + "\nAccount Owner: Father Elder\nBeneficiary: \(beneficiary)\nAccount #: \(account)\nAccount Type: Individual 529\n"
             + "Assets are allocated to a funding agreement issued by Teachers Insurance and Annuity Association of America "
             + "and guaranteed to the ScholarShare Investment Board.\nscholarshare529.com 1-800-544-5248"
     }
@@ -408,30 +408,30 @@ import Foundation
     private func scholarShareIndex() -> AccountIndex {
         let t = scholarShareTree
         let named = AccountIndex.build(tree: t)
-        let page = DocumentFacts(page: Self.scholarSharePage(account: "942046797-01", beneficiary: "Aditi Abhishek",
+        let page = DocumentFacts(page: Self.scholarSharePage(account: "942046797-01", beneficiary: "Daughter Father",
                                                              period: "1/1/2025 - 3/31/2025"))
-        let read = named.unnamedSamples(tree: t).filter { $0.file.contains("ScholarShare/Aditi") }.map { (sample: $0, facts: page) }
+        let read = named.unnamedSamples(tree: t).filter { $0.file.contains("ScholarShare/Daughter") }.map { (sample: $0, facts: page) }
         return named.adding(read: read)
     }
 
     @Test func aBankNamedOnlyInAFootnoteIsTheBankNotTheCategoryAboveIt() throws {
-        let page = DocumentFacts(page: Self.scholarSharePage(account: "942046797-01", beneficiary: "Aditi Abhishek",
+        let page = DocumentFacts(page: Self.scholarSharePage(account: "942046797-01", beneficiary: "Daughter Father",
                                                              period: "1/1/2025 - 3/31/2025"))
         #expect(!page.header.contains("scholarshare") && page.header.contains("investments"),
                 "the header must name the category and not the plan for this to test anything")
         let index = scholarShareIndex()
-        let aditi = try #require(index.accounts.first { $0.root.hasSuffix("ScholarShare/Aditi") }, "\(index.accounts.map(\.root))")
-        #expect(aditi.identities == ["9701"] && aditi.institution == "scholarshare", "\(aditi)")
+        let daughter = try #require(index.accounts.first { $0.root.hasSuffix("ScholarShare/Daughter") }, "\(index.accounts.map(\.root))")
+        #expect(daughter.identities == ["9701"] && daughter.institution == "scholarshare", "\(daughter)")
         // Her next statement, its plan named only in the footnote, is hers at High.
-        let next = DocumentFacts(page: Self.scholarSharePage(account: "942046797-01", beneficiary: "Aditi Abhishek",
+        let next = DocumentFacts(page: Self.scholarSharePage(account: "942046797-01", beneficiary: "Daughter Father",
                                                              period: "1/1/2026 - 3/31/2026"))
         guard case .high(let a, _) = index.match(next) else { Issue.record("\(index.match(next))"); return }
-        #expect(a.root == aditi.root)
+        #expect(a.root == daughter.root)
     }
 
-    /// Divit's statements print a number no folder holds. The folder they came from and the
-    /// footnote name ScholarShare, and the page names Divit: his folder there, laid out like
-    /// Aditi's, ahead of a word match on "Association" (an HOA's).
+    /// Son's statements print a number no folder holds. The folder they came from and the
+    /// footnote name ScholarShare, and the page names Son: his folder there, laid out like
+    /// Daughter's, ahead of a word match on "Association" (an HOA's).
     @Test func aNewNumberAtAKnownBankGoesToThePersonsFolderThere() throws {
         let t = scholarShareTree + [dir("Home", [dir("Home/HOA", [file("Home/HOA/Master Association.pdf")])])]
         let index = scholarShareIndex()
@@ -440,11 +440,11 @@ import Foundation
                                     reasons: ["Matched “association” read from the file"], newSegments: [])
         let card = FilingSuggestion(filePath: path, fileName: "03. Mar 2026.pdf", size: 1, modificationDate: nil,
                                     candidates: [hoa], providerRoot: "/D")
-        let page = Self.scholarSharePage(account: "942046797-02", beneficiary: "Divit Abhishek", period: "1/1/2026 - 3/31/2026")
+        let page = Self.scholarSharePage(account: "942046797-02", beneficiary: "Son Father", period: "1/1/2026 - 3/31/2026")
         let registry = PersonRegistry(people: [
-            Person(id: "abhishek", displayName: "Abhishek", fullNames: ["Abhishek Girish"]),
-            Person(id: "aditi", displayName: "Aditi", fullNames: ["Aditi Abhishek"]),
-            Person(id: "divit", displayName: "Divit", fullNames: ["Divit Abhishek"]),
+            Person(id: "father", displayName: "Father", fullNames: ["Father Elder"]),
+            Person(id: "daughter", displayName: "Daughter", fullNames: ["Daughter Father"]),
+            Person(id: "son", displayName: "Son", fullNames: ["Son Father"]),
         ])
         func place(registry: PersonRegistry?) throws -> FilingDestination {
             let (out, _) = FileSyncManager.applyingAccounts([card], index: index, snippets: [path: page], taxonomy: t,
@@ -452,9 +452,9 @@ import Foundation
             return try #require(out.first?.best)
         }
         let best = try place(registry: registry)
-        #expect(best.path == "/D/Finance/US/Investments/ScholarShare/Divit/2026", "\(best.path) \(best.reasons)")
+        #expect(best.path == "/D/Finance/US/Investments/ScholarShare/Son/2026", "\(best.path) \(best.reasons)")
         #expect(best.confidence == .medium && best.newSegments == ["2026"] && best.account?.ending == "9702")
-        #expect(best.proposedName == "03. Mar 2026.pdf", "named like Aditi's")
+        #expect(best.proposedName == "03. Mar 2026.pdf", "named like Daughter's")
         // With no people known, the bank's own folder, still ahead of the HOA.
         let bankOnly = try place(registry: nil)
         #expect(bankOnly.path == "/D/Finance/US/Investments/ScholarShare" && bankOnly.confidence == .medium,

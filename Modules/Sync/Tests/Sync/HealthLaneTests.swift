@@ -30,7 +30,7 @@ import Testing
                 == P(year: 2024, month: 1, day: 6), "a result printed in 2024 showing a 2021 collection")
         #expect(HealthLane.date(in: "plan year: 01/01/2025 through 12/31/2025 the services you've received. december 02, 2025")
                 == P(year: 2025, month: 12, day: 2))
-        #expect(HealthLane.date(in: "minimum amount due: $5 due by: 09/22/2022 abhishek bill date: 08/23/2022")
+        #expect(HealthLane.date(in: "minimum amount due: $5 due by: 09/22/2022 father bill date: 08/23/2022")
                 == P(year: 2022, month: 8, day: 23))
         #expect(HealthLane.recordNumbers(in: "AFTER VISIT SUMMARY MRN: 11223344 Medical Record No. 55667788") == ["11223344", "55667788"])
     }
@@ -62,22 +62,22 @@ import Testing
         FileNode(id: root + "/" + rel, name: (rel as NSString).lastPathComponent, isDirectory: true, children: c)
     }
     private static let taxonomy = [dir("Health", [dir(med, [
-        dir(med + "/Aditi", [dir(med + "/Aditi/Visits", [dir(med + "/Aditi/Visits/2025",
-            [file(med + "/Aditi/Visits/2025/1. Jan 5 2025 - Pediatrics - After Visit Summary.pdf")])]),
-                             dir(med + "/Aditi/Test Results")]),
-        dir(med + "/Divit", [dir(med + "/Divit/Visits", [dir(med + "/Divit/Visits/2024")])]),
+        dir(med + "/Daughter", [dir(med + "/Daughter/Visits", [dir(med + "/Daughter/Visits/2025",
+            [file(med + "/Daughter/Visits/2025/1. Jan 5 2025 - Pediatrics - After Visit Summary.pdf")])]),
+                             dir(med + "/Daughter/Test Results")]),
+        dir(med + "/Son", [dir(med + "/Son/Visits", [dir(med + "/Son/Visits/2024")])]),
         dir(med + "/Insurance", [dir(med + "/Insurance/EOBs", [dir(med + "/Insurance/EOBs/2025")])]),
     ])])]
     private static let salt = "0123456789abcdef"
-    /// What the survey learned: Aditi's visit pages printed her number.
+    /// What the survey learned: Daughter's visit pages printed her number.
     private static let memory = FilingMemory(profileId: "t", salt: salt, folders: [
-        med + "/Aditi/Visits/2025": FilingMemoryEntry(docs: 1, anchors: [],
+        med + "/Daughter/Visits/2025": FilingMemoryEntry(docs: 1, anchors: [],
             idHashes: [FilingMemoryToken(token: FilingMemory.hash("11223344", salt: salt), weight: 1)], folderModified: nil),
     ])
 
     private static func card(_ name: String = "AVS.pdf") -> FilingSuggestion {
         FilingSuggestion(filePath: "/r/In/" + name, fileName: name, size: 1, modificationDate: nil,
-                         candidates: [FilingDestination(path: root + "/Health/Medical/Divit/Visits/2024", confidence: .medium,
+                         candidates: [FilingDestination(path: root + "/Health/Medical/Son/Visits/2024", confidence: .medium,
                                                         reasons: ["name"], newSegments: [])], providerRoot: root)
     }
     private static func best(_ page: String, memory: FilingMemory? = memory) -> FilingDestination? {
@@ -88,8 +88,8 @@ import Testing
     /// Her number decides, whatever name the page prints (here her brother's, as the holder's
     /// name rides on family records).
     @Test func theRecordNumberDecidesThePerson() throws {
-        let b = try #require(Self.best("AFTER VISIT SUMMARY Divit Abhishek MRN: 11223344 Date of birth: 1/9/2019 04/02/2025 Pediatrics"))
-        #expect(b.path == Self.root + "/" + Self.med + "/Aditi/Visits/2025")
+        let b = try #require(Self.best("AFTER VISIT SUMMARY Son Father MRN: 11223344 Date of birth: 1/9/2019 04/02/2025 Pediatrics"))
+        #expect(b.path == Self.root + "/" + Self.med + "/Daughter/Visits/2025")
         #expect(b.proposedName == "2. Apr 2 2025 - After Visit Summary.pdf")
         #expect(b.confidence == .high)
         // No number the memory knows: left to the other lanes.
@@ -98,14 +98,14 @@ import Testing
         // A number the memory saw under two people says nothing about which.
         let token = FilingMemoryToken(token: FilingMemory.hash("11223344", salt: Self.salt), weight: 1)
         let both = FilingMemory(profileId: "t", salt: Self.salt, folders: [
-            Self.med + "/Aditi/Visits/2025": FilingMemoryEntry(docs: 1, anchors: [], idHashes: [token], folderModified: nil),
-            Self.med + "/Divit/Visits/2024": FilingMemoryEntry(docs: 1, anchors: [], idHashes: [token], folderModified: nil),
+            Self.med + "/Daughter/Visits/2025": FilingMemoryEntry(docs: 1, anchors: [], idHashes: [token], folderModified: nil),
+            Self.med + "/Son/Visits/2024": FilingMemoryEntry(docs: 1, anchors: [], idHashes: [token], folderModified: nil),
         ])
         #expect(Self.best("AFTER VISIT SUMMARY MRN: 11223344 04/02/2025", memory: both)?.path == Self.card().best?.path)
     }
 
     @Test func billingGoesToInsuranceWhoeverItNames() throws {
-        let b = try #require(Self.best("KAISER FOUNDATION HEALTH PLAN Aditi MRN: 11223344 This Explanation of Benefits is a summary. Statement date: 12/02/2025"))
+        let b = try #require(Self.best("KAISER FOUNDATION HEALTH PLAN Daughter MRN: 11223344 This Explanation of Benefits is a summary. Statement date: 12/02/2025"))
         #expect(b.path == Self.root + "/" + Self.med + "/Insurance/EOBs/2025")
         #expect(b.proposedName == "Kaiser EOB - Dec 2 2025.pdf")
         let bill = try #require(Self.best("Your professional medical bill Kaiser Permanente Statement date: 09/22/2022"))
@@ -116,6 +116,6 @@ import Testing
 
     @Test func aFolderAPersonLacksIsLaidOutLikeAnyoneElses() throws {
         let b = try #require(Self.best("Member name: X MRN: 11223344 Lab results: Lipid panel Collected 03/04/2025"))
-        #expect(b.path == Self.root + "/" + Self.med + "/Aditi/Test Results", "Test Results keeps no years")
+        #expect(b.path == Self.root + "/" + Self.med + "/Daughter/Test Results", "Test Results keeps no years")
     }
 }

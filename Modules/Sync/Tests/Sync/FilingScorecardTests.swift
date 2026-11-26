@@ -44,8 +44,8 @@ import Testing
         let o = Self.offer("Travel/Trips", runnerUp: "Travel", offeredNew: ["Travel/Trips/Japan 2026"])
         let r = Self.judge(o, landedIn: "Travel/Trips/Japan 2026", made: Self.offeredAt.addingTimeInterval(5))
         #expect(r.verdict == .deeper, "inside the first pick, so deeper before anything else")
-        let o2 = Self.offer("School", runnerUp: "Work", offeredNew: ["Family/Divit 2026"])
-        let r2 = Self.judge(o2, landedIn: "Family/Divit 2026", made: Self.offeredAt.addingTimeInterval(5))
+        let o2 = Self.offer("School", runnerUp: "Work", offeredNew: ["Family/Son 2026"])
+        let r2 = Self.judge(o2, landedIn: "Family/Son 2026", made: Self.offeredAt.addingTimeInterval(5))
         #expect(r2.change == .other)
     }
 
@@ -92,7 +92,7 @@ import Testing
     }
 
     @Test func theAreaIsTheTopFolderItLandedIn() {
-        #expect(Self.judge(Self.offer("A"), landedIn: "School/US/Divit").area == "School")
+        #expect(Self.judge(Self.offer("A"), landedIn: "School/US/Son").area == "School")
         let outside = FilingScorecard.record(Self.offer("A"), landedFile: "/Elsewhere/x/f.pdf", folderCreated: { _ in nil })
         #expect(outside.area == nil)
     }
@@ -300,11 +300,11 @@ import Testing
     @Test func fileHereOnTheFirstPickIsKeptAndUndoTakesItBack() async throws {
         let root = try makeCanonicalTempRoot(prefix: "ScorecardKept")
         defer { try? FileManager.default.removeItem(at: root) }
-        try writeBytes(root.appendingPathComponent("TODO/Divit enrollment.pdf"))
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("School/Divit"), withIntermediateDirectories: true)
-        m.publishFilingSuggestions([Self.card(root, "Divit enrollment.pdf", ["School/Divit", "School"])])
+        try writeBytes(root.appendingPathComponent("TODO/Son enrollment.pdf"))
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("School/Son"), withIntermediateDirectories: true)
+        m.publishFilingSuggestions([Self.card(root, "Son enrollment.pdf", ["School/Son", "School"])])
         let card = try #require(m.filingSuggestions.first)
-        #expect(card.firstOffer?.path == root.appendingPathComponent("School/Divit").path)
+        #expect(card.firstOffer?.path == root.appendingPathComponent("School/Son").path)
         #expect(card.firstOffer?.evidence == .survey)
 
         let before = m.filingScorecard.records.count
@@ -316,7 +316,7 @@ import Testing
         m.undoManager?.undo()
         await waitUntil("the undo drains") { m.activeFileOperationsCount == 0 && m.filingScorecard.records.count == before }
         #expect(m.filingScorecard.records.count == before, "an undone filing doesn't count")
-        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("TODO/Divit enrollment.pdf").path))
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("TODO/Son enrollment.pdf").path))
     }
 
     @Test func aFilingAfterTryAnotherIsAChangeToTheRunnerUp() async throws {

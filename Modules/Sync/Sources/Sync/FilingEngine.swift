@@ -731,7 +731,7 @@ public enum FilingEngine {
             let wordsHit = words.filter { !$0.isDisjoint(with: categoryHits) }.count
                 + categoryHits.subtracting(words.reduce(into: Set<String>()) { $0.formUnion($1) }).count
             // **A name that says 2023 is not surely a 2021 folder's.** Shared words can outvote the
-            // year (`Experian - Shweta - Jul 2023.pdf` led High into `Credit Reports/2021/Experian`),
+            // year (`Experian - Mother - Jul 2023.pdf` led High into `Credit Reports/2021/Experian`),
             // and High is what File All moves without a look at each. A folder under a year the name
             // contradicts stays on offer, at Medium.
             let sure = !categoryNameHits.isEmpty && wordsHit >= 2 && !p.contradicts(yearsInName: yearsInName)
@@ -1423,7 +1423,7 @@ public enum FilingEngine {
             }
             // **Past the shortlist, a paid answer that read the page beats a weak home.** The
             // shortlist rule trusts the router because its High is calibrated; its Low is not a
-            // claim worth defending. A file named `DIVIT110226IMMZNRECORD.pdf` gives the router
+            // claim worth defending. A file named `SON110226IMMZNRECORD.pdf` gives the router
             // nothing, so its weak `Finance/US/Social Security/2026` (from "Age" on the page) kept
             // the card while Claude, having read the page, said `Health/Medical/Kaiser`. Anything
             // short of that (a medium or high home, a blind or low answer) keeps the card, and

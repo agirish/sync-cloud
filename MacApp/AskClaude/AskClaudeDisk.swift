@@ -65,7 +65,7 @@ enum AskClaudeDisk {
     }
 
     /// `kMDItemFSName` containing ANY of the words, ignoring case and accents. Any, not all: a word
-    /// can live in a folder’s name rather than the file’s (`H-1B/2026-2029/Approval/GIRISH….pdf`),
+    /// can live in a folder’s name rather than the file’s (`H-1B/2026-2029/Approval/ELDER….pdf`),
     /// so the caller keeps the paths whose folders and name together hold every word. A quote,
     /// backslash or `*` in a word is escaped so it is searched for, not read as syntax.
     nonisolated static func queryString(_ words: [String]) -> String {

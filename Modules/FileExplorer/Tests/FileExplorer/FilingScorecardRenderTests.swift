@@ -10,7 +10,7 @@ import Testing
     static let now = Date()
 
     static func record(_ verdict: FilingScorecard.Verdict, confidence: FilingConfidence = .high,
-                       offered: String = "School/Divit", landed: String = "School/Divit", name: String,
+                       offered: String = "School/Son", landed: String = "School/Son", name: String,
                        daysAgo: Double = 1) -> FilingScorecard.Record {
         FilingScorecard.Record(at: now.addingTimeInterval(-daysAgo * 86_400), picker: .mac, confidence: confidence,
                                evidence: .survey, offered: root + "/" + offered, landed: root + "/" + landed,

@@ -9,7 +9,7 @@ import Testing
     /// Page 1 of an e-ticket with its departure times, as the reader returns it.
     static let ticketWithTimes = """
         JAPAN AIRLINES  e-Ticket Itinerary / Receipt
-        Passenger: GIRISH/ABHISHEK MR   Date of birth: 12MAR1985
+        Passenger: ELDER/FATHER MR   Date of birth: 12MAR1985
         Date of Issue: 15JUL26   Ticket Number: 131 2345678901
         JL 754  23SEP 2145  Tokyo Narita (NRT) - Bengaluru (BLR)
         JL 753  14OCT 0930  Bengaluru (BLR) - Tokyo Narita (NRT)

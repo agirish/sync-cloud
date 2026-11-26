@@ -1,6 +1,6 @@
 # SyncCloud — working agreement
 
-"He" is Abhishek, the project's owner. The commit and push workflow is [`COMMIT.md`](COMMIT.md),
+"He" is the project's owner. The commit and push workflow is [`COMMIT.md`](COMMIT.md),
 imported in §2. Releasing is [`RELEASE.md`](RELEASE.md) — read it before any release cut or version
 bump.
 

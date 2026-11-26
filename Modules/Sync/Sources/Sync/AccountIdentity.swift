@@ -153,7 +153,7 @@ public struct DocumentFacts: Sendable, Equatable {
                 while groups.count > 1, let last = groups.last, last.filter(\.isNumber).count < 3 { groups.removeLast() }
                 let raw = groups.joined(separator: " ")
                 // A value on the next line must be the line's own (`Account Number\n3841-7863`),
-                // not the start of an address (`73210 VIA VICENZA`).
+                // not the start of an address (`18450 OAK HOLLOW`).
                 // A short number with words after it on its own line is a street address; an account
                 // number is longer (`000012345678 DRE …` is still the account's).
                 if crossedLine, raw.filter(\.isNumber).count <= 6 {
@@ -440,7 +440,7 @@ public struct AccountIndex: Sendable {
 
     /// A digit run naming an account in a folder's own name: three or more digits, not a year, not
     /// a `NN.` month prefix, not a form number (`Form 1099-B`).
-    /// A folder named like an account (`Credit 4321`, `Credit 4321 (Shweta)`) beside one that
+    /// A folder named like an account (`Credit 4321`, `Credit 4321 (Mother)`) beside one that
     /// already is one, before it holds statements of its own: the card he made a folder for when
     /// it arrived. Its own name says what it is, and a sibling account says where accounts live.
     static func isNewAccountFolder(_ node: FileNode, siblings: [FileNode]) -> Bool {

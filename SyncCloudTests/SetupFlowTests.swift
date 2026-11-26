@@ -228,32 +228,32 @@ import Testing
 
     /// A one-word account name has no surname, and the forms are that one word.
     @Test func aOneWordAccountNameHasNoSurname() {
-        let split = SetupFlow.suggestedName(fullUserName: "Abhishek", folderNames: [])
-        #expect(split.first == "Abhishek")
+        let split = SetupFlow.suggestedName(fullUserName: "Father", folderNames: [])
+        #expect(split.first == "Father")
         #expect(split.surname == nil)
-        #expect(SetupFlow.nameForms(first: "Abhishek", surname: nil).map(\.form) == ["Abhishek"])
+        #expect(SetupFlow.nameForms(first: "Father", surname: nil).map(\.form) == ["Father"])
     }
 
     /// The folder match is corroboration and is case-insensitive; without one the screen says so
     /// rather than inventing it.
     @Test func theFolderMatchIsEvidenceNotAnAssertion() {
-        let matched = SetupFlow.suggestedName(fullUserName: "Abhishek Girish",
-                                              folderNames: ["Finance", "abhishek", "Family"])
-        #expect(matched.matchedFolder == "abhishek")
-        let unmatched = SetupFlow.suggestedName(fullUserName: "Abhishek Girish",
+        let matched = SetupFlow.suggestedName(fullUserName: "Father Elder",
+                                              folderNames: ["Finance", "father", "Family"])
+        #expect(matched.matchedFolder == "father")
+        let unmatched = SetupFlow.suggestedName(fullUserName: "Father Elder",
                                                 folderNames: ["Finance", "Family"])
         #expect(unmatched.matchedFolder == nil)
     }
 
     /// Surname-first is its own form, because the matcher is positional and statements print either
-    /// order. Initials are offered but not ticked: `A. Girish` matches a great many people.
+    /// order. Initials are offered but not ticked: `F. Elder` matches a great many people.
     @Test func bothNameOrdersAreTickedAndInitialsAreNot() {
-        let forms = SetupFlow.nameForms(first: "Abhishek", surname: "Girish")
+        let forms = SetupFlow.nameForms(first: "Father", surname: "Elder")
         let ticked = forms.filter(\.ticked).map(\.form)
-        #expect(ticked == ["Abhishek Girish", "Girish Abhishek"])
-        #expect(forms.map(\.form).contains("A. Girish"))
-        #expect(forms.first { $0.form == "A. Girish" }?.ticked == false)
-        #expect(forms.first { $0.form == "Girish A." }?.ticked == false)
+        #expect(ticked == ["Father Elder", "Elder Father"])
+        #expect(forms.map(\.form).contains("F. Elder"))
+        #expect(forms.first { $0.form == "F. Elder" }?.ticked == false)
+        #expect(forms.first { $0.form == "Elder F." }?.ticked == false)
     }
 
     /// An accented name is offered in both spellings, because forms and scanners routinely drop
@@ -267,7 +267,7 @@ import Testing
 
     /// An empty name has no forms at all — a bare surname is not a name any document prints.
     @Test func anEmptyFirstNameHasNoForms() {
-        #expect(SetupFlow.nameForms(first: "", surname: "Girish").isEmpty)
+        #expect(SetupFlow.nameForms(first: "", surname: "Elder").isEmpty)
         #expect(SetupFlow.nameForms(first: "   ", surname: nil).isEmpty)
     }
 

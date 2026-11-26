@@ -48,7 +48,7 @@ import Testing
 
     @Test func theWhyPanelsExamplesWearTheHue() throws {
         let size = CGSize(width: 240, height: 260)
-        try expectWearsTheHue({ YouWhy(hue: $0, firstName: "Abhishek") }, size: size, atLeast: 200,
+        try expectWearsTheHue({ YouWhy(hue: $0, firstName: "Father") }, size: size, atLeast: 200,
                               "You's Why panel, the name in the example")
         try expectWearsTheHue({ CountriesWhy(hue: $0, folderName: "Documents") }, size: size, atLeast: 200,
                               "Countries' Why panel, \"US · IN\"")
@@ -58,7 +58,7 @@ import Testing
 
     @Test func aTickedChipAndAnAddChipWearTheHue() throws {
         let size = CGSize(width: 160, height: 30)
-        try expectWearsTheHue({ SetupChip(mark: .tick(true), title: "Abhishek", isFilled: true,
+        try expectWearsTheHue({ SetupChip(mark: .tick(true), title: "Father", isFilled: true,
                                           accent: $0.accentColor) },
                               size: size, scale: 4, atLeast: 1_000, "a ticked chip's tick")
         try expectWearsTheHue({ SetupChip(mark: .add, title: "Priya", accent: $0.accentColor) },

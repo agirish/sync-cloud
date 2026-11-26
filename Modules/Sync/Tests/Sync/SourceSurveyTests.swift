@@ -176,7 +176,7 @@ import Testing
         let primary = base.appendingPathComponent("Documents")
         let google = base.appendingPathComponent("Google/Documents")
         try mkdirs(primary, ["Finance/US", "Finance/IN", "Home/Utilities", "School"])
-        try mkdirs(google, ["Work Authorization/H-1B", "Personal/Letters", "School/Divit", "Feb 2026"])
+        try mkdirs(google, ["Work Authorization/H-1B", "Personal/Letters", "School/Son", "Feb 2026"])
         let m = FileSyncManager()
         m.filingProfilesDirectory = profiles
         m.filingFolderProfile = profile("primary", root: primary.path,
@@ -190,7 +190,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: f.base) }
         let g = f.manager.resolveFilingSurvey(providerRoot: f.google.path,
                                               folders: ["Work Authorization", "Work Authorization/H-1B",
-                                                        "Personal", "Personal/Letters", "School", "School/Divit"])
+                                                        "Personal", "Personal/Letters", "School", "School/Son"])
         #expect(g.kind == .byName)
         #expect(g.matched == 1 && g.total == 6)
         #expect(f.manager.filingRoutingProfile == nil, "a tree under half like iCloud's gets no profile")
@@ -296,7 +296,7 @@ import Testing
         let f = try Self.fixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
         _ = await f.manager.learnSourceSurvey(root: f.google.path)
-        let inGoogle = f.google.appendingPathComponent("Divit report card.pdf").path
+        let inGoogle = f.google.appendingPathComponent("Son report card.pdf").path
         let survey = try #require(f.manager.filingHelpSurvey(for: inGoogle))
         // The survey records the folder standardised (`/var/…` for the temporary `/private/var/…`).
         func real(_ p: String) -> String { URL(fileURLWithPath: p).resolvingSymlinksInPath().path }

@@ -26,7 +26,7 @@ public enum AccountProposal {
     /// deepest hint segment that has both; nil when none does.
     /// The type, number and name an inbox folder gives an account. Only the account-level folder
     /// counts, the deepest one that isn't a year (a bank-level `ScholarShare 529` names none), and its
-    /// own spelling is the name (`Credit 31001 (Shweta)`, `401k 4138`).
+    /// own spelling is the name (`Credit 31001 (Mother)`, `401k 4138`).
     static func typeAndDigits(inHint hint: String) -> (type: String, digits: String, name: String)? {
         guard let seg = hint.split(separator: "/").map(String.init)
             .last(where: { !FolderProfileEntry.looksLikeYear($0) }) else { return nil }
@@ -98,7 +98,7 @@ public enum AccountProposal {
     }
 
     /// The names the tree's account folders carry after their number, as the holder of an account
-    /// that isn't the user's own (`Credit 8436 (Shweta)`).
+    /// that isn't the user's own (`Credit 8436 (Mother)`).
     static func holderNames(in tree: [FileNode]) -> Set<String> {
         var out: Set<String> = []
         func visit(_ nodes: [FileNode], depth: Int) {

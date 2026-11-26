@@ -282,7 +282,7 @@ extension FileSyncManager {
                 : s
         }
         // The folder's own spelling, when it is this account's; with the holder after the number
-        // when page 1 names only someone whose accounts carry their name (`Credit 8436 (Shweta)`).
+        // when page 1 names only someone whose accounts carry their name (`Credit 8436 (Mother)`).
         let ownName = hinted.flatMap { h in ending == nil || h.digits == ending ? h.name : nil }
         let holder = ownName?.contains("(") == true ? nil
             : AccountProposal.holderSuffix(page: f.text, tree: taxonomy, registry: registry)
@@ -328,7 +328,7 @@ extension FileSyncManager {
     /// A statement from a known bank that no account matches and whose folder names no account type
     /// to call a new one by (`529 6797-02`, or loose): the bank's own folder, when the tree has just
     /// one. Inside it, the folder of the one person page 1 names that holds no other account
-    /// (`ScholarShare/Divit` for Divit's 529, beside Aditi's account `ScholarShare/Aditi`), laid out
+    /// (`ScholarShare/Son` for Son's 529, beside Daughter's account `ScholarShare/Daughter`), laid out
     /// like the bank's live account there. Medium either way: no number placed it.
     nonisolated static func homeAtInstitution(for s: FilingSuggestion, facts f: DocumentFacts,
                                               period: DocumentFacts.Period?, institution: String,
@@ -342,8 +342,8 @@ extension FileSyncManager {
         let ending = f.matchingNumbers.first?.ending
         let accountsHere = index.accounts.filter { $0.root.hasPrefix(bankFolder + "/") }
         var reason = "No \(bank) folder holds " + (ending.map { "••" + $0 } ?? "this account")
-        // The person's folder: named on the page, resolved by the registry so `Divit Abhishek` is
-        // Divit, and not another account's (Aditi's statements print her own number).
+        // The person's folder: named on the page, resolved by the registry so `Son Father` is
+        // Son, and not another account's (Daughter's statements print her own number).
         if let registry, let person = { () -> FileNode? in
             let named = registry.detect(in: f.text)
             let people = (bankNode.children ?? []).filter { c in

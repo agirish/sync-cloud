@@ -80,16 +80,16 @@ import Testing
     /// the fields are empty, before any tree exists.
     @Test func theFolderMatchIsFoundOnceTheTreeArrives() async {
         let model = await self.model()
-        model.firstName = "Abhishek"
+        model.firstName = "Father"
         #expect(model.matchedFolder == nil, "there is no tree yet — nothing can corroborate")
 
-        model.adopt(Self.walk(folders: ["Abhishek/Notes", "Finance/US"]))
-        #expect(model.matchedFolder == "Abhishek")
+        model.adopt(Self.walk(folders: ["Father/Notes", "Finance/US"]))
+        #expect(model.matchedFolder == "Father")
     }
 
     /// It follows the name the user actually typed, which a value captured at open could not.
     @Test func theFolderMatchFollowsTheTypedName() async {
-        let model = await self.model(walk: Self.walk(folders: ["Abhishek/Notes", "Maya/Notes"]))
+        let model = await self.model(walk: Self.walk(folders: ["Father/Notes", "Maya/Notes"]))
         model.firstName = "Maya"
         #expect(model.matchedFolder == "Maya")
         model.firstName = "Nobody"
@@ -102,50 +102,50 @@ import Testing
     /// old one ticked and filed under.
     @Test func editingTheNameDropsTheOldNamesForms() async {
         let model = await self.model()
-        model.firstName = "Abhishek"
-        model.surname = "Girish"
-        #expect(model.tickedForms.contains("Abhishek Girish"))
+        model.firstName = "Father"
+        model.surname = "Elder"
+        #expect(model.tickedForms.contains("Father Elder"))
 
-        model.firstName = "Abhi"
-        #expect(model.offeredNameForms.map(\.form).contains("Abhi Girish"))
-        #expect(!model.offeredNameForms.map(\.form).contains("Abhishek Girish"),
+        model.firstName = "Fred"
+        #expect(model.offeredNameForms.map(\.form).contains("Fred Elder"))
+        #expect(!model.offeredNameForms.map(\.form).contains("Father Elder"),
                 "the old name's form is still on offer")
-        #expect(!model.tickedForms.contains("Abhishek Girish"),
+        #expect(!model.tickedForms.contains("Father Elder"),
                 "the user would be filed under a name they have just corrected")
     }
 
     /// A form the user typed is theirs, so it survives an edit to the fields.
     @Test func aTypedFormSurvivesAnEditToTheName() async {
         let model = await self.model()
-        model.firstName = "Abhishek"
+        model.firstName = "Father"
         model.newFormField = "Dad"
         model.commitTypedForm()
         #expect(model.tickedForms.contains("Dad"))
 
-        model.firstName = "Abhi"
+        model.firstName = "Fred"
         #expect(model.tickedForms.contains("Dad"), "a nickname is not a consequence of the spelling")
     }
 
     /// Unticking a suggestion is remembered, and re-ticking it works.
     @Test func aDecisionAboutASuggestionIsKept() async {
         let model = await self.model()
-        model.firstName = "Abhishek"
-        model.surname = "Girish"
-        #expect(model.tickedForms.contains("Girish Abhishek"))
+        model.firstName = "Father"
+        model.surname = "Elder"
+        #expect(model.tickedForms.contains("Elder Father"))
 
-        model.toggleForm("Girish Abhishek")
-        #expect(!model.tickedForms.contains("Girish Abhishek"))
-        model.toggleForm("Girish Abhishek")
-        #expect(model.tickedForms.contains("Girish Abhishek"))
+        model.toggleForm("Elder Father")
+        #expect(!model.tickedForms.contains("Elder Father"))
+        model.toggleForm("Elder Father")
+        #expect(model.tickedForms.contains("Elder Father"))
     }
 
     /// Initials are offered and left for the user, so they are not in the answer by default.
     @Test func initialsAreOfferedAndNotTicked() async {
         let model = await self.model()
-        model.firstName = "Abhishek"
-        model.surname = "Girish"
-        #expect(model.offeredNameForms.map(\.form).contains("A. Girish"))
-        #expect(!model.tickedForms.contains("A. Girish"))
+        model.firstName = "Father"
+        model.surname = "Elder"
+        #expect(model.offeredNameForms.map(\.form).contains("F. Elder"))
+        #expect(!model.tickedForms.contains("F. Elder"))
     }
 
     // MARK: - The walk
@@ -1012,24 +1012,24 @@ import Testing
         let s = try Scratch("rename-me", makesProfiles: false)
         defer { s.remove() }
         let store = PeopleStore(directory: s.root, profileId: "rename", profile: nil)
-        store.add(displayName: "Abhishek", relationship: "me")
+        store.add(displayName: "Father", relationship: "me")
         store.add(displayName: "Maya", relationship: "wife")
         let id = try #require(store.people.first { $0.relationship == "me" }?.id)
         let model = await self.model(peopleStore: store, hasFilingProfile: true, startScreen: .you)
         model.onOpen()
-        #expect(model.draft.yourName == "Abhishek", "premise: You opens on the roster's name")
+        #expect(model.draft.yourName == "Father", "premise: You opens on the roster's name")
 
-        model.firstName = "Abhi"
+        model.firstName = "Fred"
         model.surname = ""
         model.commitBeforeClosing()
 
         let mine = store.people.filter { PeopleOrder.tier(of: $0.relationship) == .yourself }
         #expect(mine.count == 1, "closing left \(mine.map(\.displayName)) all marked as you")
         #expect(mine.first?.id == id, "your record was replaced, not renamed")
-        #expect(mine.first?.displayName == "Abhi")
-        #expect(mine.first?.aliases.contains("Abhishek") == true,
+        #expect(mine.first?.displayName == "Fred")
+        #expect(mine.first?.aliases.contains("Father") == true,
                 "the old name was dropped, so folders named for it no longer find you")
-        #expect(store.people.map(\.displayName).sorted() == ["Abhi", "Maya"])
+        #expect(store.people.map(\.displayName).sorted() == ["Fred", "Maya"])
     }
 
     /// A person added after a Save offers Save again, and the second Save holds them. Otherwise

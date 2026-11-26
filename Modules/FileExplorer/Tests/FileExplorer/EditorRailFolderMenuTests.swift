@@ -212,7 +212,7 @@ import Sync
     /// source, where the folder's target is `""`.
     @Test func aSubfoldersTargetIsBuiltFromTheFolders() {
         let deep = EditorFolderTrail(levels: [], currentTarget: "Documents/Family", subfolders: [])
-        #expect(deep.target(forSubfolder: "Anuraag") == "Documents/Family/Anuraag")
+        #expect(deep.target(forSubfolder: "Uncle") == "Documents/Family/Uncle")
         let top = EditorFolderTrail(levels: [], currentTarget: "", subfolders: [])
         #expect(top.target(forSubfolder: "Documents") == "Documents")
         let outside = EditorFolderTrail(levels: [], currentTarget: nil, subfolders: ["X"])

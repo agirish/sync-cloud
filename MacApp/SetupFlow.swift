@@ -406,9 +406,9 @@ enum SetupFlow {
     /// The forms of a name a document might print, and which of them start ticked.
     ///
     /// Order matters, so surname-first is its own form: an Indian bank statement prints
-    /// `Girish Abhishek`, a US one `Abhishek Girish`, and the matcher is positional.
+    /// `Elder Father`, a US one `Father Elder`, and the matcher is positional.
     ///
-    /// Initials are offered but not ticked: `A. Girish` matches many people, and the router acts
+    /// Initials are offered but not ticked: `F. Elder` matches many people, and the router acts
     /// on every ticked form. An accented name is offered in both spellings, because forms and
     /// scanners often drop accents and only the user knows which their documents carry.
     static func nameForms(first: String, surname: String?) -> [(form: String, ticked: Bool)] {

@@ -6,7 +6,7 @@ import Sync
 /// Screen 3: your name, and the forms of it a document might print.
 ///
 /// The forms are the answer, not the name. Organize reads the names printed on a page to tell
-/// whose a document is, and the matcher is positional: `Girish Abhishek` and `Abhishek Girish` are
+/// whose a document is, and the matcher is positional: `Elder Father` and `Father Elder` are
 /// different strings, and both appear on real statements. The surname only builds those forms and
 /// is never stored on its own.
 struct YouScreen: View {

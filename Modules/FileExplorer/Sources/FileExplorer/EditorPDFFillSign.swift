@@ -296,7 +296,7 @@ public struct EditorPDFSignature: Identifiable, Hashable, Codable, Sendable {
         }
     }
 
-    /// "AG" for "Abhishek Girish": the first letter of each word, at most three.
+    /// "FE" for "Father Elder": the first letter of each word, at most three.
     public static func initials(of name: String) -> String {
         name.split(whereSeparator: \.isWhitespace).compactMap { $0.first(where: \.isLetter) }
             .prefix(3).map { $0.uppercased() }.joined()

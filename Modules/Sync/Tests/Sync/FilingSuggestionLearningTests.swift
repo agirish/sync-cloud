@@ -189,7 +189,7 @@ import Testing
                                        reasons: ["Matched “age”"], newSegments: [])
         let third = FilingDestination(path: root + "/Health", base: .low, evidence: .name,
                                       reasons: ["Matched “record”"], newSegments: [])
-        let s = FilingSuggestion(filePath: "/Inbox/DIVIT110226IMMZNRECORD.pdf", fileName: "DIVIT110226IMMZNRECORD.pdf",
+        let s = FilingSuggestion(filePath: "/Inbox/SON110226IMMZNRECORD.pdf", fileName: "SON110226IMMZNRECORD.pdf",
                                  size: 1, modificationDate: nil, candidates: [weak, second, third], providerRoot: root)
         return FilingEngine.applyVerdicts([s.filePath: verdict], to: [s],
                                           existingRelative: ["Finance", "Finance/US", "Finance/US/Social Security",

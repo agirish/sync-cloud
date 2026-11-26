@@ -30,7 +30,7 @@ import Testing
     /// Google Drive's tree with three documents, its folders learned, and an extractor.
     static func learned() async throws -> Fixture {
         let f = try SourceSurveyTests.fixture()
-        let docs = ["Personal/Letters/a.txt", "School/Divit/b.txt", "Feb 2026/c.txt"].map {
+        let docs = ["Personal/Letters/a.txt", "School/Son/b.txt", "Feb 2026/c.txt"].map {
             f.google.appendingPathComponent($0).path
         }
         for d in docs { try Self.text.write(toFile: d, atomically: true, encoding: .utf8) }
@@ -162,7 +162,7 @@ import Testing
         let carried = try #require(FilingProfileStore.memory(id: newId, in: x.f.profiles))
         #expect(carried.profileId == newId)
         #expect(carried.folders["Feb 2026"] == nil, "a folder that is gone stops counting")
-        #expect(carried.folders["School/Divit"] == before.folders["School/Divit"])
+        #expect(carried.folders["School/Son"] == before.folders["School/Son"])
         #expect(FilingSurveyStore.corpusRead(id: newId, in: x.f.profiles).corpus?.documents.count == 3)
         #expect(use.ownDocumentsReadAt == readAt)
         #expect(m.filingRoutingMemory?.profileId == newId)

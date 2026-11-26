@@ -2522,7 +2522,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     }
 
     /// Whether any folder in `path` (not the item's own name) is an Archive or Backup folder:
-    /// “Passport/Shweta/Archive/All Pages.pdf”, “Old Backups/Taxes/2024.pdf”.
+    /// “Passport/Mother/Archive/All Pages.pdf”, “Old Backups/Taxes/2024.pdf”.
     static func isSetAside(_ path: String) -> Bool {
         path.split(separator: "/").dropLast().contains { folder in
             folder.split(whereSeparator: { !$0.isLetter }).contains { namesSetAside(String($0)) }

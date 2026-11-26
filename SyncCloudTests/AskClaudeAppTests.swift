@@ -358,7 +358,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
 
     @Test func wordsMatchAcrossFoldersAndTheNewestPeriodLeads() async {
         // The 2026-2029 approval is a scan with an opaque name; only its folders say what it is.
-        let opaque = Self.file("Documents/Immigration/H-1B/2026-2029/Approval/GIRISH, ABHISHEK_65_383875.pdf")
+        let opaque = Self.file("Documents/Immigration/H-1B/2026-2029/Approval/ELDER, FATHER_65_383875.pdf")
         let named = Self.file("Documents/Immigration/H-1B/2024-2026/Approval/H-1B Approval Notice New - 2023-2026.pdf")
         let unrelated = Self.file("Documents/Immigration/H-1B/2026-2029/Receipt/Receipt notice.pdf")
         var handles = AskClaudeHandles()
@@ -366,33 +366,33 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
             .run(call("find_by_name", ["words": .string("H-1B approval"), "folder": .string("Documents")]), handles: &handles)
         #expect(found.result.hasPrefix("2 matches under Documents, newest period first:"))
         let rows = found.result.split(separator: "\n").filter { $0.range(of: #"^r\d+\|"#, options: .regularExpression) != nil }
-        #expect(rows.first?.contains("GIRISH") == true)
+        #expect(rows.first?.contains("ELDER") == true)
         #expect(rows.last?.contains("H-1B Approval Notice") == true)
         #expect(!found.result.contains("Receipt notice"))
     }
 
     @Test func archiveAndBackupCopiesComeLastUnlessAskedFor() async {
         // The archived copy's name holds a year, so by year alone it would lead.
-        let archived = Self.file("Documents/Immigration/Passport/Shweta/Archive/Passport - Shweta - All Pages (Jul 2020).pdf")
-        let current = Self.file("Documents/Immigration/Passport/Shweta/Passport - Shweta - Bio Pages.pdf")
-        let backup = Self.file("Documents/Old Backups/Passport - Shweta 2024.pdf")
-        let scan = Self.file("Documents/Immigration/Passport/Shweta/Passport - Shweta - archive scan.pdf")
+        let archived = Self.file("Documents/Immigration/Passport/Mother/Archive/Passport - Mother - All Pages (Jul 2020).pdf")
+        let current = Self.file("Documents/Immigration/Passport/Mother/Passport - Mother - Bio Pages.pdf")
+        let backup = Self.file("Documents/Old Backups/Passport - Mother 2024.pdf")
+        let scan = Self.file("Documents/Immigration/Passport/Mother/Passport - Mother - archive scan.pdf")
         func rows(_ words: String) async -> [Substring] {
             var handles = AskClaudeHandles()
             let found = await tools(spotlight: [archived.id, backup.id, current.id, scan.id], extra: [archived, current, backup, scan])
                 .run(call("find_by_name", ["words": .string(words), "folder": .string("Documents")]), handles: &handles)
             return found.result.split(separator: "\n").filter { $0.range(of: #"^r\d+\|"#, options: .regularExpression) != nil }
         }
-        let plain = await rows("shweta passport")
+        let plain = await rows("mother passport")
         #expect(plain.count == 4)
         #expect(plain.prefix(2).allSatisfy { !$0.contains("All Pages") && !$0.contains("Old Backups") })
         // Asked for an archived copy: the year decides again, so the Archive folder's 2020 copy
         // leads the scan whose own name says archive.
-        let asked = await rows("shweta passport archive")
+        let asked = await rows("mother passport archive")
         #expect(asked.count == 2 && asked.first?.contains("All Pages") == true)
         #expect(AskClaudeBrowseTools.isSetAside("Old Backups/Taxes/2024.pdf"))
-        #expect(AskClaudeBrowseTools.isSetAside("Shweta/Back up/Scan.pdf"))
-        #expect(!AskClaudeBrowseTools.isSetAside("Shweta/Archive notes.pdf"))
+        #expect(AskClaudeBrowseTools.isSetAside("Mother/Back up/Scan.pdf"))
+        #expect(!AskClaudeBrowseTools.isSetAside("Mother/Archive notes.pdf"))
         #expect(AskClaudeBrowseTools.namesSetAside("Archived") && !AskClaudeBrowseTools.namesSetAside("arch"))
     }
 
@@ -1203,12 +1203,12 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
     }
 
     @Test func aFolderNameLinksOnlyAsTheFolderIsSpelled() {
-        let targets = ["Scans": "/a/Scans", "Shweta": "/a/Passport/Shweta", "1. Jan 2023.PDF": "/a/1. Jan 2023.PDF"]
-        let text = "Shweta's copies, all-pages scans, are in Passport/Shweta; see 1. jan 2023.pdf and Scans."
+        let targets = ["Scans": "/a/Scans", "Mother": "/a/Passport/Mother", "1. Jan 2023.PDF": "/a/1. Jan 2023.PDF"]
+        let text = "Mother's copies, all-pages scans, are in Passport/Mother; see 1. jan 2023.pdf and Scans."
         let found = AskClaudeLinks.matches(of: targets, in: text).sorted { $0.range.lowerBound < $1.range.lowerBound }
-        #expect(found.map { String(text[$0.range]) } == ["Shweta", "1. jan 2023.pdf", "Scans"])
+        #expect(found.map { String(text[$0.range]) } == ["Mother", "1. jan 2023.pdf", "Scans"])
         #expect(found.first.map { text.distance(from: text.startIndex, to: $0.range.lowerBound) } == text.distance(
-            from: text.startIndex, to: text.range(of: "Passport/Shweta")!.lowerBound) + "Passport/".count)
+            from: text.startIndex, to: text.range(of: "Passport/Mother")!.lowerBound) + "Passport/".count)
         #expect(AskClaudeLinks.hasExtension("Tax.pdf") && !AskClaudeLinks.hasExtension("Checking 6436")
             && !AskClaudeLinks.hasExtension("v1.2") && !AskClaudeLinks.hasExtension("Scans"))
     }
@@ -4205,15 +4205,15 @@ private final class OffersADownload: AskClaudeToolRunning {
 @Suite struct AskClaudeCardRowTests {
 
     @Test func aLongDestinationIsCutInTheMiddleAndAShortOneStays() {
-        #expect(AskClaudeThreadRowShortening.shortened("Girish - 2025", to: 18) == "Girish - 2025")
+        #expect(AskClaudeThreadRowShortening.shortened("Elder - 2025", to: 18) == "Elder - 2025")
         let cut = AskClaudeThreadRowShortening.shortened("Twin Creeks Elementary Donations", to: 18)
         #expect(cut.count == 18 && cut.hasPrefix("Twin Cre") && cut.hasSuffix("Donations") && cut.contains("…"))
     }
 
     @Test func aRowSaysWhereItGoesInAWordOrPicksAFolder() {
         let move = AskClaudePlan.Row(id: 0, name: "a.pdf", change: .move(from: "/d/a.pdf", toFolder: "/t"), ticked: true,
-                                     confidence: "High", folderLabel: "iCloud › Documents › Travel › Girish - 2025")
-        #expect(AskClaudeThreadRowShortening.destinationWord(move) == "Girish - 2025")
+                                     confidence: "High", folderLabel: "iCloud › Documents › Travel › Elder - 2025")
+        #expect(AskClaudeThreadRowShortening.destinationWord(move) == "Elder - 2025")
         var unsure = move
         unsure.confidence = AskClaudeFiling.label(.low)
         #expect(AskClaudeThreadRowShortening.destinationWord(unsure) == "Pick a folder")

@@ -619,7 +619,7 @@ final class SetupModel: ObservableObject {
     ///
     /// Derived from the fields every time, never accumulated. Holding the ticked set as the answer
     /// would leave an edited name's old forms ticked and on screen, fallen through to the "typed by
-    /// hand" list (`Abhishek Girish` under a name now reading `Abhi`). What is remembered is the
+    /// hand" list (`Father Elder` under a name now reading `Fred`). What is remembered is the
     /// user's decisions (which suggestions they overrode, which forms they typed), and both survive
     /// an edit without outliving the name they were about.
     var offeredNameForms: [(form: String, ticked: Bool)] {

@@ -4520,8 +4520,8 @@ public struct LensWorkspaceView: View {
     ///
     /// `providerRoot` is the tree the card was scanned against, which a rule's relative destination
     /// resolves from on the next scan. Not ``providerAnchor``: with File Into on iCloud Documents
-    /// and the source on the Home folder, the anchor would save `Documents/Family/Shweta`, which
-    /// the next scan would resolve to `Documents/Documents/Family/Shweta` and create.
+    /// and the source on the Home folder, the anchor would save `Documents/Family/Mother`, which
+    /// the next scan would resolve to `Documents/Documents/Family/Mother` and create.
     private func offerRule(fileName: String, filePath: String, destinationPath: String,
                            providerRoot: String?, modificationDate: Date?) {
         // Rules act only inside File Into: no offer for a folder outside it.

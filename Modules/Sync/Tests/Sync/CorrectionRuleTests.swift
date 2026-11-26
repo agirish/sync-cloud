@@ -11,7 +11,7 @@ import Testing
     /// Page 1 of a JAL e-ticket receipt, as the reader returns it.
     static let jalPage = """
         JAPAN AIRLINES  e-Ticket Itinerary / Receipt
-        Passenger: GIRISH/ABHISHEK MR   Date of birth: 12MAR1985
+        Passenger: ELDER/FATHER MR   Date of birth: 12MAR1985
         Date of Issue: 15JUL26   Ticket Number: 131 2345678901
         JL 0754  23SEP  Tokyo Narita (NRT) - Bengaluru (BLR)
         JL 0753  14OCT  Bengaluru (BLR) - Tokyo Narita (NRT)
