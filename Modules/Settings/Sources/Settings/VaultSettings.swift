@@ -1,4 +1,5 @@
 import AppKit
+import Security
 import Design
 import SwiftUI
 import Sync
@@ -221,6 +222,16 @@ struct VaultSettingsTab: View {
             "Lock",
             caption: "Touch ID before any ID is shown or copied. IDs stay sealed here and never go to Claude."
         ) {
+            // The installed copy's Apple profile, which lets the key be kept behind Touch ID (VT31):
+            // a free team's lasts a week, and SyncCloud does not open once it has run out.
+            if let ends = VaultProfile.expiry() {
+                let soon = ends.timeIntervalSinceNow < 2 * 86_400
+                Label("The Vault’s key is kept behind Touch ID. This copy of SyncCloud can open until "
+                      + ends.formatted(date: .abbreviated, time: .shortened)
+                      + ": install it again before then.", systemImage: soon ? "exclamationmark.triangle" : "key")
+                    .foregroundStyle(soon ? AnyShapeStyle(SemanticColor.warning) : AnyShapeStyle(.secondary))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             SettingsRow("When to ask") {
                 Picker("When to ask", selection: $ask.loggingSettingsChange("vault.ask")) {
                     ForEach(VaultLockSettings.Ask.allCases, id: \.self) { choice in
@@ -390,7 +401,7 @@ struct VaultSettingsTab: View {
     // MARK: Activity
 
     private var activityStore: VaultActivityStore? {
-        VaultStore.defaultURL().map { VaultActivityStore.beside(VaultStore(fileURL: $0)) }
+        VaultStore.live().map { VaultActivityStore.beside($0) }
     }
 
     /// The list says which IDs were used and when: it is shown to the Mac's owner only.
@@ -423,7 +434,10 @@ struct VaultSettingsTab: View {
         }
     }
 
-    private var backup: VaultBackup? { VaultStore.defaultURL().map { VaultBackup(store: VaultStore(fileURL: $0)) } }
+    private var backup: VaultBackup? {
+        VaultStore.live().map { VaultBackup(store: $0, keychain: VaultKeyHolder.shared,
+                                            authenticator: VaultDeviceOwnerProof(keyHolder: .shared)) }
+    }
 
     private func refreshBackupState() {
         guard let backup else { return }
@@ -449,7 +463,7 @@ struct VaultSettingsTab: View {
         guard !isAsking else { return false }
         isAsking = true
         defer { isAsking = false }
-        let proof = await VaultDeviceOwnerProof().prove(reason: reason)
+        let proof = await VaultDeviceOwnerProof(keyHolder: .shared).prove(reason: reason)
         if case .allowed = proof { return true }
         if case .cancelled = proof, VaultActivitySettings.keeps(in: .standard) {
             let now = Date()
@@ -761,5 +775,26 @@ public enum VaultReadFoldersPanel {
         panel.prompt = "Read for IDs"
         if let message { panel.message = message }
         return panel
+    }
+}
+
+/// The installed copy's provisioning profile (VT31): when it runs out, read from the bundle
+/// without the network. Nil for a build with none (every build but the installed one).
+enum VaultProfile {
+    static func expiry(in bundle: Bundle = .main) -> Date? {
+        guard let url = bundle.url(forResource: "embedded", withExtension: "provisionprofile"),
+              let data = try? Data(contentsOf: url) else { return nil }
+        var made: CMSDecoder?
+        guard CMSDecoderCreate(&made) == errSecSuccess, let decoder = made else { return nil }
+        let updated = data.withUnsafeBytes { bytes in
+            CMSDecoderUpdateMessage(decoder, bytes.baseAddress!, bytes.count)
+        }
+        guard updated == errSecSuccess, CMSDecoderFinalizeMessage(decoder) == errSecSuccess else { return nil }
+        var content: CFData?
+        guard CMSDecoderCopyContent(decoder, &content) == errSecSuccess, let plain = content as Data?,
+              let profile = try? PropertyListSerialization.propertyList(from: plain, format: nil) as? [String: Any] else {
+            return nil
+        }
+        return profile["ExpirationDate"] as? Date
     }
 }

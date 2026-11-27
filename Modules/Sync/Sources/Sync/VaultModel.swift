@@ -1448,14 +1448,25 @@ public final class VaultModel: ObservableObject {
         if lock.hidesEverything(at: now), hasSomethingSealed {
             // A Vault whose key is not on this Mac cannot be opened by any proof: it is said so
             // at once, rather than asked for first.
-            guard store?.hasFile != true || store?.fingerprint("") != nil else {
+            guard store?.hasFile != true || store?.fingerprint("") != nil || store?.keyNeedsProof == true else {
                 load()
                 return
             }
             await unlock()
             return
         }
+        // Read without a proof of the whole ("For every ID", or nothing sealed yet): a key kept
+        // behind Touch ID asks for one touch first, which opens nothing else (VT31).
+        guard await keyReady("open the Vault") else { return }
         load()
+    }
+
+    /// The key, kept behind Touch ID since VT31, ready for a change made with the Vault locked
+    /// (Add, Discover More, the "For every ID" open): one touch when it needs one, which reads the
+    /// key and opens nothing else. True when the key can be read, or there is none to read yet.
+    public func keyReady(_ reason: String) async -> Bool {
+        guard store?.keyNeedsProof == true else { return true }
+        return await prove(reason, forEach: [], opens: false)
     }
 
     /// Whether anything had been sealed on this Mac, the Vault's file or what was read, when the
@@ -1833,6 +1844,8 @@ public final class VaultModel: ObservableObject {
             saveReading()
             sealDepth = depth
         }
+        // The key held since the proof goes with the numbers (VT10): the next read needs a touch.
+        store?.letGoOfKey()
         entries = []
         finds = []
         provedSinceLoad = false
@@ -2008,7 +2021,9 @@ public final class VaultModel: ObservableObject {
     }
 
     /// ``prove(_:for:)`` for several IDs at once; none is a proof to open the Vault.
-    private func prove(_ reason: String, forEach ids: Set<UUID>) async -> Bool {
+    /// `opens` false for a proof that only lets the key be read (``keyReady(_:)``): the lock stays
+    /// as it was, and nothing is listed as unlocked.
+    private func prove(_ reason: String, forEach ids: Set<UUID>, opens: Bool = true) async -> Bool {
         guard !isAsking, touchIDReady() else { return false }
         isAsking = true
         defer { isAsking = false }
@@ -2036,8 +2051,10 @@ public final class VaultModel: ObservableObject {
         switch proof {
         case .allowed:
             notice = nil
-            lock.proved(for: ids, at: now)
-            if ids.isEmpty { record(.unlocked) }
+            if opens { lock.proved(for: ids, at: now) }
+            if ids.isEmpty, opens { record(.unlocked) }
+            // Activity lines written while the key could not be read are sealed now (VT31).
+            activity?.sealWaiting(now: now)
             noticeNewFingerprints()
             provedSinceLoad = true
             // "For every ID": the weekly backup waits for the first proof (VT114).
@@ -2465,6 +2482,8 @@ public final class VaultModel: ObservableObject {
         let scope = scope ?? (again ? .everything : .discover)
         // Stopped before it began (the Mac locked first): nothing is loaded for it.
         guard reading == nil, !Task.isCancelled else { return }
+        // Discover More with the Vault locked: the key behind Touch ID asks for a touch (VT31).
+        if contents != .loaded { guard await keyReady("read your documents into the Vault") else { return } }
         load()
         guard contents == .loaded else { return }
         // Settings ▸ Vault ▸ Forget while the Vault stayed loaded: the record of read files

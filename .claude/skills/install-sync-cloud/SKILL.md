@@ -72,10 +72,22 @@ Every check below is here because it failed once and reported success anyway —
    # designated requirement, so either will do. None, or two different names: keep Xcode's ad-hoc
    # signature and say so. The app runs either way; ad-hoc only means its first launch asks for
    # Documents access again.
+   # First, the Vault's key behind Touch ID (VT31): embed this Mac's profile and sign with the
+   # keychain permission it grants (scripts/vault-sign-installed; exit 2 = no profile to be had,
+   # nothing changed). Only the installed copy carries it: an ad-hoc build claiming it won't launch.
+   ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+   SIGNER=$ROOT/scripts/vault-sign-installed
+   [ -x "$SIGNER" ] || SIGNER=/Users/abhishek/Projects/SyncCloud/scripts/vault-sign-installed
+   "$SIGNER" "$APP"; PROFILE_SIGNED=$?
+   if [ $PROFILE_SIGNED -ne 0 ] && [ $PROFILE_SIGNED -ne 2 ]; then
+     echo "NOT INSTALLED — signing with the profile failed part way; rebuild and start over."; exit 1
+   fi
    SIGN_LINES=$(security find-identity -v -p codesigning | grep '"Apple Development: ')
    SIGN_NAMES=$(printf '%s\n' "$SIGN_LINES" | sed -n 's/.*"\(Apple Development: .*\)"$/\1/p' | sort -u)
    SIGN_ID=$(printf '%s\n' "$SIGN_LINES" | awk 'NF { print $2; exit }')
-   if [ -n "$SIGN_ID" ] && [ "$(printf '%s\n' "$SIGN_NAMES" | grep -c .)" -eq 1 ]; then
+   if [ $PROFILE_SIGNED -eq 0 ]; then
+     :   # signed with the profile above
+   elif [ -n "$SIGN_ID" ] && [ "$(printf '%s\n' "$SIGN_NAMES" | grep -c .)" -eq 1 ]; then
      codesign --force --sign "$SIGN_ID" --timestamp=none --preserve-metadata=entitlements,flags "$APP" & CS=$!
      for _ in $(seq 1 30); do kill -0 $CS 2>/dev/null || break; sleep 1; done
      kill -0 $CS 2>/dev/null && { kill $CS; echo "WARNING: codesign still waiting after 30s — a keychain prompt? Killed it."; }
@@ -104,6 +116,7 @@ Every check below is here because it failed once and reported success anyway —
    **Why the signing: macOS keys a privacy grant to the app's designated requirement, and an ad-hoc app's requirement is its cdhash.** Xcode signs every build here ad-hoc (`project.yml` pins `CODE_SIGN_IDENTITY: "-"`), and the cdhash moves with every build — even identical source built into another folder (another worktree's `.dd`, or shared DerivedData), because a Release binary's debug map records the absolute path of every object file: on 2026-09-26 the same app sources built into two folders came out as `f3763793…` and `026c4410…`. So every install was a new app to macOS: the first listing of `~/Documents` blocked on the "access files in your Documents folder" dialog, and the iCloud pane stayed blank until someone answered it — 15 of 16 launches on 2026-09-25, from 1.9 s to 46 min (speed audit P16). Re-signed with the Mac's Apple Development identity, the requirement names the certificate instead (`identifier "com.abhishekgirish.SyncCloud" and anchor apple generic and certificate leaf[subject.CN] = …`), which survives rebuilds, so the grant survives too. The first launch after an ad-hoc install asks once more; installs after it do not.
    - **tccd says so in as many words, but only live.** At the first launch of a re-signed build on 2026-09-26 it checked the stored Documents grant against the new code and wrote `matchesCodeRequirement: … cdhash H"77461a22…"; status: -67050`, then `Failed to match existing code requirement for subject com.abhishekgirish.SyncCloud and service kTCCServiceSystemPolicyDocumentsFolder`, then `AUTHREQ_PROMPTING` — the stored requirement was the previous install's cdhash. Those lines are debug-level and never persisted, so `log show` finds nothing afterwards; start `/usr/bin/log stream --level debug --predicate 'process == "tccd"'` *before* step 7 to see them.
    - **Only the signature changes.** Stripped of their signatures, an ad-hoc build and its re-signed copy differ in one byte of 63 MB — `__LINKEDIT`'s `vmsize`, reserving room for the larger signature (measured 2026-09-26). `--preserve-metadata=entitlements,flags` keeps Xcode's `get-task-allow` and any hardened-runtime flag a future build turns on; the ad-hoc flag does not carry over.
+   - **The profile (VT31).** The Vault keeps its key in the data-protection keychain, readable only with Touch ID, which needs the `keychain-access-groups` permission, which macOS grants only through an embedded provisioning profile. `scripts/vault-sign-installed` finds this Mac's Xcode-made profile for `com.abhishekgirish.SyncCloud` (or, with less than a day left, has Xcode make one with a signed build, which needs Xcode signed in to the team), embeds it, and signs with the certificate the profile names. A free team's profile lasts **seven days**, and an app whose profile has run out **does not launch**: install again before then (Settings ▸ Vault ▸ Lock says when). If the launch check below fails after a profile signing, sign the plain way and install again; the app then opens and says it cannot reach the key, which stays behind Touch ID.
    - **Sign `$APP`, not the installed copy**, so `/Applications` only ever receives a bundle that verifies, and a failed signing leaves the ad-hoc build intact to install instead.
    - **A bundle that does not verify stops the whole skill, not just the copy.** The first version of this step only printed "NOT INSTALLED" and carried on, so step 4 went on to fingerprint the *previous* app still in `/Applications`, step 5 deleted the build, step 7 relaunched the old app and step 9 compared that old app's digest with itself and printed "provenance OK" — a full report of success for an install that never happened. `exit 1` ends the phase before any of that runs.
    - **A renewal is not a conflict.** Renew before the certificate expires and both it and its successor stay valid for a while. The designated requirement names the certificate by its *name*, so two valid identities with one name give one requirement and either will do. Two different names would each give a different requirement, and picking one silently would cost a dialog, so that case installs ad-hoc and prints both names.

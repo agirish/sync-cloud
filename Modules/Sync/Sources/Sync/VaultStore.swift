@@ -44,8 +44,11 @@ public enum VaultFileState: Equatable, Sendable {
 /// Made once and never replaced. A second key would orphan every entry sealed with the first, so
 /// there is no `store` that overwrites: ``create(in:)`` adds, and refuses when one is there.
 public enum VaultKeychain {
-    private static let service = "com.synccloud.vault-key"
+    static let service = "com.synccloud.vault-key"
     private static let account = "default"
+
+    /// The key's item, as every query names it.
+    static func query() -> [String: Any] { baseQuery() }
 
     private static func baseQuery() -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
@@ -68,7 +71,10 @@ public enum VaultKeychain {
         let (status, result) = store.copyMatching(query)
         if status == errSecItemNotFound { return .notCreated }
         guard status == errSecSuccess else {
-            Logger.shared.warning("Vault: the Keychain returned status \(status) for the Vault key — it cannot be read right now (locked Keychain, denied prompt, or policy)")
+            // Behind Touch ID with no proof yet (VT31) is the usual case, and no warning.
+            if status != errSecInteractionNotAllowed {
+                Logger.shared.warning("Vault: the Keychain returned status \(status) for the Vault key — it cannot be read right now (locked Keychain, denied prompt, or policy)")
+            }
             return .unreadable(status)
         }
         // Anything but 32 bytes is not a key this build made. Reported as unreadable, not as
@@ -793,6 +799,28 @@ public struct VaultStore {
             return nil
         }
     }
+
+    /// Whether the key is there but behind Touch ID, with no proof given yet (VT31): a change made
+    /// with the Vault locked asks for one first. Never prompts.
+    public var keyNeedsProof: Bool {
+        if case .unreadable(let status) = VaultKeychain.read(from: keychain) {
+            return status == errSecInteractionNotAllowed || status == errSecAuthFailed || status == errSecUserCanceled
+        }
+        return false
+    }
+
+    /// The Vault let go of its numbers: the key held since the proof goes too (VT10).
+    public func letGoOfKey() { (keychain as? VaultKeyHolder)?.release() }
+
+    /// The app's store: the Vault's file in Application Support, its key kept by the shared
+    /// ``VaultKeyHolder``, behind Touch ID where this build can (VT31).
+    public static func live() -> VaultStore? {
+        defaultURL().map { VaultStore(fileURL: $0, keychain: VaultKeyHolder.shared) }
+    }
+
+    /// The keychain this store reads its key through, for a store kept beside it (the activity
+    /// list) to read the same.
+    var keychainStore: KeychainStore { keychain }
 
     /// Whether the Vault's key is in the Keychain now. Never makes one.
     public var hasKey: Bool {

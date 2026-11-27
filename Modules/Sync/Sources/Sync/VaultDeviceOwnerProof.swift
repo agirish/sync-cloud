@@ -9,7 +9,13 @@ import LocalAuthentication
 /// after too many misses) the Vault stays locked until it can ask. When it is not set up (no
 /// fingerprint, no login password, no sensor) the Vault is not used at all (2026-11-24).
 public struct VaultDeviceOwnerProof: VaultAuthenticating {
-    public init() {}
+    /// Told of each proof given, so the key kept behind Touch ID is read with it, never asking a
+    /// second time (VT31).
+    private let keyHolder: VaultKeyHolder?
+
+    public init(keyHolder: VaultKeyHolder? = nil) {
+        self.keyHolder = keyHolder
+    }
 
     /// The one policy the Vault asks under.
     static let policy = LAPolicy.deviceOwnerAuthenticationWithBiometrics
@@ -73,6 +79,7 @@ public struct VaultDeviceOwnerProof: VaultAuthenticating {
         }
         do {
             let allowed = try await context.evaluatePolicy(Self.policy, localizedReason: reason)
+            if allowed { keyHolder?.authorise(with: context) }
             return allowed ? .allowed : .failed("macOS couldn’t confirm it was you.")
         } catch let error as LAError {
             return Self.refused(error.code, detail: error.localizedDescription)

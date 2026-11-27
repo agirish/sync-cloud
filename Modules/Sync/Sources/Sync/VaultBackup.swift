@@ -332,7 +332,7 @@ public struct VaultBackup {
     private func note(_ kind: VaultActivityEvent.Kind, _ what: String) {
         guard VaultActivitySettings.keeps(in: defaults) else { return }
         let now = clock()
-        VaultActivityStore.beside(store, keychain: keychain, fileManager: fileManager).append([VaultActivityEvent(at: now, kind: kind, what: what)], now: now)
+        VaultActivityStore.beside(store, fileManager: fileManager).append([VaultActivityEvent(at: now, kind: kind, what: what)], now: now)
     }
 
     // MARK: Settings

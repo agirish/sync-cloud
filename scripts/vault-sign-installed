@@ -1,0 +1,100 @@
+#!/bin/zsh
+# Signs the copy of SyncCloud about to be installed so the Vault can keep its key behind Touch ID
+# (VT31): embeds this Mac's provisioning profile for com.abhishekgirish.SyncCloud and signs with
+# the keychain permission it grants, with the Apple Development certificate the profile names.
+#
+#   scripts/vault-sign-installed <SyncCloud.app>
+#
+# Exit 0: signed with the profile. Exit 2: no profile could be had (none, expired, Xcode signed
+# out): nothing was changed, and the caller signs the plain way, as before VT31. Anything else:
+# signing failed; the bundle may be half signed, so the caller must not install it.
+#
+# Only the installed copy carries the permission: an ad-hoc build that claimed it would not
+# launch, so CI, tests and every worktree build stay as they are (project.yml signs ad-hoc).
+#
+# A free team's profile lasts seven days, and an app whose profile has run out does not launch:
+# with less than a day left, the profile is made again first, by a build Xcode signs itself
+# (`-allowProvisioningUpdates`), which needs Xcode signed in to the team (Settings ▸ Accounts).
+set -u
+APP=${1:?usage: vault-sign-installed <SyncCloud.app>}
+BUNDLE=com.abhishekgirish.SyncCloud
+TEAM=LBA6JH2Y57
+PROFILES=~/Library/Developer/Xcode/UserData/Provisioning\ Profiles
+REPO=$(cd "$(dirname "$0")/.." && pwd)
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/vault-sign.XXXXXX")
+trap 'rm -rf "$WORK"' EXIT
+
+# The newest profile for this app on this Mac, with the keychain permission and a day or more left.
+find_profile() {
+  python3 - "$PROFILES" "$BUNDLE" "$TEAM" <<'PY'
+import os, plistlib, subprocess, sys, datetime
+folder, bundle, team = sys.argv[1:4]
+best = None
+for name in os.listdir(folder) if os.path.isdir(folder) else []:
+    path = os.path.join(folder, name)
+    try:
+        plain = subprocess.run(["security", "cms", "-D", "-i", path], capture_output=True, check=True).stdout
+        profile = plistlib.loads(plain)
+    except Exception:
+        continue
+    ents = profile.get("Entitlements", {})
+    if "OSX" not in profile.get("Platform", []): continue
+    if ents.get("com.apple.application-identifier", ents.get("application-identifier")) != f"{team}.{bundle}": continue
+    if not ents.get("keychain-access-groups"): continue
+    ends = profile["ExpirationDate"].replace(tzinfo=datetime.timezone.utc)
+    if ends - datetime.datetime.now(datetime.timezone.utc) < datetime.timedelta(days=1): continue
+    if best is None or ends > best[0]: best = (ends, path)
+if best: print(best[1])
+PY
+}
+
+PROFILE=$(find_profile)
+if [ -z "$PROFILE" ]; then
+  echo "vault-sign-installed: no profile with a day left; asking Xcode to make one (a signed build)"
+  ( cd "$REPO" && "$REPO/scripts/build-slot" xcodebuild -project SyncCloud.xcodeproj -scheme SyncCloud \
+      -configuration Debug -derivedDataPath "$WORK/dd" -allowProvisioningUpdates build \
+      CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM=$TEAM CODE_SIGN_IDENTITY="Apple Development" \
+      CODE_SIGN_ENTITLEMENTS=Signing/SyncCloud-installed.entitlements > "$WORK/refresh.log" 2>&1 )
+  PROFILE=$(find_profile)
+  if [ -z "$PROFILE" ]; then
+    echo "vault-sign-installed: still no profile ($(grep -m1 'error:' "$WORK/refresh.log" | cut -c1-160)); signing the plain way"
+    exit 2
+  fi
+fi
+
+# The certificate to sign with: one of those the profile names, and in this Mac's keychain.
+IDENTITY=$(python3 - "$PROFILE" <<'PY'
+import hashlib, plistlib, subprocess, sys
+plain = subprocess.run(["security", "cms", "-D", "-i", sys.argv[1]], capture_output=True, check=True).stdout
+named = {hashlib.sha1(der).hexdigest().upper() for der in plistlib.loads(plain).get("DeveloperCertificates", [])}
+listed = subprocess.run(["security", "find-identity", "-v", "-p", "codesigning"], capture_output=True, text=True).stdout
+for line in listed.splitlines():
+    parts = line.split()
+    if len(parts) > 1 and parts[1] in named and "Apple Development" in line:
+        print(parts[1]); break
+PY
+)
+if [ -z "$IDENTITY" ]; then
+  echo "vault-sign-installed: no certificate in this Mac's keychain is one the profile names; signing the plain way"
+  exit 2
+fi
+
+# The app's own entitlements, with the keychain permission the profile grants.
+codesign -d --entitlements - --xml "$APP" > "$WORK/current.plist" 2>/dev/null || true
+python3 - "$WORK/current.plist" "$WORK/entitlements.plist" "$TEAM.$BUNDLE" <<'PY'
+import plistlib, sys
+try:
+    with open(sys.argv[1], "rb") as f: ents = plistlib.load(f)
+except Exception:
+    ents = {}
+ents["keychain-access-groups"] = [sys.argv[3]]
+with open(sys.argv[2], "wb") as f: plistlib.dump(ents, f)
+PY
+
+cp "$PROFILE" "$APP/Contents/embedded.provisionprofile" || exit 1
+codesign --force --sign "$IDENTITY" --timestamp=none --preserve-metadata=flags \
+  --entitlements "$WORK/entitlements.plist" "$APP" || exit 1
+codesign --verify --strict "$APP" || exit 1
+ENDS=$(security cms -D -i "$PROFILE" | plutil -extract ExpirationDate raw -o - - 2>/dev/null)
+echo "vault-sign-installed: signed with the profile, which ends $ENDS"
+exit 0

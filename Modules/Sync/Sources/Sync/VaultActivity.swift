@@ -117,9 +117,10 @@ public struct VaultActivityStore {
     }
 
     /// `vault-activity.sealed`, beside the Vault's file.
-    public static func beside(_ store: VaultStore, keychain: KeychainStore = SecItemKeychainStore(),
+    /// Its key read as `store` reads its own, unless `keychain` says otherwise.
+    public static func beside(_ store: VaultStore, keychain: KeychainStore? = nil,
                               fileManager: FileManager = .default) -> VaultActivityStore {
-        VaultActivityStore(fileURL: store.activityURL, keychain: keychain, fileManager: fileManager)
+        VaultActivityStore(fileURL: store.activityURL, keychain: keychain ?? store.keychainStore, fileManager: fileManager)
     }
 
     private var key: SymmetricKey? {
@@ -167,7 +168,18 @@ public struct VaultActivityStore {
     /// Vault's key: with none there is no Vault to have activity in. A refused write is logged
     /// and let go; the list is a record, not something to fail an act over.
     public func append(_ events: [VaultActivityEvent], now: Date) {
-        guard !events.isEmpty, let key else { return }
+        guard !events.isEmpty else { return }
+        let key: SymmetricKey
+        switch VaultKeychain.read(from: keychain) {
+        case .found(let found): key = found
+        case .unreadable(let status) where status == errSecInteractionNotAllowed:
+            // The key behind Touch ID with no proof yet (VT31): held here until the next one, or
+            // the next line that can be sealed; lost if the app quits first (owner, 2026-11-26).
+            Self.waitingLock.withLock { Self.waiting[fileURL.path, default: []] += events }
+            return
+        default: return
+        }
+        let events = events + Self.waitingLock.withLock { Self.waiting.removeValue(forKey: fileURL.path) ?? [] }
         // A list there that does not open (damaged, a later build's, another key's) is set aside
         // under a name of its own, never sealed over. Opened once, for both questions.
         var held: [Stored] = []
@@ -207,6 +219,19 @@ public struct VaultActivityStore {
             Logger.shared.warning("Vault: the activity list could not be sealed — \(error.localizedDescription)")
         }
     }
+
+    /// Lines written while the key could not be read, by list (``append(_:now:)``).
+    private nonisolated(unsafe) static var waiting: [String: [VaultActivityEvent]] = [:]
+    private static let waitingLock = NSLock()
+
+    /// A proof was just given: the lines that waited for one are sealed now.
+    public func sealWaiting(now: Date) {
+        let pending = Self.waitingLock.withLock { Self.waiting.removeValue(forKey: fileURL.path) ?? [] }
+        append(pending, now: now)
+    }
+
+    /// How many lines wait for a proof, for a test.
+    var waitingCount: Int { Self.waitingLock.withLock { Self.waiting[fileURL.path]?.count ?? 0 } }
 
     /// Clear: the list goes, for good.
     public func clear() {

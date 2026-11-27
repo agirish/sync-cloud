@@ -4547,9 +4547,13 @@ struct VaultCard: View {
         switch editing {
         case .new:
             let sealed = model.isSealedShut
-            if model.add(draft) != nil {
-                editing = nil
-                addedWhileLocked = sealed
+            // With the Vault locked, the key behind Touch ID asks for one touch first (VT31).
+            Task {
+                guard await model.keyReady("add an ID to the Vault") else { return }
+                if model.add(draft) != nil {
+                    editing = nil
+                    addedWhileLocked = sealed
+                }
             }
         case .existing(let id):
             Task {

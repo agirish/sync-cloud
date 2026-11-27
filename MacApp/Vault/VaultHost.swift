@@ -92,9 +92,10 @@ extension VaultModel {
     /// The app's Vault: the sealed file in Application Support, macOS's own proof, its weekly
     /// backup, and a pasteboard copy that cleans up after itself.
     static func live() -> VaultModel {
-        let store = VaultStore.defaultURL().map { VaultStore(fileURL: $0) }
+        // The key through the shared holder: behind Touch ID where this build can (VT31).
+        let store = VaultStore.live()
         return VaultModel(store: store,
-                          authenticator: VaultDeviceOwnerProof(),
+                          authenticator: VaultDeviceOwnerProof(keyHolder: .shared),
                           activity: store.map { VaultActivityStore.beside($0) },
                           backup: store.map { VaultBackup(store: $0) },
                           copyToPasteboard: { VaultPasteboard.copyConcealed($0) },
