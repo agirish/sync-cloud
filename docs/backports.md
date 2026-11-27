@@ -16510,3 +16510,18 @@ grows to 24pt so it stays as tall as the bar's controls. The words still show at
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | 33×20 pills in an 81pt header | RECORDED — not owed (UI polish) |
+
+## Text size: the workspace bar's glyphs, and type that ignored it — main only, recorded, not owed
+
+2026-11-26, for v7.2. The workspace bar's glyphs (Browse · Compare · Organize · Edit) were set with a
+raw `.font(.system(size: 12))`, so they stayed 12pt at every Settings ▸ Text size while their labels
+grew; they now scale, inside a frame that scales with them (`WorkspaceBarMetrics.glyphSide(scale:)`,
+whole points), and the bar's width ladder charges the scaled frame. Raw fonts in the filing sheets
+and cards, Compare's copy placeholder, the progress capsule's run list and count chevron, and Ask
+Claude's folder card and suggestion chip now scale too. `RawFontScanTests` fails on any new raw
+font outside four documented exceptions.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` | The workspace bar's fixed 12pt glyph (its one raw font); none of the filing views | RECORDED — not owed |
+| `v2.x` | No workspace bar | CLOSED — does not apply |

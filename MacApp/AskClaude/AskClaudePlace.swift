@@ -83,7 +83,7 @@ struct AskClaudePlaceMenu: View {
                 .help(place.isOnScreen ? "You’re already in this folder." : "Shows this folder in \(place.workspace).")
             Divider().padding(.vertical, 2)
             Text("What Claude gets from this folder")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 8)
             ForEach(AskClaudeFolderAccess.allCases, id: \.self) { access in
@@ -102,7 +102,7 @@ struct AskClaudePlaceMenu: View {
             .padding(.vertical, 3)
             .help("Spent on Ask Claude this month, of the monthly limit in Settings ▸ Ask Claude")
         }
-        .font(.callout)
+        .scaledFont(.callout)
         .padding(6)
         .frame(width: 280)
     }
@@ -110,7 +110,7 @@ struct AskClaudePlaceMenu: View {
     private var heading: some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: place.isHidden ? "eye.slash" : "folder")
-                .font(.system(size: 13, weight: .medium))
+                .scaledFont(.system(size: 13, weight: .medium))
                 .foregroundStyle(accentFill)
                 .frame(width: 26, height: 26)
                 .background(accentFill.opacity(0.14), in: RoundedRectangle(cornerRadius: Radius.control))
@@ -118,13 +118,13 @@ struct AskClaudePlaceMenu: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text(place.name).fontWeight(.semibold).lineLimit(1).truncationMode(.middle)
                     Spacer(minLength: 6)
-                    if let count = place.count { Text(count).font(.caption).foregroundStyle(.secondary).monospacedDigit() }
+                    if let count = place.count { Text(count).scaledFont(.caption).foregroundStyle(.secondary).monospacedDigit() }
                 }
                 if place.name != place.source {
-                    Text(place.trail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(place.trail).scaledFont(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 if place.isHidden {
-                    Text("Hidden from Claude: it sees only that something is here.").font(.caption).foregroundStyle(.secondary)
+                    Text("Hidden from Claude: it sees only that something is here.").scaledFont(.caption).foregroundStyle(.secondary)
                 }
             }
         }
@@ -149,13 +149,13 @@ private struct AskClaudeAccessRow: View {
         Button(action: action) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Image(systemName: "checkmark")
-                    .font(.caption.weight(.semibold))
+                    .scaledFont(.caption.weight(.semibold))
                     .opacity(isOn ? 1 : 0)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(access.title)
                     Text(access.caption)
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .opacity(0.75)
                         .fixedSize(horizontal: false, vertical: true)
                 }

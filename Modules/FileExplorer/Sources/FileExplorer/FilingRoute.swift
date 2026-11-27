@@ -252,6 +252,8 @@ struct FilingRouteGrid: View {
 struct FilingRoutePathText: View {
     let path: FilingRoutePath
     let accent: Color
+    /// A `Text` run's own font overrides the line's `scaledFont`, so runs resolve at this scale.
+    @Environment(\.appFontScale) private var scale
 
     var body: some View {
         var text = Text("")
@@ -262,12 +264,12 @@ struct FilingRoutePathText: View {
                 .fontWeight(crumb.bold ? .semibold : .regular)
                 .foregroundStyle(crumb.bold ? Color.primary : Color.secondary)
             if let tag = crumb.tag {
-                text = text + Text("  " + tag.replacingOccurrences(of: " ", with: "\u{00A0}")).font(.system(size: 10, weight: .semibold)).foregroundStyle(accent)
+                text = text + Text("  " + tag.replacingOccurrences(of: " ", with: "\u{00A0}")).scaledFont(.system(size: 10, weight: .semibold), scale: scale).foregroundStyle(accent)
             }
         }
         if let note = path.note {
             // Set apart from the path it follows: "(new 2026 folder)", quiet but plainly a note.
-            text = text + Text("  (" + note.replacingOccurrences(of: " ", with: "\u{00A0}") + ")").italic().font(.system(size: 10.5)).foregroundStyle(.tertiary)
+            text = text + Text("  (" + note.replacingOccurrences(of: " ", with: "\u{00A0}") + ")").italic().scaledFont(.system(size: 10.5), scale: scale).foregroundStyle(.tertiary)
         }
         return text
             .scaledFont(.system(size: 11.5, design: .monospaced))

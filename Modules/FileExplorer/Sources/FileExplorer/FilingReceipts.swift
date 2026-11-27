@@ -81,6 +81,8 @@ struct FilingReceiptView: View {
     let onHover: (Bool) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// A `Text` run's own font overrides the line's `scaledFont`, so runs resolve at this scale.
+    @Environment(\.appFontScale) private var scale
     @State private var settled = false
 
     private var tint: Color { receipt.kind == .filed || receipt.kind == .summary ? SemanticColor.success : .secondary }
@@ -94,7 +96,7 @@ struct FilingReceiptView: View {
                 .scaleEffect(settled || reduceMotion ? 1 : 0.6)
                 .opacity(settled || reduceMotion ? 1 : 0)
             (Text(receipt.text).foregroundStyle(.primary)
-             + Text(receipt.place.map { " → " + $0 } ?? "").font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary))
+             + Text(receipt.place.map { " → " + $0 } ?? "").scaledFont(.system(size: 12, design: .monospaced), scale: scale).foregroundStyle(.secondary))
                 .scaledFont(.system(size: 13))
                 .lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 8)

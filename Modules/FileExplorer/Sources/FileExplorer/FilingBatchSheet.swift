@@ -103,6 +103,9 @@ struct FilingBatchSheet: View {
     let accent: Color
     let onFile: ([FilingCardItem]) -> Void
     @Environment(\.dismiss) private var dismiss
+    /// For the `Text` runs below: a run's own font overrides the row's `scaledFont`, so each run
+    /// resolves at the scale itself (`Text.scaledFont(_:scale:)`).
+    @Environment(\.appFontScale) private var scale
     @State private var unticked: Set<String> = []
     @State private var showsAll = false
 
@@ -178,7 +181,7 @@ struct FilingBatchSheet: View {
             .labelsHidden()
             .accessibilityLabel("File \(FilingBatchPlan.name(line))")
             (Text(line.title).fontWeight(.semibold)
-             + Text(line.ending.map { " ••" + $0 } ?? "").font(.system(size: 11.5, design: .monospaced)).foregroundStyle(.secondary)
+             + Text(line.ending.map { " ••" + $0 } ?? "").scaledFont(.system(size: 11.5, design: .monospaced), scale: scale).foregroundStyle(.secondary)
              + Text(" · \(line.count)").foregroundStyle(.secondary))
                 .scaledFont(.system(size: 12.5))
                 .lineLimit(1).truncationMode(.middle)
@@ -186,11 +189,11 @@ struct FilingBatchSheet: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(line.from.text).lineLimit(1).truncationMode(.middle)
                 (Text("→ ").foregroundStyle(.tertiary) + boldPath(line.to)
-                 + Text(line.source.map { "  " + $0 } ?? "").font(.system(size: 10.5)).foregroundStyle(.tertiary))
+                 + Text(line.source.map { "  " + $0 } ?? "").scaledFont(.system(size: 10.5), scale: scale).foregroundStyle(.tertiary))
                     .lineLimit(1).truncationMode(.head)
                 if !line.extras.isEmpty {
                     Text(line.extras.joined(separator: " · "))
-                        .font(.system(size: 10.5))
+                        .scaledFont(.system(size: 10.5))
                         .foregroundStyle(accent)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -209,9 +212,9 @@ struct FilingBatchSheet: View {
             if i > 0 { t = t + Text(" › ").foregroundStyle(.tertiary) }
             t = t + Text(c.name).fontWeight(c.bold ? .semibold : .regular).foregroundStyle(c.bold ? Color.primary : Color.secondary)
             // What the batch makes, as the card says it.
-            if let tag = c.tag { t = t + Text(" " + tag).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(accent) }
+            if let tag = c.tag { t = t + Text(" " + tag).scaledFont(.system(size: 10.5, weight: .semibold), scale: scale).foregroundStyle(accent) }
         }
-        if let note = p.note { t = t + Text("  (" + note + ")").font(.system(size: 10.5)).italic().foregroundStyle(.tertiary) }
+        if let note = p.note { t = t + Text("  (" + note + ")").scaledFont(.system(size: 10.5), scale: scale).italic().foregroundStyle(.tertiary) }
         return t
     }
 }

@@ -35,6 +35,7 @@ import FileExplorer
         return WorkspaceBarMetrics.styles(
             contentWidth: contentWidth, labelWidths: labelWidths,
             searchLabelWidth: search.label, searchKeycapWidth: search.keycap,
+            scale: scale,
             // The open field draws its `esc` keycap, as ContentView feeds it, not the pill's ⌘K.
             openField: open ? OpenFieldRequest(
                 keycapWidth: CommandPaletteBarMetrics.keycapWidth(symbol: GoToFieldMetrics.closeKeycap,
@@ -59,7 +60,7 @@ import FileExplorer
     @Test func testTheLabelsSurviveTheNarrowestWindow() {
         let widths = labelWidths()
         let search = searchWidths()
-        let keepsWords = WorkspaceBarMetrics.fullWidth(labelWidths: widths)
+        let keepsWords = WorkspaceBarMetrics.fullWidth(labelWidths: widths, scale: 1)
             + CommandPaletteBarMetrics.width(style: .compact, labelWidth: search.label,
                                              keycapWidth: search.keycap)
             + WorkspaceBarMetrics.reservedChrome
@@ -82,7 +83,7 @@ import FileExplorer
         // shedding buys nothing and the row goes behind the chevron anyway.
         for scale in FontSize.allCases.map(\.scale) {
             let search = searchWidths(scale: scale)
-            let row = WorkspaceBarMetrics.iconOnlyWidth(segmentCount: Workspace.allCases.count)
+            let row = WorkspaceBarMetrics.iconOnlyWidth(segmentCount: Workspace.allCases.count, scale: scale)
                 + CommandPaletteBarMetrics.width(style: .compact, labelWidth: search.label,
                                                  keycapWidth: search.keycap)
             #expect(row <= Self.windowFloor - WorkspaceBarMetrics.reservedChrome,
@@ -113,7 +114,7 @@ import FileExplorer
     @Test func testThePillLosesItsWordBeforeTheBarLosesItsLabels() {
         let widths = labelWidths()
         let search = searchWidths()
-        let both = WorkspaceBarMetrics.fullWidth(labelWidths: widths)
+        let both = WorkspaceBarMetrics.fullWidth(labelWidths: widths, scale: 1)
             + CommandPaletteBarMetrics.width(style: .full, labelWidth: search.label,
                                              keycapWidth: search.keycap)
             + WorkspaceBarMetrics.reservedChrome
@@ -157,7 +158,7 @@ import FileExplorer
                        scale: FontSize.large.scale).workspace == .iconOnly,
                 "even six labelled segments fit the floor — the shedding rule is now unreachable by any bar, which makes it genuinely dead rather than merely dormant")
         // And the fallback still solves it, or shedding buys nothing.
-        let iconOnly = WorkspaceBarMetrics.iconOnlyWidth(segmentCount: queued.count)
+        let iconOnly = WorkspaceBarMetrics.iconOnlyWidth(segmentCount: queued.count, scale: FontSize.large.scale)
         #expect(iconOnly <= Self.windowFloor - WorkspaceBarMetrics.reservedChrome)
     }
 
@@ -169,7 +170,7 @@ import FileExplorer
         let small = labelWidths(scale: FontSize.small.scale)
         let large = labelWidths(scale: FontSize.large.scale)
         let smallSearch = searchWidths(scale: FontSize.small.scale)
-        let needed = WorkspaceBarMetrics.fullWidth(labelWidths: small)
+        let needed = WorkspaceBarMetrics.fullWidth(labelWidths: small, scale: FontSize.small.scale)
             + CommandPaletteBarMetrics.width(style: .full, labelWidth: smallSearch.label,
                                              keycapWidth: smallSearch.keycap)
             + WorkspaceBarMetrics.reservedChrome
@@ -189,18 +190,24 @@ import FileExplorer
     /// would resize while sliding and a width guess would under-measure the bar.
     ///
     /// Its own control: unframed must give more than one height, framed exactly one.
+    ///
+    /// At every text size: the glyph follows Settings ▸ Text size, so its frame does
+    /// (`glyphSide(scale:)`), and a frame that lagged the glyph would clip it.
     @MainActor
-    @Test func theBarDrawsEverySegmentAtOneHeight() {
+    @Test(arguments: FontSize.allCases.map(\.scale))
+    func theBarDrawsEverySegmentAtOneHeight(scale: CGFloat) {
+        let glyphFont = ScaledFont.system(size: WorkspaceBarMetrics.glyphPoint, weight: .medium).resolved(scale: scale)
+        let labelFont = ScaledFont.system(size: 12, weight: .semibold).resolved(scale: scale)
+        let side = WorkspaceBarMetrics.glyphSide(scale: scale)
         func segment(_ workspace: Workspace, framed: Bool, full: Bool) -> CGSize {
-            let glyph = Image(systemName: workspace.symbol).font(.system(size: 12, weight: .medium))
+            let glyph = Image(systemName: workspace.symbol).font(glyphFont)
             let row = HStack(spacing: 6) {
                 if framed {
-                    glyph.frame(width: WorkspaceBarMetrics.glyphSide,
-                                height: WorkspaceBarMetrics.glyphSide)
+                    glyph.frame(width: side, height: side)
                 } else {
                     glyph
                 }
-                if full { Text(workspace.title).font(.system(size: 12, weight: .semibold)) }
+                if full { Text(workspace.title).font(labelFont) }
             }
             .padding(.horizontal, full ? 12 : 10)
             .padding(.vertical, 4)
@@ -229,26 +236,32 @@ import FileExplorer
         for workspace in Workspace.allCases {
             let drawn = segment(workspace, framed: true, full: true).width
             let label = NSHostingView(rootView: AnyView(
-                Text(workspace.title).font(.system(size: 12, weight: .semibold)))).fittingSize.width
-            #expect(abs(drawn - label - WorkspaceBarMetrics.segmentChrome) < 0.51, """
-                    \(workspace.title) draws \(drawn)pt around a \(label)pt label, which is \
+                Text(workspace.title).font(labelFont))).fittingSize.width
+            let chrome = WorkspaceBarMetrics.segmentChrome(scale: scale)
+            #expect(abs(drawn - label - chrome) < 0.51, """
+                    \(workspace.title) at \(scale) draws \(drawn)pt around a \(label)pt label, which is \
                     \(drawn - label)pt of chrome against segmentChrome's \
-                    \(WorkspaceBarMetrics.segmentChrome) — the bar is measuring a width it does not draw
+                    \(chrome) — the bar is measuring a width it does not draw
                     """)
             let icon = segment(workspace, framed: true, full: false).width
-            #expect(abs(icon - WorkspaceBarMetrics.iconOnlySegmentWidth) < 0.51, """
-                    \(workspace.title) draws \(icon)pt icon-only against \
-                    \(WorkspaceBarMetrics.iconOnlySegmentWidth)
+            let iconOnly = WorkspaceBarMetrics.iconOnlySegmentWidth(scale: scale)
+            #expect(abs(icon - iconOnly) < 0.51, """
+                    \(workspace.title) at \(scale) draws \(icon)pt icon-only against \(iconOnly)
                     """)
+            // And the frame holds the glyph: a symbol wider than `side` would be clipped.
+            let ink = NSHostingView(rootView: AnyView(
+                Image(systemName: workspace.symbol).font(glyphFont))).fittingSize
+            #expect(ink.width <= side + 0.5 && ink.height <= side + 0.5,
+                    "\(workspace.title) at \(scale): a \(ink)pt glyph in a \(side)pt frame is clipped")
         }
     }
 
     @Test func testWidthGrowsWithTheSegmentsItActuallyDraws() {
         // Guards the arithmetic itself: the gap term is easy to drop, and a width that ignores it
         // under-measures and never sheds when it should.
-        let one = WorkspaceBarMetrics.fullWidth(labelWidths: [40])
-        let two = WorkspaceBarMetrics.fullWidth(labelWidths: [40, 40])
-        #expect(two == one + 40 + WorkspaceBarMetrics.segmentChrome + WorkspaceBarMetrics.segmentGap)
+        let one = WorkspaceBarMetrics.fullWidth(labelWidths: [40], scale: 1)
+        let two = WorkspaceBarMetrics.fullWidth(labelWidths: [40, 40], scale: 1)
+        #expect(two == one + 40 + WorkspaceBarMetrics.segmentChrome(scale: 1) + WorkspaceBarMetrics.segmentGap)
     }
 
     @Test func testGapsAreCountedOverChildrenNotSegments() {
@@ -261,8 +274,8 @@ import FileExplorer
     @Test func testAnEmptyBarHasNoWidth() {
         // Not a real state, but the `count - 1` gap terms underflow on an empty array, and an
         // enormous negative width would read as "everything fits" forever.
-        #expect(WorkspaceBarMetrics.fullWidth(labelWidths: []) == 0)
-        #expect(WorkspaceBarMetrics.iconOnlyWidth(segmentCount: 0) == 0)
+        #expect(WorkspaceBarMetrics.fullWidth(labelWidths: [], scale: 1) == 0)
+        #expect(WorkspaceBarMetrics.iconOnlyWidth(segmentCount: 0, scale: 1) == 0)
     }
 
     // MARK: The open field's share of the row (§7)
@@ -281,7 +294,7 @@ import FileExplorer
     /// the row has left, which makes the open field part of the toolbar rather than a card on it.
     @Test func testTheFieldTakesWhatTheRowHasLeft() {
         let widths = labelWidths()
-        let bar = WorkspaceBarMetrics.fullWidth(labelWidths: widths)
+        let bar = WorkspaceBarMetrics.fullWidth(labelWidths: widths, scale: 1)
         // A width chosen so the spare lands strictly between the floor and the ceiling; at either
         // end the fixture proves nothing.
         let spare = (GoToFieldMetrics.floorWidth + GoToFieldMetrics.ceilingWidth) / 2
@@ -296,12 +309,12 @@ import FileExplorer
     /// buy the field width, or the bar loses its words for nothing.
     @Test func testTheLabelsShedForTheFieldAndTheShedBuysItWidth() {
         let widths = labelWidths()
-        let bar = WorkspaceBarMetrics.fullWidth(labelWidths: widths)
+        let bar = WorkspaceBarMetrics.fullWidth(labelWidths: widths, scale: 1)
         // One point under the floor with the labels up: the last width at which the bar sheds.
         let contentWidth = WorkspaceBarMetrics.reservedChrome + bar + GoToFieldMetrics.floorWidth - 1
         let resolved = styles(contentWidth: contentWidth, labelWidths: widths, open: true)
         #expect(resolved.workspace == .iconOnly, "the field was left under its floor with the labels up")
-        let gained = bar - WorkspaceBarMetrics.iconOnlyWidth(segmentCount: widths.count)
+        let gained = bar - WorkspaceBarMetrics.iconOnlyWidth(segmentCount: widths.count, scale: 1)
         #expect(gained > 0)
         #expect(resolved.field?.width == GoToFieldMetrics.floorWidth - 1 + gained,
                 "the shed did not reach the field")
@@ -320,7 +333,7 @@ import FileExplorer
             let width = try #require(resolved.field?.width)
             #expect(resolved.workspace == .iconOnly)
             #expect(width == Self.windowFloor - WorkspaceBarMetrics.reservedChrome
-                        - WorkspaceBarMetrics.iconOnlyWidth(segmentCount: widths.count),
+                        - WorkspaceBarMetrics.iconOnlyWidth(segmentCount: widths.count, scale: size.scale),
                     "the shed did not hand the field all of the row at \(size.percent)%")
             #expect(width > GoToFieldMetrics.floorWidth - 44,
                     "at the window floor / \(size.percent)% the field opens at \(width), more than a button's seat under its floor")
@@ -373,8 +386,8 @@ import FileExplorer
                 let resolved = styles(contentWidth: contentWidth, labelWidths: widths,
                                       scale: size.scale, open: true)
                 let bar = resolved.workspace == .full
-                    ? WorkspaceBarMetrics.fullWidth(labelWidths: widths)
-                    : WorkspaceBarMetrics.iconOnlyWidth(segmentCount: widths.count)
+                    ? WorkspaceBarMetrics.fullWidth(labelWidths: widths, scale: size.scale)
+                    : WorkspaceBarMetrics.iconOnlyWidth(segmentCount: widths.count, scale: size.scale)
                 let spent = bar + (resolved.field?.width ?? 0)
                 let available = contentWidth - WorkspaceBarMetrics.reservedChrome
                 #expect(spent <= available,
@@ -409,8 +422,8 @@ import FileExplorer
                     let run = try? #require(resolved.run, "no capsule at \(contentWidth)pt / \(size.percent)%")
                     guard let run else { continue }
                     let bar = resolved.workspace == .full
-                        ? WorkspaceBarMetrics.fullWidth(labelWidths: widths)
-                        : WorkspaceBarMetrics.iconOnlyWidth(segmentCount: widths.count)
+                        ? WorkspaceBarMetrics.fullWidth(labelWidths: widths, scale: size.scale)
+                        : WorkspaceBarMetrics.iconOnlyWidth(segmentCount: widths.count, scale: size.scale)
                     let pill = resolved.field?.width ?? CommandPaletteBarMetrics.width(
                         style: resolved.search, labelWidth: search.label, keycapWidth: search.keycap)
                     let spent = bar + pill + WorkspaceBarMetrics.capsuleWidth(run)

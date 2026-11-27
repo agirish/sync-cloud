@@ -105,6 +105,8 @@ struct FilingScorecardSheet: View {
     let syncManager: FileSyncManager
     let accent: Color
     @Environment(\.dismiss) private var dismiss
+    /// A `Text` run's own font overrides the line's `scaledFont`, so runs resolve at this scale.
+    @Environment(\.appFontScale) private var scale
     @State private var range: FilingScorecard.Range = .days30
     @State private var showsAll = false
     @State private var ruleFor: String?
@@ -165,12 +167,12 @@ struct FilingScorecardSheet: View {
         let pct = Int((Double(s.all.kept) / Double(s.all.total) * 100).rounded())
         return HStack(alignment: .top, spacing: 12) {
             tile("Kept", color: Self.kept) {
-                (Text("\(s.all.kept)").font(.system(size: 24, weight: .semibold))
+                (Text("\(s.all.kept)").scaledFont(.system(size: 24, weight: .semibold), scale: scale)
                  + Text("  of \(s.all.total) · \(pct)%").foregroundColor(.secondary))
             }
-            tile("Deeper", color: deeper) { Text("\(s.all.deeper)").font(.system(size: 24, weight: .semibold)) }
+            tile("Deeper", color: deeper) { Text("\(s.all.deeper)").scaledFont(.system(size: 24, weight: .semibold), scale: scale) }
             tile("Changed", color: Self.changed, sub: Self.changedSplit(s)) {
-                Text("\(s.all.changed)").font(.system(size: 24, weight: .semibold))
+                Text("\(s.all.changed)").scaledFont(.system(size: 24, weight: .semibold), scale: scale)
             }
         }
     }

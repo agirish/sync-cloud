@@ -41,6 +41,7 @@ struct FilingGroupCard: View {
     @State private var measuredNarrow = false
     private var narrow: Bool { isNarrow ?? measuredNarrow }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.appFontScale) private var scale
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
 
@@ -54,7 +55,7 @@ struct FilingGroupCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
-                    FilingGroupText.titleText(group)
+                    FilingGroupText.titleText(group, scale: scale)
                         .scaledFont(.system(size: 14, weight: .semibold))
                         .fixedSize(horizontal: false, vertical: true)
                     FilingRouteGrid(lines: FilingRouteText.lines(members: group.members, destination: group.destination,
@@ -265,12 +266,13 @@ enum FilingGroupText {
         return "\(bank(g))\(ending) · \(n) \(noun(g))\(n == 1 ? "" : "s")"
     }
 
-    /// ``title(_:)`` with the ending set in the muted monospaced face.
-    static func titleText(_ g: FilingCardGroup) -> Text {
+    /// ``title(_:)`` with the ending set in the muted monospaced face, at the app's text `scale`:
+    /// the run's own font overrides the title's `scaledFont`.
+    static func titleText(_ g: FilingCardGroup, scale: CGFloat) -> Text {
         let n = g.members.count
         guard let account = g.account else { return Text(title(g)) }
         return Text(bank(g) + " ")
-            + Text("••" + account.ending).font(.system(size: 12.5, weight: .medium, design: .monospaced)).foregroundStyle(.secondary)
+            + Text("••" + account.ending).scaledFont(.system(size: 12.5, weight: .medium, design: .monospaced), scale: scale).foregroundStyle(.secondary)
             + Text(" · \(n) \(noun(g))\(n == 1 ? "" : "s")")
     }
 

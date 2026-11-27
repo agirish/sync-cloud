@@ -243,7 +243,7 @@ struct AskClaudeSuggestionChip: View {
             .buttonStyle(.plain)
             .help("Asks Claude “\(chip.question)”. Nothing is sent until you click.")
             Button { notNow(chip) } label: {
-                Image(systemName: "xmark").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                Image(systemName: "xmark").scaledFont(.caption2.weight(.semibold)).foregroundStyle(.secondary)
                     .frame(width: 16, height: 16).contentShape(Circle())
             }
             .buttonStyle(.plain)

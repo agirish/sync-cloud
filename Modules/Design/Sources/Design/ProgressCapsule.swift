@@ -324,7 +324,7 @@ public struct ProgressCapsule: View {
                     .scaledFont(.system(size: 10.5, weight: .semibold))
                     .monospacedDigit()
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 7, weight: .bold))
+                    .scaledFont(.system(size: 7, weight: .bold))
             }
             .padding(.leading, 6)
             .padding(.trailing, 5)

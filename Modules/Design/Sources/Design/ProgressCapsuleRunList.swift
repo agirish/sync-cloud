@@ -75,14 +75,15 @@ public struct ProgressCapsuleRunList: View {
 struct ProgressCapsuleRunRow: View {
     let listed: ProgressCapsuleListedRun
     let isNewest: Bool
+    @Environment(\.appFontScale) private var scale
 
     var body: some View {
         let run = listed.run
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: listed.symbol)
-                .font(.system(size: 12))
+                .scaledFont(.system(size: 12))
                 .foregroundStyle(.secondary)
-                .frame(width: 18)
+                .frame(width: FontSize.scaledBox(18, basePoint: 12, scale: scale))
                 .padding(.top, 1)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {

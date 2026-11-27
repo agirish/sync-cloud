@@ -47,14 +47,29 @@ enum WorkspaceBarMetrics {
     /// A symbol wider than this frame is clipped, not scaled, and nothing else would say so:
     /// measure a new workspace's glyph before choosing it. `theBarDrawsEverySegmentAtOneHeight`
     /// keeps the frame and this constant together.
+    ///
+    /// This is the side at 100%. The glyph follows Settings ▸ Text size like its label, so the
+    /// frame does too: ``glyphSide(scale:)``.
     static let glyphSide: CGFloat = 17
+    /// The glyph's point size at 100%, the base `glyphSide(scale:)` grows from.
+    static let glyphPoint: CGFloat = 12
+
+    /// The glyph's square at a text scale, held in the same proportion to the scaled glyph as at
+    /// 100% (`FontSize.scaledBox`), so a larger glyph is never clipped by a 100% frame.
+    ///
+    /// Rounded up to a whole point: layout rounds a fractional frame (15.3 at 90%, 18.19 at 125%)
+    /// to the next point, so an unrounded side under-measures each segment by up to a point, and
+    /// the bar would keep labels it has no room for.
+    static func glyphSide(scale: CGFloat) -> CGFloat {
+        FontSize.scaledBox(glyphSide, basePoint: glyphPoint, scale: scale).rounded(.up)
+    }
 
     /// What a segment adds around its label: the glyph, the 6pt gap after it, and 2×12pt of
     /// horizontal padding.
-    static let segmentChrome: CGFloat = glyphSide + 6 + 24
+    static func segmentChrome(scale: CGFloat) -> CGFloat { glyphSide(scale: scale) + 6 + 24 }
     /// A segment with no label — glyph plus 2×10pt padding, which is tighter than the labelled
     /// form because there is nothing for the padding to separate the glyph from.
-    static let iconOnlySegmentWidth: CGFloat = glyphSide + 20
+    static func iconOnlySegmentWidth(scale: CGFloat) -> CGFloat { glyphSide(scale: scale) + 20 }
     /// Between segments, inside the container capsule.
     static let segmentGap: CGFloat = 4
     /// The container capsule's own inset, both edges.
@@ -75,7 +90,7 @@ enum WorkspaceBarMetrics {
     /// every text size, and at Large and Largest the workspace bar drops its labels.
     ///
     /// The ⌘K pill is not in here: its width depends on its own rung, so it is charged per rung in
-    /// ``styles(contentWidth:labelWidths:searchLabelWidth:searchKeycapWidth:openField:)``.
+    /// ``styles(contentWidth:labelWidths:searchLabelWidth:searchKeycapWidth:scale:openField:runShowing:)``.
     static let reservedChrome: CGFloat = 78 + 24 + 176 + 44
 
     /// Width of the bar with every label spelled out.
@@ -83,9 +98,10 @@ enum WorkspaceBarMetrics {
     /// - Parameters:
     ///   - labelWidths: each segment's rendered label width, in order. Measured, because the app
     ///     scales its own type (Settings ▸ Text size).
-    static func fullWidth(labelWidths: [CGFloat]) -> CGFloat {
+    static func fullWidth(labelWidths: [CGFloat], scale: CGFloat) -> CGFloat {
         guard !labelWidths.isEmpty else { return 0 }
-        let segments = labelWidths.reduce(0) { $0 + $1 + segmentChrome }
+        let chrome = segmentChrome(scale: scale)
+        let segments = labelWidths.reduce(0) { $0 + $1 + chrome }
         return segments + gapWidth(children: labelWidths.count) + containerPadding
     }
 
@@ -97,9 +113,9 @@ enum WorkspaceBarMetrics {
     }
 
     /// Width of the bar with every label shed.
-    static func iconOnlyWidth(segmentCount: Int) -> CGFloat {
+    static func iconOnlyWidth(segmentCount: Int, scale: CGFloat) -> CGFloat {
         guard segmentCount > 0 else { return 0 }
-        let segments = CGFloat(segmentCount) * iconOnlySegmentWidth
+        let segments = CGFloat(segmentCount) * iconOnlySegmentWidth(scale: scale)
         return segments + gapWidth(children: segmentCount) + containerPadding
     }
 
@@ -121,13 +137,14 @@ enum WorkspaceBarMetrics {
     /// dropped: it carries the run's only stop button.
     static func styles(contentWidth: CGFloat, labelWidths: [CGFloat],
                        searchLabelWidth: CGFloat, searchKeycapWidth: CGFloat,
-                       openField: OpenFieldRequest? = nil, runShowing: Bool = false) -> ToolbarBarStyles {
+                       scale: CGFloat, openField: OpenFieldRequest? = nil,
+                       runShowing: Bool = false) -> ToolbarBarStyles {
         let available = contentWidth - reservedChrome
-        let bar = fullWidth(labelWidths: labelWidths)
+        let bar = fullWidth(labelWidths: labelWidths, scale: scale)
         if let request = openField {
             // The open field takes the spare, so the capsule takes its ring and nothing more.
             return openStyles(available: available - (runShowing ? capsuleWidth(.ring) : 0),
-                              bar: bar, labelWidths: labelWidths, request: request,
+                              bar: bar, labelWidths: labelWidths, scale: scale, request: request,
                               run: runShowing ? .ring : nil)
         }
         let searchFull = CommandPaletteBarMetrics.width(style: .full, labelWidth: searchLabelWidth,
@@ -175,6 +192,7 @@ enum WorkspaceBarMetrics {
         func resolve(open: Bool, run: Bool) -> ToolbarBarStyles {
             styles(contentWidth: contentWidth, labelWidths: labelWidths,
                    searchLabelWidth: searchLabelWidth, searchKeycapWidth: searchKeycapWidth,
+                   scale: scale,
                    openField: open ? OpenFieldRequest(keycapWidth: fieldKeycapWidth, scale: scale) : nil,
                    runShowing: run)
         }
@@ -192,7 +210,7 @@ enum WorkspaceBarMetrics {
     /// reach the field's ceiling with the labels untouched, and narrow ones are icon-only at rest,
     /// so labels move on open only in the band between.
     private static func openStyles(available: CGFloat, bar: CGFloat, labelWidths: [CGFloat],
-                                   request: OpenFieldRequest,
+                                   scale: CGFloat, request: OpenFieldRequest,
                                    run: ProgressCapsuleStyle? = nil) -> ToolbarBarStyles {
         func layout(spare: CGFloat) -> GoToFieldLayout {
             // Clamped at zero, not given a fallback width: a field drawn wider than its share
@@ -210,7 +228,7 @@ enum WorkspaceBarMetrics {
         }
         // Shedding buys the difference between the two bar widths. Below the floor even then, the
         // field opens as wide as it can and the short placeholder absorbs the rest.
-        let shed = available - iconOnlyWidth(segmentCount: labelWidths.count)
+        let shed = available - iconOnlyWidth(segmentCount: labelWidths.count, scale: scale)
         return ToolbarBarStyles(workspace: .iconOnly, search: .compact, field: layout(spare: shed), run: run)
     }
 }

@@ -223,12 +223,12 @@ extension ContentView {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: workspace.symbol)
-                    .font(.system(size: 12, weight: .medium))
+                    .scaledFont(.system(size: WorkspaceBarMetrics.glyphPoint, weight: .medium))
                     // Framed, so a segment's size doesn't depend on which symbol is in it: the
                     // glyphs render at different sizes (see `WorkspaceBarMetrics.glyphSide`). Same
                     // idiom as `PaneTabStripLadder.markSide`.
-                    .frame(width: WorkspaceBarMetrics.glyphSide,
-                           height: WorkspaceBarMetrics.glyphSide)
+                    .frame(width: WorkspaceBarMetrics.glyphSide(scale: appFontScale),
+                           height: WorkspaceBarMetrics.glyphSide(scale: appFontScale))
                 if style == .full {
                     Text(workspace.title)
                         .scaledFont(.system(size: 12, weight: isSelected ? .semibold : .medium))

@@ -1423,7 +1423,7 @@ struct FilePairCompareView<Verdict: View>: View {
                              action: PlaceholderAction?) -> some View {
         VStack(spacing: 8) {
             Image(systemName: symbol)
-                .font(.system(size: 26))
+                .scaledFont(.system(size: 26))
                 .foregroundStyle(.tertiary)
             Text(caption)
                 .scaledFont(.system(size: 11.5))
