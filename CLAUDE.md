@@ -123,8 +123,9 @@ For a mechanical choice with a clear default, pick it, say so in the report, and
   for privacy access again; a signed copy keeps its grants. CI never signs. A line just after `launched` says
   `Code signature: team …` or `Code signature: ad-hoc …`; an ad-hoc install asks for Documents
   access at first launch.
-- **The certificate expires 2026-12-01.** The skill signs through a renewal while both certificates
-  share a name; with none, or two with different names, it installs ad-hoc and says so.
+- **The certificate expires 2027-11-27** (renewed 2026-11-26; the old one ends 2026-12-01). The skill
+  signs through a renewal while both certificates share a name; with none, or two with different
+  names, it installs ad-hoc and says so.
 
 ---
 
