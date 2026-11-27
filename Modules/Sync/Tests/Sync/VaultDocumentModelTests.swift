@@ -309,7 +309,7 @@ import Testing
         let rig = try Rig(); defer { rig.cleanUp() }
         let first = Self.model(rig), second = Self.model(rig)
         await first.opened()
-        _ = first.add(VaultModel.Draft(title: "Passport", value: "A0000001"))
+        _ = first.add(VaultModel.Draft(title: "Passport", value: "A1000001"))
         await second.opened()
 
         let library = try #require(first.add(VaultModel.Draft(title: "Library card", value: "LIB0000001")))
@@ -331,7 +331,7 @@ import Testing
         let rig = try Rig(); defer { rig.cleanUp() }
         let first = Self.model(rig), second = Self.model(rig)
         await first.opened()
-        let id = try #require(first.add(VaultModel.Draft(title: "Passport", value: "A0000001")))
+        let id = try #require(first.add(VaultModel.Draft(title: "Passport", value: "A1000001")))
         await second.opened()
         let opened = try #require(second.entry(id: id))
 

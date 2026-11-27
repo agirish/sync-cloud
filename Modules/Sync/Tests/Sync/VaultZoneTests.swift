@@ -82,11 +82,11 @@ import Testing
         let specimen = try #require(MachineZone.read([VaultReadingTests.nameLine, VaultReadingTests.numberLine]))
         #expect(specimen.recovery == .asRead)
         // A look-alike letter in a date is put back as read, not recovered.
-        let lines = VaultReadingTests.zone("P", number: "U5054030", born: "850514", expires: "330601")
+        let lines = VaultReadingTests.zone("P", number: "U7316052", born: "850514", expires: "330601")
         #expect(MachineZone.read([lines[0], Self.misread(lines[1], [23: "O"])])?.recovery == .asRead)
         // A character Vision could not read, filled.
         let filled = try #require(MachineZone.read([lines[0], Self.misread(lines[1], [24: "~"])]))
-        #expect(filled.number == "U5054030" && filled.recovery == .fill)
+        #expect(filled.number == "U7316052" && filled.recovery == .fill)
         // An Indian passport's leading Z read as a 2, swapped back.
         let india = VaultReadingTests.zone("P", number: "Z1234567", born: "550312", expires: "310704", country: "IND")
         let swapped = try #require(MachineZone.read([india[0], Self.misread(india[1], [0: "2"])]))

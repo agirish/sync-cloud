@@ -433,8 +433,8 @@ struct VaultFakeDocuments: VaultDocumentReading {
 
     @Test func aSavedPassportAndANewerReadOneAreWeighedTogether() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
-        let old = VaultReadingTests.zone("P", number: "A0000001", born: "740812", expires: "240825")
-        let new = VaultReadingTests.zone("P", number: "A0000002", born: "740812", expires: "320516")
+        let old = VaultReadingTests.zone("P", number: "A1000001", born: "740812", expires: "240825")
+        let new = VaultReadingTests.zone("P", number: "A1000002", born: "740812", expires: "320516")
         let model = rig.model()
         await model.readDocuments(with: VaultFakeDocuments(pages: ["/P/Anna/2014.pdf": old]))
         let first = try #require(model.finds.first)
@@ -444,7 +444,7 @@ struct VaultFakeDocuments: VaultDocumentReading {
         await model.readDocuments(with: VaultFakeDocuments(pages: ["/P/Anna/2014.pdf": old, "/P/Anna/2022.pdf": new]))
         let rows = model.rows
         #expect(rows.first { $0.id == savedID }?.standing.tab == .archive, "the newer passport read makes the saved one older")
-        #expect(rows.first { $0.value == "A0000002" }?.standing.tab == .current)
+        #expect(rows.first { $0.value == "A1000002" }?.standing.tab == .current)
     }
 
     @Test func aPassportGathersTheDocumentsThatNameIt() async throws {
@@ -460,13 +460,13 @@ struct VaultFakeDocuments: VaultDocumentReading {
 
     @Test func aNumberWithNoNameReadBorrowsItFromTheSameBirthDate() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
-        let named = VaultReadingTests.zone("P", number: "A0000002", born: "740812", expires: "320516")
-        let unnamed = VaultReadingTests.zone("P", number: "A0000001", born: "740812", expires: "220516")
+        let named = VaultReadingTests.zone("P", number: "A1000002", born: "740812", expires: "320516")
+        let unnamed = VaultReadingTests.zone("P", number: "A1000001", born: "740812", expires: "220516")
         let model = rig.model()
         model.people = [Person(id: "anna", displayName: "Anna")]
         // The old passport's name line was not read: only its number line is on the page.
         await model.readDocuments(with: VaultFakeDocuments(pages: ["/p/new.pdf": named, "/p/old.pdf": [unnamed[1]]]))
-        let old = try #require(model.rows.first { $0.value == "A0000001" })
+        let old = try #require(model.rows.first { $0.value == "A1000001" })
         #expect(old.whose == "Anna")
         #expect(old.personID == "anna")
         #expect(old.standing.tab == .archive)
@@ -475,31 +475,31 @@ struct VaultFakeDocuments: VaultDocumentReading {
     @Test func aNumberCanBeGivenToSomeoneElseOrTheHouseholdAndTheChoiceStays() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         // Two passports read with Anna's birth date: the older one is really a mistagged scan.
-        let new = VaultReadingTests.zone("P", number: "A0000002", born: "740812", expires: "320516")
-        let old = VaultReadingTests.zone("P", number: "A0000001", born: "740812", expires: "240516")
+        let new = VaultReadingTests.zone("P", number: "A1000002", born: "740812", expires: "320516")
+        let old = VaultReadingTests.zone("P", number: "A1000001", born: "740812", expires: "240516")
         let documents = VaultFakeDocuments(pages: ["/p/new.pdf": new, "/p/old.pdf": old])
         let model = rig.model()
         model.people = [Person(id: "anna", displayName: "Anna"), Person(id: "erik", displayName: "Erik")]
         await model.readDocuments(with: documents)
-        let oldRow = try #require(model.rows.first { $0.value == "A0000001" })
+        let oldRow = try #require(model.rows.first { $0.value == "A1000001" })
         #expect(oldRow.standing.tab == .archive)
         #expect(oldRow.whose == "Anna")
 
         // Moved to the household: no longer weighed against Anna's, so it is current there.
         model.assign(oldRow.id, to: .household)
-        var moved = try #require(model.rows.first { $0.value == "A0000001" })
+        var moved = try #require(model.rows.first { $0.value == "A1000001" })
         #expect(moved.whose == "Household")
         #expect(moved.isHousehold)
         #expect(moved.standing.tab == .current)
         model.personFilter = .household
-        #expect(model.visibleRows.map(\.value) == ["A0000001"])
+        #expect(model.visibleRows.map(\.value) == ["A1000001"])
         model.personFilter = .everyone
 
         // Kept across a read of everything, and onto the saved entry.
         await model.readDocuments(with: documents, again: true)
-        moved = try #require(model.rows.first { $0.value == "A0000001" })
+        moved = try #require(model.rows.first { $0.value == "A1000001" })
         #expect(moved.assignment == .household)
-        let find = try #require(model.finds.first { $0.value == "A0000001" })
+        let find = try #require(model.finds.first { $0.value == "A1000001" })
         let id = try #require(model.confirm(find.id, as: VaultModel.Draft(find, people: model.people)))
         #expect(model.rows.first { $0.id == id }?.isHousehold == true)
 

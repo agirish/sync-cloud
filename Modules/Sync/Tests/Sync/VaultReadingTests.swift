@@ -114,12 +114,12 @@ import Testing
     }
 
     @Test func aCharacterVisionCouldNotReadIsFilledOnlyWhenTheChecksAgreeOnOne() throws {
-        let lines = Self.zone("P", number: "U5054030", born: "850514", expires: "330601", given: "SIGRID")
+        let lines = Self.zone("P", number: "U7316052", born: "850514", expires: "330601", given: "SIGRID")
         // A digit of the expiry read as "~", as on a real scan.
         var garbled = Array(lines[1])
         garbled[24] = "~"
         let zone = try #require(MachineZone.read([lines[0], String(garbled)]))
-        #expect(zone.number == "U5054030")
+        #expect(zone.number == "U7316052")
         #expect(zone.expires == Self.day(2033, 6, 1))
         // Three unreadable characters is too many to trust.
         garbled[14] = "~"; garbled[3] = "~"
