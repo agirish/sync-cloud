@@ -5,6 +5,199 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v7.2
+
+**The Vault, and statements filed by their account number.** v7.2 adds the Vault, a panel that reads
+the IDs you get asked for from your documents and keeps them sealed on this Mac behind Touch ID. To
+File reads a statement's account number and files it into that account's folder, by year, under one
+name style, and Organize ▸ Missing lists the statements each account folder lacks. Ask Claude sends
+your screen only with a question that needs it, the pane bar's buttons are bigger, and Settings is
+roomier, with a tenth tab for the Vault.
+
+Requires **macOS 26**, unchanged from v7.1.
+
+### Before you update
+
+- **The Vault needs Touch ID** on this Mac, with a fingerprint set up; it has no password fallback.
+  It reads nothing until you choose a folder, in Settings ▸ Vault ▸ Read or from Discover More. To
+  move it to another Mac, make a passphrase backup first: its file opens only with this Mac's key.
+- **Statements filed into an account folder take one name style**, such as `03. Mar 2026.pdf`,
+  whatever the folder's older files are called.
+- **Folders named Deleted are left alone**: To File never files into one, and the survey, Renames
+  and Duplicates pass over it.
+- **The first survey update reads again every PDF an earlier version recorded as blank**, once. On a
+  large tree it can take minutes.
+- **Saved Refine answers are asked again** the next time a file is refined, because the question
+  sent to Claude changed.
+- **An open chat starts over once** after the update.
+
+### The Vault
+
+- **A panel for the IDs you get asked for**: passport numbers, member IDs, loan numbers and the
+  like. Open it with the Vault button in the toolbar, View ▸ Vault or ⌘U. Add an ID by hand with +,
+  or let the Vault read IDs from your documents. Drag any edge or corner to resize it.
+- **Discover More reads the folders you choose**, on this Mac: the first three pages of each PDF or
+  image, passing over files larger than 60 MB, and after the first read only new and changed files.
+  Folders named Immigration and Legal are read whole; account numbers are read only under Health,
+  Home, Vehicles and School; anywhere else, only a file whose name says it is an ID. Every find is
+  marked To confirm until you answer it. Stop ends a read.
+- **What it reads.** Passports, from their machine-readable zone, kept only when the check digits
+  agree; US visas, OCI cards and visas granted online; I-94 numbers and USCIS receipt numbers; a US
+  driver's license, from its barcode and its printed front; Indian licenses; Social Security cards
+  and ITIN notices; PAN cards, Aadhaar letters and voter IDs. Under the account folders: member IDs,
+  utility and phone accounts, loans, policies, VINs and student IDs. An identity card's number is
+  kept only where its kind can be checked, such as Aadhaar's check digit, and a scan too blurred to
+  read cleanly is skipped. A passport zone whose smudged character was worked out from its check
+  digits says so, and asks you to compare it with the document.
+- **Cards by kind, in Current and Archive**, packed into as many columns as fit, under group
+  headings that fold. Current shows the newest ID of each kind for each person; Archive keeps the
+  expired and the replaced. A row is marked Expired, "Expires in N days" or To confirm. Color… on a
+  card's title, Customize Groups… and Hide Group Headings arrange them. The switch above the cards
+  changes to List or People.
+- **People: each person's IDs together**, opening with tiles for their name as their papers print
+  it, date of birth, home address, phone and email, each saying where it was read. The Contact group
+  holds Home Addresses, Phones and Emails; a business's address or phone and a P.O. Box are not
+  taken, and emails are typed in.
+- **Built for a phone call.** Showing narrows the cards by country, person and kind. Search matches
+  names, notes and kinds, never an ID's digits. The arrow keys move between rows and Return copies.
+  The chosen ID shows in full with its details, each with its own Copy, a preview of its document
+  and Documents with this ID. Large Type draws it large, grouped as its card prints it.
+- **Answer what was read.** Each find has Add to Vault…, Correct the ID… and Not an ID…. A reading a
+  character or two from an ID the person already has offers Merge…, and a file that only names an ID
+  has Not for This ID. Name on the Document fixes a misread name, for one ID or every ID read with
+  it; Belongs to, Used in, Tab and, for an account, Kind override the document; Read from This Copy
+  picks which copy an ID is read from. Later reads keep these choices.
+- **More Fields** lists what an ID's card prints that its details don't show, each with Add, and Add
+  a Field… takes one you type.
+- **Refresh** reads only the document each ID came from, as the Vault opens, and marks what changed
+  Updated. It never changes a saved ID: when the document reads as another number it asks, with Keep
+  Mine and Use the New Reading.
+- **Touch ID, and nothing else, opens it**: no password button, and no Apple Watch. Locked under the
+  default, "As soon as Vault opens", the panel shows only its lock, with no name, date or ending;
+  "For every ID" shows the list and asks Touch ID for each ID. While Touch ID is asked for, the IDs
+  behind the prompt are blurred. A Social Security or Aadhaar number hides even its last four until
+  it is shown.
+- **It locks itself.** Settings ▸ Vault ▸ Lock sets when, from "When Vault closes" to "After 10
+  minutes idle, even if closed"; the default is "After 1 minute idle". It always locks when the Mac
+  sleeps, its screen locks, or you switch user. Lock Now locks it at once.
+- **A copied ID clears itself.** It is marked concealed and transient, kept off Universal Clipboard,
+  and cleared after the time set in "Clear the clipboard after" (1 minute to start), when the Vault
+  locks, and when SyncCloud quits.
+- **Kept out of screen sharing while an ID is shown.** The window, and Quick Look over a Vault
+  document, are left out of what other apps that honour macOS's window-sharing setting capture.
+  "Hide from screen sharing while an ID is shown" turns it off; turning it off asks for Touch ID.
+- **A sealed list of what was done.** Activity, in Settings ▸ Vault ▸ Lock, lists each unlock and
+  each ID shown, copied, added, edited or removed, by name, never the number: the newest 500 events
+  from the last 90 days.
+- **Backup and restore under a passphrase** of 12 characters or more, in Settings ▸ Vault ▸ Backup.
+  Once a passphrase is set, "Back up every week" makes a backup when the Vault opens and the last
+  one is a week old, to `~/Documents/Backups/Vault` unless you choose a folder. Restore offers "Add
+  the N IDs Missing Here" or "Replace the Vault with This Backup"; Replace sets the current Vault
+  aside and puts it back if the new one can't be written.
+- **Sealed on this Mac, never sent to Claude.** The IDs are kept in sealed files on this Mac that
+  only your user account can read. Ask Claude is told only that the Vault is open.
+
+### Filing and To File
+
+- **Statements file by the account number they print.** To File matches the last four digits on a
+  statement's first page to the account folder whose name carries them, or whose filed statements
+  print them, and files it where that account's newest statements are, by year. A folder named for
+  two years, such as `2025-26`, is a financial year. A statement that prints no number goes to the
+  one account at its bank whose last statement closed at the balance this one opens at.
+- **New, learned, shared and archived accounts.** A statement for an account no folder holds is
+  offered a new folder, named and laid out like the bank's other accounts; Edit Path… takes any
+  path. "Remember ••1234 where I choose" learns an account, listed under Learned Accounts in
+  Organize ▸ Rules. A statement printing several accounts' numbers is filed into one and copied into
+  the others, with one ⌘Z; File Once Here skips the copies. An archived account's new statements
+  offer to move it out of the archive, then file.
+- **One name style for statements**: `03. Mar 2026.pdf`, one digit for quarterly or sparser accounts
+  unless the folder already uses two, a range for a statement covering several months (`03. Jan-Mar
+  2026.pdf`), and `0. Summary 2025` for a year-end summary. When page 1 prints no period, the month
+  comes from the file name and the card is never High.
+- **Tax forms by tax year, policy papers by term.** With an `Income Tax` folder of year folders, a
+  tax form files into its printed tax year, in the folder its kind has in the newest year. A policy
+  paper headed for a folder of year folders files in the year its term starts.
+- **Each card says what it moves where**: From and Moves to, a view of page 1 marking the number and
+  date it read, and Quick Look on the action line. Cards fall under Matched, Check first and Needs
+  your pick; a card with no sure home leads with Choose a Folder…. Statements for one account share
+  a card.
+- **File All N… opens a sheet** listing every Matched card, each ticked, and files them as one ⌘Z. A
+  filed card leaves a receipt line with Undo, which puts the cards back as well as the files.
+- **To File asks before scanning a folder's subfolders**, with Scan All N Files or Only the N in the
+  folder. "Always scan subfolders" is in the question and in Settings ▸ Organize ▸ To File.
+- **Only byte-for-byte copies go to the Trash.** A match by page text alone reads "looks already
+  filed", since a signed and an unsigned copy share their text, and can't be trashed from the card.
+- **The live folder, not its archived twin.** When the best match sits inside an archive and a
+  folder of the same name outside it keeps newer files, To File offers the live folder first.
+- **A PDF whose text layer is garbled is read with OCR** for its first page.
+- **A first-pick scorecard** above the cards counts how often the folder offered first was kept;
+  View ▸ Filing Scorecard turns it off and on.
+- **File with Claude puts the whole selection on one card**, grouped by folder, with one Apply and
+  one Undo; files no folder fits go under No Folder Fits. Asking Claude to file the loose files puts
+  the sure ones first.
+- **Fixes.** Refine with Claude and Try Another Folder send a long number on a page, such as an
+  account or card number, as •• and its last four digits; v7.1 sent it whole. A file whose name
+  matches a folder filed under a different year is offered at Medium, not High, so File All no
+  longer moves it unseen. Update the Survey on Restructure's Scaffolded card shows that it is
+  running.
+
+### Organize ▸ Missing
+
+- **A new lens lists the statements each account folder lacks**, read from file names alone: a row
+  per account with a cell for each month of the last three years, recent gaps first. A Year menu
+  checks one year. Hide Account, Stop Tracking, Not Expected and Count as Missing change only what
+  is counted, each with Undo. `synccloud missing [folder] [--year 2025] [--json]` prints the same
+  list.
+- **Fills a Gap.** A To File card whose statement closes a month Missing lists is marked so.
+- **Claude can read Missing and the scorecard**, as counts worked out on this Mac.
+
+### Ask Claude
+
+- **Your screen goes only with a question that needs it.** With Apple Intelligence on, a question is
+  checked on this Mac first; one unrelated to your files goes without the screen, and Claude can ask
+  for it. Starters, card buttons and attached files always send it. The line under an answer says
+  "no screen" or "screen when Claude asked".
+- **Starter questions fit the folder in view**, from the selection, PDFs, files changed this week,
+  copies and screenshots, by count and kind, never by name. Nothing is sent until you click one.
+- **The intro can be closed for good** with its ✕; "Show the intro in new chats" in Settings ▸ Ask
+  Claude ▸ General brings it back.
+- **Coming back after an hour starts a new chat**, when you open the column or launch with it open;
+  v7.1 kept the old one on screen. A chat with a card still working stays.
+
+### Around the app
+
+- **New Folder with Selection**, on the right-click menu and File (⌃⌘N), moves the selected items
+  into a new folder beside them. One ⌘Z moves them back.
+- **Quick Look steps through the pane, as in Finder**: the arrow keys move the pane's selection and
+  the preview follows. v7.1's preview took the keys and dropped them.
+- **Bigger pane bar buttons** at the Regular icon size (right-click the pane bar): 40 × 24 pills
+  with a 14 pt glyph, up from 33 × 20 and 12 pt. Edit's header buttons, its Source · Preview · Split
+  switch and Organize's lens rail match that height.
+- **Text size reaches more of the app**: the workspace bar's glyphs and the Settings text that kept
+  a fixed size now scale with it.
+- **A roomier Settings**, 920 × 648 at the default text size (was 760 × 512), with Vault as a tenth
+  tab. Search finds a tab or page by name, and Esc clears a search before it closes the sheet. Ask
+  Claude ▸ Privacy's Clear All… is Delete All….
+- **Copy Log for Sharing masks more**: the names of people no longer in a People list went unmasked
+  in v7.1.
+- **Restructure's retry uses your edit.** After a refused Apply, a retry applied the mapping from
+  before you changed it; it now plans again.
+
+### Known limitations
+
+- The Vault's readers know United States and Indian documents, plus any passport's machine-readable
+  zone. It reads no bank accounts or payment cards, and no green cards or EADs. It reads emails
+  nowhere; type them in.
+- In a copy you build yourself, Touch ID guards the Vault in the app, but its key is an ordinary
+  item in your login keychain.
+- Closing the lid with the Mac kept awake, for example on an external display, doesn't lock the
+  Vault; an idle lock, if one is set, still does.
+- Missing reads only file names in the `03. Mar 2026` or `21. Nov 15 2025` style, and OCR covers
+  page 1 only.
+- Refine still sends file names as they are; only page text is masked.
+
+---
+
 ## v7.1
 
 **Ask Claude remembers: past chats, notes about you, and Refine in the chat.** v7.1 keeps your

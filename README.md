@@ -11,11 +11,10 @@ keep across iCloud Drive, OneDrive, Dropbox and Google Drive.**
   <img src="docs/assets/screenshots/hero-compare.png" alt="SyncCloud comparing two folders side by side" width="900">
 </p>
 
-> **✨ New in v7.1 — Ask Claude remembers.** Past chats are kept on this Mac, Claude keeps notes on
-> how you work, simple commands run here without a request to Claude, and Organize's Refine is a
-> card in the chat. Press **⌘J** and ask about what's on screen: *"which files are only on
-> Dropbox?"*, *"where should this go?"*, *"combine these PDFs"*. Nothing changes until you click
-> Apply. [More below](#-ask-claude).
+> **✨ New in v7.2 — the Vault.** A panel (**⌘U**) that reads the IDs you get asked for from your
+> documents and keeps them sealed on this Mac behind Touch ID. To File files a statement by the
+> account number it prints, into that account's folder by year, and **Organize ▸ Missing** lists
+> the statements each account folder lacks. [More below](#-vault).
 
 SyncCloud has four workspaces:
 
@@ -39,7 +38,7 @@ Deletes go to the Trash, overwrites are staged and swapped in atomically, and ea
 ### 💬 Ask Claude
 A chat in a column at the window's right edge (⌘J, or the button at the top right) that answers questions about what you're
 looking at and moves you around the app, using your own Anthropic API key. Nothing is sent until
-you ask.
+you ask, and with Apple Intelligence on, the screen goes only with a question that needs it.
 - **Sees a description of the screen, not your files** — names, kinds, sizes, dates and tags. When
   a question needs what's inside a file, it's read on this Mac and a card shows exactly what would
   go; nothing from the file is sent until you share it on the card, unless you let it. Names from
@@ -166,15 +165,14 @@ one monthly limit ($25 by default).
 ### 🔐 Vault
 A locked panel over the window (**⌘U**, or the lock in the toolbar) for the IDs you get asked
 for: a passport number, a member ID, a loan number.
-- **Sealed on this Mac**: one encrypted file, its key in your login keychain. Nothing in it is sent
+- **Sealed on this Mac**: encrypted files, their key in your login keychain. Nothing in it is sent
   to Claude or written to the log.
 - **Touch ID** to open it. Locked, the panel shows only its lock: no name,
   date or ending, and nothing is read from disk. Unlocked, a row shows a name and the last four
   characters; the full ID is drawn only for the one chosen. A copied ID is cleared from the
   clipboard after a time you set, and the window is kept out of screen sharing while one is shown.
 - **Built for a phone call**: type to search, Return to copy, and **Large Type** to read an ID
-  out, grouped as its card prints it, with its details under it. A copy clears from the clipboard
-  after a minute.
+  out, grouped as its card prints it, with its details under it.
 - **Locks itself** when it closes, after a minute with nothing done in it, and when the Mac
   sleeps. **Settings ▸ Vault ▸ Lock** changes when it asks; the lock is always on, and a Mac without
   Touch ID set up can't use the Vault.
