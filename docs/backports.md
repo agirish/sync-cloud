@@ -16563,3 +16563,16 @@ Token filter chips take the mini `Pill`'s padding and a 10pt medium face instead
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The earlier button and chip looks, where those surfaces exist | RECORDED — not owed (UI polish) |
+
+## Quick Look: arrows step through the pane — main only, recorded, not owed
+
+2026-11-26, for v7.2. With a pane's file open in Quick Look (Space), ↑ ↓ ← → went to the panel and
+were dropped. While the preview follows the pane, plain arrows now go to the main window's focused
+pane list (`PaneQuickLookArrows`, fed by `quickLookFollowsPane`), and the preview re-targets as it
+already did for a click.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` | The defect; both pieces the fix stands on (`quickLookFollowsPane`, `PaneListKeyFocus`) | RECORDED — not owed |
+| `v4.x` / `v2.x` | The defect; `quickLookFollowsPane` but no `PaneListKeyFocus`, so the pick needs another way to tell a pane list | RECORDED — not owed |
+| `v3.x` | The defect; no follow-the-pane preview at all, so arrows would move a selection the preview ignores | RECORDED — not owed |

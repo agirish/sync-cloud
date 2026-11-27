@@ -1347,6 +1347,9 @@ struct ContentView: View {
         // An open panel follows the pane selection, Finder-style, and closes when it is cleared.
         // The rule is `CurrentSelection.previewFollow`; this only supplies the trigger.
         .onChange(of: paneQuickLookTarget) { _, _ in followPaneSelectionWithQuickLook() }
+        // The panel takes the keyboard; while it follows the pane, the arrows go back to the
+        // pane's list, so ↑ and ↓ step through the folder as in Finder.
+        .onChange(of: quickLookFollowsPane) { _, follows in PaneQuickLookArrows.followsPane = follows }
         // In Edit with the source pane open, the pane is the file list, so a single selected text
         // file opens. The rule and its guards are `paneSelectionOpens`; this only supplies the
         // trigger.
