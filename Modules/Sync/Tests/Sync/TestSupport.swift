@@ -218,16 +218,25 @@ actor ParkThreadBudget {
     /// How long a reservation waits before giving up and going ahead anyway: far longer than any
     /// legitimate queue, so reaching it means the budget is wedged. An extra park beats a hung
     /// package run, but the give-up records itself, so a limiter that stopped limiting shows.
+    ///
+    /// Both must run out (``TurnDeadline``): the seconds and the scheduler turns. The queue drains
+    /// at the pace of the tests holding it, most of them on the main actor, and a single-process
+    /// `Modules/Sync` run keeps its main thread busy for about a minute from the start, at a turn
+    /// every second or so. Seconds alone gave up on a queue that was still moving
+    /// (`docs/flaky-tests.md`, "A park budget's give-up counted seconds while its queue waited for
+    /// the main actor").
     let giveUpAfter: Duration
+    let giveUpTurns: Int
 
     /// Where a give-up is reported: a real test failure by default. Injectable only so
     /// `ParkBudgetTests` can exercise the give-up without `withKnownIssue`, which would put "with 1
     /// known issue" on every `Modules/Sync` run's summary line.
     private let report: @Sendable (String) -> Void
 
-    init(giveUpAfter: Duration = .seconds(60),
+    init(giveUpAfter: Duration = .seconds(60), giveUpTurns: Int = 6 * parkTurnFloor,
          report: @escaping @Sendable (String) -> Void = { Issue.record(Comment(rawValue: $0)) }) {
         self.giveUpAfter = giveUpAfter
+        self.giveUpTurns = giveUpTurns
         self.report = report
     }
 
@@ -257,11 +266,13 @@ actor ParkThreadBudget {
             held += threads
             highWaterMark = max(highWaterMark, held)
         }
-        let deadline = ContinuousClock.now.advanced(by: giveUpAfter)
+        let seconds = giveUpAfter.components
+        let deadline = TurnDeadline(seconds: Double(seconds.seconds) + Double(seconds.attoseconds) / 1e18,
+                                    turns: giveUpTurns)
         while queue.first != ticket || (held > 0 && held + threads > parkThreadBudget) {
-            if ContinuousClock.now >= deadline {
+            if deadline.hasPassed {
                 report("""
-                    a park reservation for \(threads) thread(s) waited out \(giveUpAfter) and went
+                    a park reservation for \(threads) thread(s) \(deadline.spent), and went
                     ahead ungoverned. \(held) thread(s) are reserved and \(queue.count) more are
                     queued, so something took a reservation and never gave it back. See
                     docs/flaky-tests.md, "Every gate parks at once, on the pool their releases need".

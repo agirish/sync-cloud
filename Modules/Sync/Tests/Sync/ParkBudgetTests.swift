@@ -125,7 +125,7 @@ import Testing
     /// would hang rather than fail.
     @Test(.timeLimit(.minutes(1))) func aReservationThatCanNeverBeServedGivesUpAndSaysSo() async {
         let said = LockedBox<[String]>([])
-        let budget = ParkThreadBudget(giveUpAfter: .milliseconds(200),
+        let budget = ParkThreadBudget(giveUpAfter: .milliseconds(200), giveUpTurns: 10,
                                       report: { m in said.withLock { $0.append(m) } })
         await budget.reserve(parkThreadBudget)      // fills it, and nothing gives it back
         await budget.reserve(parkThreadBudget)

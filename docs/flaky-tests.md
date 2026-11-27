@@ -4741,6 +4741,9 @@ spent. "Gave up after 10.0 s and 400+ turns" was disproved. A count far below it
 `BulkSyncCancellationAndReservationTests`' barrier — and the park budget's own give-up. Each one is a
 one-line change to `wait(until: TurnDeadline(…))` if it goes red the same way.
 
+The park budget's give-up did, and is converted (2026-11-27): "A park budget's give-up counted
+seconds while its queue waited for the main actor".
+
 Two of that list did, and are converted (2026-10-27). `FirstAttributesGate`
 (`DeepFolderIdentityTests.anUndoInvokedBeforeTheIdentityWalkResolvesWaitsForItInsteadOfNoOping`):
 `!fm.releasedByTimeout` after 16.4 s in CI run 40621816945, the package at 43 s against 28 s; the
@@ -5925,3 +5928,41 @@ file is touched. Never write a bumped constant as a default argument of a public
 
 **See.** `VaultReadingState.init` in `Modules/Sync/Sources/Sync/VaultReading.swift`;
 `FilingScorecard.Entry.init` in `Modules/Sync/Sources/Sync/FilingScorecard.swift`.
+
+### 67. A park budget's give-up counted seconds while its queue waited for the main actor — FIXED
+
+**Seen.** Every self-hosted `tests.yml` run from the 2026-11-25 nightly (`d176012e1`) to the `v7.2`
+tag (run 46051977814, both attempts): 51–78 Sync tests red at `TestSupport.swift:229:71`, "a park
+reservation for N thread(s) waited out 60.0 seconds and went ahead ungoverned", the members changing
+from run to run, the package at 73–101 s against 56 s the night before. Hosted CI stayed green on
+the same SHAs. Reproduced here 7 of 7, at load 2–3, with a single `swift test --package-path
+Modules/Sync`.
+
+**Mechanism.** `ParkThreadBudget` admits two threads' worth of parks at once, first come first
+served, and each gated test holds its reservation for the whole test. Most of the gated tests are
+`@MainActor`, and a single-process Sync run keeps the main thread busy for about its first minute:
+`sample` of the test helper over 45 s found it running test code in 5,705 of 5,713 samples, the Vault
+suites 42% of that. A trace of the reservations (wait, hold, and `SchedulerTurns` across each) showed
+the first holder, `ProgressAccountingTests.testQueuedOperationDoesNotClobberRunningProgress`, holding
+both threads for 49.7 s, then a 10.5 s holder, while the turn probe moved 8–80 turns in waits of 17–57 s,
+against about 47 a second idle. Everyone behind them hit the give-up's 60 s while the queue was still
+moving, and each give-up let its test park ungoverned, which mechanism 10 then makes slower still.
+Hosted CI runs Sync as two processes (`test-shards --jobs 2`), each with its own main thread, so it
+stayed under the bound. The threshold was crossed by growth, not one commit: Sync went from 5,029
+tests (11-20) to 5,783 (11-27), most of them Vault tests on the main actor.
+
+**Fix.** The give-up is a `TurnDeadline`: 60 s and `6 * parkTurnFloor` (3,000) turns, about the same
+60 s idle. A leaked reservation is still caught, once the main actor frees up; a queue waiting on the
+main actor no longer looks like one. After the change, 3 of 3 full package runs green, 72–75 s.
+`ParkBudgetTests.aReservationThatCanNeverBeServedGivesUpAndSaysSo` still drives the give-up, with a
+10-turn floor. Mutation-checked in a full run: with one gated test made never to
+relinquish, the reservations behind it gave up after 91.3 s and 3,000 turns, said so, and the run
+ended.
+
+**Tell.** Dozens of `TestSupport.swift:229` give-ups in one run, the first one saying 1 thread is
+reserved and 70-odd queued. If the message's turn count is near its floor, the budget is wedged and
+this is not the cause. If one gated test holds its reservation for most of the run, it is.
+
+**Headroom.** The single-process run is main-thread bound: its length is about the main actor's
+work. If it keeps growing, run Sync in `tests.yml` as hosted CI does (`scripts/test-shards --jobs 2`).
+
