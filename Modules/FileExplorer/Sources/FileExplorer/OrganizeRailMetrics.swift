@@ -30,7 +30,8 @@ enum OrganizeRailMetrics {
     /// An item's glyph size, the 13pt every segmented switch uses (RP, 2026-11-26).
     static let glyphPoint: CGFloat = 13
     /// An item's height: the pane bar's 24pt, inside row 1's 27pt (`LensHeaderMetrics.tabRow`).
-    /// Fixed, like the pane bar's pills; the glyph and word inside it still follow the text size.
+    /// A floor, not a cap (`RailItemLabel`): the glyph and word inside still follow the text size, and
+    /// fit inside it at every size, so the item is this tall throughout, like the pane bar's pills.
     static let itemHeight: CGFloat = 24
     /// Between an item's glyph and its label.
     static let glyphGap: CGFloat = 5

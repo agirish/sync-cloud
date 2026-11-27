@@ -668,10 +668,13 @@ public struct LensWorkspaceView: View {
     /// The workspace is too narrow for row 2's buttons side by side: Rescan and Refine go into one ⋯
     /// menu and File All stays. Measured on the probe below, with the text size.
     @State private var rowTwoCompact = false
-    /// Where row 2's buttons stop fitting at the default text size, scaled by it. 572: the 520 it
-    /// was at `.small`, plus the 52pt the three buttons gained at `LensHeaderMetrics.actionControlSize`
-    /// (`.regular`, RR): Refine 162→187, File All 100→115, Rescan 79→91, by `fittingSize`.
-    private static let compactActionsWidth: CGFloat = 572
+    /// Where row 2's buttons stop fitting at the default text size, scaled by it. Measured on the
+    /// workspace column, so the card's own side padding is inside it. 576: the 520 it was at
+    /// `.small`, plus the 52pt the three buttons gained at `LensHeaderMetrics.actionControlSize`
+    /// (`.regular`, RR): Refine 162→187, File All 100→115, Rescan 79→91, by `fittingSize`; plus the
+    /// 4pt the card's side padding grew by in the same change (2×12 → 2×14). The dock's fold line,
+    /// `PaneLogic.comfortableLensWidth`, reads this.
+    public static let compactActionsWidth: CGFloat = 576
 
     /// Which of Storage's ranked lists the rail is showing, or absent for all three. Optional
     /// for ``OrganizeLens/defaultsKey``'s reason: there is no value to write for "none picked".
@@ -2197,7 +2200,7 @@ public struct LensWorkspaceView: View {
     /// The finished report lives at the control it describes (``lastFolderSurveyNote``), not here:
     /// it is long prose, it would stay all session, and it isn't about the list on screen.
     ///
-    /// `lineLimit(1)` and `layoutPriority(-1)` are insurance. Row 2's fixed 22pt height
+    /// `lineLimit(1)` and `layoutPriority(-1)` are insurance. Row 2's fixed 26pt height
     /// (``LensHeaderMetrics/summaryRow``) and its `.fixedSize()` siblings make both inert today;
     /// they keep this line truncating first if the row grows or a sibling stops being fixed-size.
     @ViewBuilder
@@ -5139,7 +5142,8 @@ public struct LensWorkspaceView: View {
                     Text(busy ? "Downloading…" : "Download and Read \(cloudOnly.count)")
                 }
             }
-            .controlSize(.small)
+            // Row 2, beside the lens's actions, so their size (`LensHeaderMetrics.actionControlSize`).
+            .controlSize(LensHeaderMetrics.actionControlSize)
             .disabled(busy || syncManager.isSuggestingFiles)
             .help("Downloads the \(cloudOnly.count) file\(cloudOnly.count == 1 ? "" : "s") only in the cloud, reads page 1 of each, and suggests homes from what they say. They stay downloaded.")
         }

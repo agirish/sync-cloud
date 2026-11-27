@@ -144,7 +144,9 @@ struct RailItemLabel: View {
             }
         }
         .padding(.horizontal, 9)
-        .frame(height: OrganizeRailMetrics.itemHeight)
+        // A floor, not a height: a fixed frame doesn't clip, so content past it would draw over the
+        // row while `theRailItemFitsTheRowItIsClippedTo` measured the frame and passed.
+        .frame(minHeight: OrganizeRailMetrics.itemHeight)
         // The state has to be spoken, because it is carried in colour: a reporting item differs
         // from a quiet one by its tint, and an unscanned one from a clean one by a 4pt dot, neither
         // of which reaches VoiceOver. Colour must never be a state's only carrier (as with the

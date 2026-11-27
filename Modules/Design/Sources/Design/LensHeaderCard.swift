@@ -165,8 +165,8 @@ public struct LensHeaderCard<Title: View, Actions: View, Summary: View, Trailing
                 // `ShrinkableRun` reports the content's width as ideal and maximum, so it takes
                 // what it needs and no more.
                 //
-                // A squeeze cuts the run's tail silently, since the 22pt row has no height for an
-                // indicator. That is the lesser cost: a readout you widen the window to finish
+                // A squeeze cuts the run's tail silently, since the row (`LensHeaderMetrics.summaryRow`) has no
+                // height for an indicator. That is the lesser cost: a readout you widen the window to finish
                 // beats a readout and a destructive button both cut in half.
                 ShrinkableRun { summary() }
                     .clipped()

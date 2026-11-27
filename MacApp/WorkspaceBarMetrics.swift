@@ -60,7 +60,7 @@ enum WorkspaceBarMetrics {
     /// The glyph's square at a text scale, held in the same proportion to the scaled glyph as at
     /// 100% (`FontSize.scaledBox`), so a larger glyph is never clipped by a 100% frame.
     ///
-    /// Rounded up to a whole point: layout rounds a fractional frame (15.3 at 90%, 18.19 at 125%)
+    /// Rounded up to a whole point: layout rounds a fractional frame (17.1 at 90%, 21.56 at 125%)
     /// to the next point, so an unrounded side under-measures each segment by up to a point, and
     /// the bar would keep labels it has no room for.
     static func glyphSide(scale: CGFloat) -> CGFloat {

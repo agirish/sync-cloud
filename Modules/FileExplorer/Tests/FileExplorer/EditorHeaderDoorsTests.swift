@@ -22,7 +22,7 @@ import FileExplorerTestSupport
         try TestTextFiles.document(named: name)
     }
 
-    /// A bare header button's width: ``EditorHeaderChipLabel`` without its word, the 18pt of the ＋,
+    /// A bare header button's width: ``EditorHeaderChipLabel`` without its word, the 24pt of the ＋,
     /// Find, Expand and the ×. Read off the label, never the row, whose first button is
     /// "＋ New Text File" on the widest rung.
     static var bareChip: CGFloat {
@@ -281,7 +281,8 @@ import FileExplorerTestSupport
     static let floorWindowDocumentColumn: CGFloat = 390
 
     /// The floor at the narrowest column (260pt): at least 5pt of the name's ink, its ellipsis
-    /// (measured down to 5.5pt under glass), so the name is never pushed out entirely. No higher:
+    /// (measured 10–12pt on the compact rung, Solid and glass alike), so the name is never pushed
+    /// out entirely. No higher:
     /// the capsule is already icons-only there.
     static let minimumNameInkAtTheNarrowestColumn: CGFloat = 5
 
@@ -316,9 +317,11 @@ import FileExplorerTestSupport
         for scale in FontSize.allCases.map(\.scale) {
             let whole = try measure(long, column: 1_600, scale: scale)
             try #require(whole.worded, "at 1,600pt, \(scale), the long name still has no words beside it — the sweep would be about nothing")
+            var sawWorded = false
             for column in Self.capsuleColumns {
                 let m = try measure(long, column: column, scale: scale)
                 if m.worded {
+                    sawWorded = true
                     #expect(m.ink >= whole.ink - 1,
                             "at \(column)pt, \(scale), the words are drawn over a cut name: \(m.ink)pt of its \(whole.ink)pt")
                 }
@@ -330,6 +333,10 @@ import FileExplorerTestSupport
                 }
                 report.append("\(Int(column))@\(scale):\(m.worded ? "W" : "g")\(Int(m.ink.rounded()))")
             }
+            // The sweep must reach a worded column at every size, or the cut-name check above never
+            // runs there: it went unasked at 135% once the 24pt buttons moved that size's first
+            // worded column past the sweep's old end.
+            #expect(sawWorded, "at \(scale) no swept column draws the words beside the long name — widen `capsuleColumns`")
             let control = try measure(short, column: 560, scale: scale)
             #expect(control.worded, "at 560pt, \(scale), a four-character name loses the words — they are shed for nothing")
         }
@@ -455,15 +462,17 @@ import FileExplorerTestSupport
     }
 
     /// For ``theCapsuleKeepsItsWordsOnlyWhenTheWholeNameFits``: the first worded column at each
-    /// text size (720 · 760 · 840 · 880) and the column below each, where a rule one step early
-    /// shows, plus 560 (where the worded capsule first fits) and 700.
-    static let capsuleColumns: [CGFloat] = [560, 700, 720, 740, 760, 820, 840, 860, 880]
+    /// text size (760 · 800 · 880 · 920, measured 2026-11-27 with the 24pt buttons; 720 · 760 · 840
+    /// · 880 before) and the swept column below each (740 · 760 · 860 · 900), where a rule one step
+    /// early shows, plus 560 and 700.
+    static let capsuleColumns: [CGFloat] = [560, 700, 740, 760, 800, 860, 880, 900, 920]
 
     // MARK: Glass between the capsules
 
-    /// In Frosted and Clear every glass capsule on the name row keeps 4pt from the next
-    /// (`ChromeGlass.smallGlyphOutset`); Solid keeps the row's 6pt. Read under the probe appearance,
-    /// which paints each capsule flat cyan, across every Expand state and both file kinds.
+    /// In Frosted and Clear every glass capsule on the name row keeps at least
+    /// `ChromeGlass.minimumCapsuleGap` (4pt) from the next; with no outset on the 24pt buttons, glass
+    /// and Solid alike keep the row's 6pt. Read under the probe appearance, which paints each capsule
+    /// flat cyan, across every Expand state and both file kinds.
     @Test(.machinePinned(.pixelSampling))
     func everyGlassCapsuleOnTheNameRowKeepsFourPointsFromTheNext() throws {
         let md = try document(named: "note.md")

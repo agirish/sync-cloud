@@ -147,7 +147,7 @@ struct OrganizeScopeChipTests {
     // MARK: It fits the row it was given
 
 /// The chip must not grow row 2: `LensHeaderCard` is 88pt at rest and its bottom edge is pinned to
-/// the file pane's header↔list boundary, so a summary row past its 22pt budget shifts a boundary
+/// the file pane's header↔list boundary, so a chip taller than the summary row shifts a boundary
 /// two panes away.
     @Test(.machinePinned(.layoutMetrics)) func theChipFitsTheSummaryRowsHeightBudget() {
         let host = NSHostingView(rootView: AnyView(Self.chip("Income Tax", folderCount: 3013)))

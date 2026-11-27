@@ -811,11 +811,12 @@ enum PaneLogic {
     static let minBrowsePaneWidth: CGFloat = minComparePaneWidth
     /// Edit's document at its narrowest, and the room it wants before the list folds.
     static let minEditDocumentWidth: CGFloat = 260
-    /// Where the dock folds a pane: below 520 To File's summary row starts moving its buttons into ⋯,
-    /// and below 450 Edit's document and its Split halves get too narrow to write in. The dock is open
-    /// by default, so these are the squeeze lines and not comfort lines: at the common 1,440 pt
-    /// window nothing folds. The folder pane unfolds again 40 pt past the line.
-    static let comfortableLensWidth: CGFloat = 520
+    /// Where the dock folds a pane: below To File's `LensWorkspaceView.compactActionsWidth` its
+    /// summary row starts moving its buttons into ⋯ (read, not copied: the line moved when the lens
+    /// card's buttons grew), and below 450 Edit's document and its Split halves get too narrow to
+    /// write in. The dock is open by default, so these are the squeeze lines and not comfort lines:
+    /// at the common 1,440 pt window nothing folds. The folder pane unfolds again 40 pt past the line.
+    static let comfortableLensWidth: CGFloat = LensWorkspaceView.compactActionsWidth
     static let comfortableEditDocumentWidth: CGFloat = 450
     /// How far past a line a switch back must be, so a window sitting on the line stays put.
     static let pinHysteresis: CGFloat = 40

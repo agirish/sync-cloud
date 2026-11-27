@@ -669,7 +669,8 @@ import Design
     }
 
 /// A rail item has to fit the row, because the row's horizontal `ScrollView` in `lensTitle` clips
-/// it top and bottom. The margin at the largest text size is one point.
+/// it top and bottom. The item's frame is a floor (`OrganizeRailMetrics.itemHeight`), so content that
+/// outgrew it would grow the item and show here; at every size it stays at the floor, 3pt inside.
     @MainActor
     @Test("Every rail item fits the row the scroll clips it to", .machinePinned(.layoutMetrics))
     func theRailItemFitsTheRowItIsClippedTo() {
@@ -682,6 +683,8 @@ import Design
             let height = host.fittingSize.height
 
             #expect(height > 0, "the rail item laid out at 0pt at \(size.percent)% — this measurement is fiction")
+            #expect(height == OrganizeRailMetrics.itemHeight,
+                    "a rail item is \(height)pt at \(size.percent)%, not the \(OrganizeRailMetrics.itemHeight)pt every item is drawn at")
             #expect(height <= LensHeaderMetrics.tabRow,
                     """
                     a rail item is \(height)pt at \(size.percent)%, taller than the \
@@ -714,8 +717,9 @@ import Design
         #expect(model >= drawn,
                 "at \(size.scale)× the rail draws \(drawn)pt but the model budgets \(model)pt — it is \(drawn - model)pt short, so the row will overrun before it sheds")
 // And not wildly over, or the rail sheds its labels on headers that would have seated them.
-// Two points an item: the glyph table scales linearly, a little over at large text, once per item,
-// so the allowance follows the number of items instead of being retuned when one is added
+// Two points an item: the glyph table, NSImage's widths through the text-size ramp, runs a little
+// over what SwiftUI draws, once per item, so the allowance follows the number of items instead of
+// being retuned when one is added
 // (12 for six; the seventh measured 13.5 at 125%).
         #expect(model - drawn < 2 * CGFloat(OrganizeLens.railItems.count),
                 "at \(size.scale)× the model budgets \(model)pt for a leading side that draws \(drawn)pt — \(model - drawn)pt of slack sheds the labels early")

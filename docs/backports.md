@@ -16609,3 +16609,14 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s store=%s dataProtection=
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The unpinned store, but no keychain permission and nothing in the data-protection keychain, so a call can reach only the login keychain | CLOSED — checked, does not apply |
+
+## UI sizes: fixes from a review of the 2026-11-26 size changes — main only, recorded, not owed
+
+2026-11-27, for v7.2. The Ask Claude dock's Organize fold line (`PaneLogic.comfortableLensWidth`)
+now reads To File's row-2 compaction width instead of a copied 520, and that width charges the lens
+card's wider side padding (576, was 572); To File's "Download and Read N" button takes the lens
+card's action size; an Organize rail item's 24pt frame is a floor, not a height.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | None of the 2026-11-26 size changes these follow | CLOSED — does not apply |

@@ -40,9 +40,9 @@ import Testing
     // MARK: Organize folds its folder pane, and its sidebar with it
 
     @Test func organizeFoldsWhenToFileWouldLoseItsButtons() {
-        // To File is 72% of what the sidebar leaves; under 520 pt it folds (where its summary row starts moving buttons into ⋯). Unfolded, it fits from 1,084.
-        #expect(verdict(input(.organize, 1276)) == .init(fits: true, folds: true))
-        #expect(verdict(input(.organize, 1277)) == .init(fits: true, folds: false))
+        // To File is 72% of what the sidebar leaves; under 576 pt it folds (where its summary row starts moving buttons into ⋯, `LensWorkspaceView.compactActionsWidth`). Unfolded, it fits from 1,084.
+        #expect(verdict(input(.organize, 1353)) == .init(fits: true, folds: true))
+        #expect(verdict(input(.organize, 1354)) == .init(fits: true, folds: false))
         // The common 13-inch window folds nothing.
         #expect(verdict(input(.organize, 1440)) == .init(fits: true, folds: false))
         #expect(verdict(input(.organize, 1600)) == .init(fits: true, folds: false))
@@ -128,13 +128,13 @@ import Testing
     @Test func aFoldKeepsItselfUntilFortyPointsPastTheLine() {
         let folded = PaneLogic.PinVerdict(fits: true, folds: true)
         let open = PaneLogic.PinVerdict(fits: true, folds: false)
-        // 1,277 is past the line, but a folded pane waits for the 40-pt margin (to about 1,332).
-        #expect(verdict(input(.organize, 1277), after: folded).folds)
-        #expect(verdict(input(.organize, 1331), after: folded).folds)
-        #expect(verdict(input(.organize, 1332), after: folded).folds == false)
+        // 1,354 is past the line, but a folded pane waits for the 40-pt margin (to about 1,410).
+        #expect(verdict(input(.organize, 1354), after: folded).folds)
+        #expect(verdict(input(.organize, 1409), after: folded).folds)
+        #expect(verdict(input(.organize, 1410), after: folded).folds == false)
         // Open, it stays open down to the line itself.
-        #expect(verdict(input(.organize, 1277), after: open).folds == false)
-        #expect(verdict(input(.organize, 1276), after: open).folds)
+        #expect(verdict(input(.organize, 1354), after: open).folds == false)
+        #expect(verdict(input(.organize, 1353), after: open).folds)
     }
 
     @Test func aFloatingPanelPinsAgainOnlyFortyPointsPastWhatItNeeds() {

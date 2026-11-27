@@ -29,9 +29,10 @@ import FileExplorerTestSupport
     /// 150pt minimum and the rail open: `EditorLayoutTests`' conservative reading, ~368pt.
     static var column: CGFloat { 760 - 150 - EditorLayoutMetrics.railWidth - 2 * LiquidGlass.cardGutter }
 
-    /// What the name keeps at the narrowest rung, at every text size. Measured on macOS 27, the
-    /// row's chrome is 204pt at 90% and 230pt at 135%, leaving the name 164pt down to 138pt at the
-    /// largest size; pinned 4pt under that. The failure message prints what the name is left.
+    /// What the name keeps at the narrowest rung, at every text size. Measured on macOS 27 with the
+    /// compact rung's 18pt buttons (2026-11-27), the row's chrome is 206pt at 90% and 232pt at 135%,
+    /// leaving the name 162pt down to 136pt at the largest size; pinned 2pt under that. The failure
+    /// message prints what the name is left.
     static let nameFloor: CGFloat = 134
 
     private func open(pages: Int) async throws -> EditorPDFDocument {

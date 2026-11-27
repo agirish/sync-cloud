@@ -54,7 +54,7 @@ struct RenameBacklogTally: Equatable {
     }
 
     /// The header's shorter form of ``breakdown``: the same words, fewer of them. The header
-    /// shares a 22pt row with a readout, a divider and two buttons, where the full breakdown is the
+    /// shares a 26pt row with a readout, a divider and two buttons, where the full breakdown is the
     /// widest and a rigid tenant.
     ///
     /// - It drops the skips: the header prefixes the rename total, and a skipped file is not among
