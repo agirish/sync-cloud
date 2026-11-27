@@ -5374,6 +5374,16 @@ registered, the premise check failed after its 30 s.
 with `coordinationTimedOut` or a callback that "never came". Give the presenter a queue of its own
 before suspecting the code under test.
 
+**Also moved.** `OneThreadExecutor`'s 5 s wait for its probe job (`UnansweredListingTests`) ran on
+`DispatchQueue.global()` as well. Its bound counts from when the block starts, so a late start never
+changed its answer, but the provider stayed parked until the wait ended. With 64 blocks sleeping on
+`DispatchQueue.global()` inside the suite, the wait started 40 s late (the suite stayed green), then
+70 s late, when gated tests queued behind its park reservation gave up at their 60 s. On a serial
+queue of its own it started within 0.3 ms both times. At 70 s the suite was red either way:
+`awaitSignal` waits on `DispatchQueue.global()` too, with its deadline set before the block is
+queued, and is still exposed. The comments claiming `DispatchQueue.global()` overcommits are
+corrected: it does not.
+
 ### 55. A scan's text layer counted seconds while it waited in the PDFKit lane — FIXED
 
 **Symptom.** Hosted CI's App target red twice on 5dbe8859a (run 42680973238, 2026-11-09): first

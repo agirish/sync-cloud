@@ -442,8 +442,15 @@ final class OneThreadExecutor: TaskExecutor, @unchecked Sendable {
             sawItUnfinished.withLock { $0 = unfinished }
             ran.signal()
         }
+        // On a serial queue of its own, not `DispatchQueue.global()`: GCD's global pool does not
+        // overcommit, and a package run can keep it from starting new work for seconds
+        // (`docs/flaky-tests.md`, "A file presenter whose answer waited for a GCD thread past the
+        // writer's deadline"). Each second this wait starts late keeps the provider parked and
+        // this test's park reservation held, while other gated tests queue for one.
         let ranInTime = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-            DispatchQueue.global().async { done.resume(returning: ran.wait(timeout: .now() + 5) == .success) }
+            DispatchQueue(label: "UnansweredListingTests.probe-wait").async {
+                done.resume(returning: ran.wait(timeout: .now() + 5) == .success)
+            }
         }
         gate.release.signal()               // the provider answers, whichever way that went
         await probe.value

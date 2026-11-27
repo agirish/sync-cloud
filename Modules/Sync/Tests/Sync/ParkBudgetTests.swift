@@ -27,8 +27,11 @@ import Testing
     // MARK: - The park's two halves
 
     /// The park engages, is released, and records no timeout. Driven from `DispatchQueue.global()`,
-    /// which overcommits when its threads block, so it takes no thread from the pool it protects and
-    /// needs no `.parksAThread`.
+    /// GCD's pool rather than the cooperative one, so it takes no thread from the pool it protects and
+    /// needs no `.parksAThread`. That pool does not overcommit: a package run can keep it from
+    /// starting the park for seconds (`docs/flaky-tests.md`, "A file presenter whose answer waited
+    /// for a GCD thread past the writer's deadline"). `awaitSignal`'s block queues behind it on the
+    /// same queue, so it starts no earlier, and finds `entered` already signalled.
     @Test func aParkThatIsReleasedRecordsNoTimeout() async {
         let gate = ParkGate()
         DispatchQueue.global().async { gate.park(timeout: 5) }
@@ -211,7 +214,11 @@ import Testing
     @Test func everyThreadBlockingWaitInThisTargetIsAccountedFor() throws {
         // file → the distinct blocking-wait lines it is allowed to contain, and why each is fine.
         let known: [String: Set<String>] = [
-            // Off the cooperative pool by construction: `DispatchQueue.global()` overcommits.
+            // `awaitSignal`'s wait runs on `DispatchQueue.global()`: GCD's pool, not the cooperative
+            // one. GCD's pool does not overcommit and can start the block seconds late in a package
+            // run. Its deadline is set before the block is queued, so a late start shortens the wait,
+            // but the wait tries the semaphore first, so a signal that came meanwhile still counts.
+            // The two parks are the gates' own; their tests declare them.
             "TestSupport.swift": [
                 "cont.resume(returning: semaphore.wait(until: deadline))",
                 "let expired = !release.wait(until: TurnDeadline(seconds: timeout, turns: turns))",   // ParkGate.park
@@ -267,13 +274,15 @@ import Testing
             // The MAIN thread, on purpose: holding the main actor is what that test measures. Not a
             // pool thread, so no reservation; bounded, and running out is the failure it records.
             "ColdScanStartsOffTheMainActorTests.swift": ["semaphore.wait(timeout: .now() + timeout)"],
-            // A volume that never answers, for `RestructureRootMap.whyGone`'s bound: on
-            // `DispatchQueue.global`, never the pool; released by the test's `defer`, bounded at 10 s.
+            // A volume that never answers, for `RestructureRootMap.whyGone`'s bound: production runs
+            // the probe on `DispatchQueue.global`, GCD's pool, not the cooperative one; released by
+            // the test's `defer`, bounded at 10 s. A probe GCD starts late reads as one that never
+            // answered, which is what the test asserts.
             "RestructureRootHistoryTests.swift": [
                 "probe: { _, _ in _ = stuck.wait(timeout: .now() + 10); return true })",
             ],
-            // The killed lock holder's "held" line, the same shape: on `DispatchQueue.global`, never
-            // the pool; bounded at 30 s.
+            // The killed lock holder's "held" line: on `DispatchQueue.global`, GCD's pool, not the
+            // cooperative one. GCD can start it seconds late; the 30 s count from when it starts.
             "OneWaySyncWritersTests.swift": [
                 "DispatchQueue.global().async { done.resume(returning: read.wait(timeout: .now() + 30) == .success) }",
             ],
@@ -287,17 +296,19 @@ import Testing
             ],
             // A hung upload read: it runs on `OneWaySyncUploads.readQueue`, a dispatch queue, never
             // the pool; bounded at 30 s and released by the test. The other wait is on
-            // `DispatchQueue.global`, bounded at 30 s.
+            // `DispatchQueue.global`, GCD's pool, not the cooperative one: bounded at 30 s, counted
+            // from when GCD starts it, which can be seconds late.
             "OneWaySyncDropboxGateTests.swift": [
                 "reading: { _ in _ = release.wait(timeout: .now() + 30); return .upload(.uploaded) }, documentID: { _ in 1 })",
                 "reading: { _ in started.signal(); _ = release.wait(timeout: .now() + 30); return .upload(.uploaded) },",
                 "DispatchQueue.global().async { _ = started.wait(timeout: .now() + 30); continuation.resume() }",
             ],
-            // `OneThreadExecutor`'s wait for its probe job: on `DispatchQueue.global()`, which
-            // overcommits, never the pool; bounded at 5 s. The parks it measures are `ParkGate`'s,
-            // and every test that uses it declares `.parksAThread`.
+            // `OneThreadExecutor`'s wait for its probe job: on a serial queue of its own, neither
+            // the cooperative pool nor GCD's global one, so nothing starts it late; bounded at 5 s.
+            // The parks it measures are `ParkGate`'s, and every test that uses it declares
+            // `.parksAThread`.
             "UnansweredListingTests.swift": [
-                "DispatchQueue.global().async { done.resume(returning: ran.wait(timeout: .now() + 5) == .success) }",
+                "done.resume(returning: ran.wait(timeout: .now() + 5) == .success)",
             ],
         ]
         var found: [String: Set<String>] = [:]
