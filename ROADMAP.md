@@ -1084,7 +1084,7 @@ logging, tests, reader bugs, security internals) is [`docs/vault-tech-debt.md`](
 
 | Group | Items |
 |---|---|
-| First · on today's Vault | **Built 2026-11-20**, see below: VF21 card colors · VF22 Refresh and Discover More · VF12 People view · VF4 locked means locked · VF8 Activity · VF9 hidden from screen sharing · VF6 backup and restore, in part. **Not built:** VF7 key tied to Touch ID (blocked) · of VF6, Go Back to an Earlier Save and the printed recovery sheet |
+| First · on today's Vault | **Built 2026-11-20**, see below: VF21 card colors · VF22 Refresh and Discover More · VF12 People view · VF4 locked means locked · VF8 Activity · VF9 hidden from screen sharing · VF6 backup and restore, in part. **Built 2026-11-26:** VF7 key tied to Touch ID. **Not built:** of VF6, Go Back to an Earlier Save and the printed recovery sheet |
 | Quick | VF1 Quick Vault (global shortcut, floating panel) · VF2 search that finds · VF3 Pinned and Recent · VF5 calmer panel · bugs VB4–VB7, VB15 |
 | Complete | VF10 records with fields · VF11 new kinds (bank, card, address, vehicle, insurance, traveler) · VF13 copy formats · VF14 own kinds and fields |
 | Smart | VF15 Needs attention · VF16 review queue · VF17 Form Mode · VF18 attach and drop · VF19 emergency sheet · VF20 reads more |
@@ -1112,12 +1112,24 @@ ending is drawn for a Social Security or Aadhaar number (fixes VB1). `95510e947`
 backup sealed under a passphrase, restore, and a way out of a Vault whose key is gone (fixes VB2).
 `a56f3c705` VF8, a sealed list of what was done.
 
-**Not built of that group:** VF7. Storing a key that macOS itself guards with Touch ID fails with
-`errSecMissingEntitlement` (−34018): the app needs a keychain access group, which needs a
-provisioning profile from his Apple Developer account. Of VF6, Go Back to an Earlier Save waits on
-`VT20`'s rolling saves, and the printed recovery sheet is not started. His hand checks (the
-right-click Color menu, a screen share with an ID shown, the Touch ID flows, a backup and restore
-with his own passphrase, Refresh on his real folders) are listed on the page.
+**VF7, built 2026-11-26:** `89a72e200` (VT31), with fixes from a third review in `d6d6bb2c0`. The
+installed copy keeps the Vault's key in the data-protection keychain under `.biometryAny`, through
+`VaultKeyHolder`: readable only with Touch ID (any enrolled finger), on this Mac only. The login
+keychain's key moves there at the first proof and is held from the proof until the Vault lets go,
+so one touch serves a session (VT10's held key, done). The −34018 (`errSecMissingEntitlement`) that
+blocked it is gone: his go-ahead on 2026-11-26 settled the profile call, and
+`scripts/vault-sign-installed` embeds a free team's provisioning profile at install. The profile
+lasts seven days and the copy does not open once it has run out, so it is installed again at least
+weekly; Settings ▸ Vault ▸ Lock says until when. Worktree, CI and ad-hoc builds cannot reach the
+key. Detail: VT31 and VT10 in [`docs/vault-tech-debt.md`](docs/vault-tech-debt.md). A spike on
+`claude/sleepy-curie-u6jq96` (at `0f1b2e0fe`, `docs/vault-se-spike.md` there, not for `main`)
+proposes a Secure Enclave key kept in a file instead: no entitlement, no expiry, and every build
+can reach it. It compiles, and has not yet run on his Mac.
+
+**Not built of that group:** of VF6, Go Back to an Earlier Save waits on `VT20`'s rolling saves,
+and the printed recovery sheet is not started. His hand checks (the right-click Color menu, a
+screen share with an ID shown, the Touch ID flows, a backup and restore with his own passphrase,
+Refresh on his real folders) are listed on the page.
 
 **Found while building:** VB15, a person who is not in People is filed under the one person in
 People who shares their surname (`PersonRegistry`'s rule, older than the People view). Still open of
@@ -1125,7 +1137,11 @@ the bugs: VB3–VB8, VB14 and VB15.
 
 **Open calls:** VQ1 Quick Vault's shortcut · VQ3 whether it holds card numbers · VQ4 whether
 check-digit reads skip confirming · VQ5 password fallback for the tied key · VQ10 that a tied key
-moves to a new Mac only through a backup · and whether to set up the provisioning profile VF7 needs.
+moves to a new Mac only through a backup · whether the Secure Enclave spike should replace the
+seven-day profile. VF7's landing did not settle VQ5 or VQ10, and neither its commits nor the
+tech-debt doc record either as his call. As built, the key takes no password fallback
+(`.biometryAny`; the page recommended allowing the Mac password), and stays on this Mac only, as
+VQ10 assumes, but moves with no backup made first, where the page recommended requiring one.
 Built as the page recommended, and his to overrule: VQ2 (a locked Vault shows nothing), VQ6 (backups
 go to `~/Documents/Backups/Vault` unless he chooses another), VQ7 (color by group, a card's own on top), VQ8 (Refresh runs by itself),
 VQ9 (dates of birth shown behind the proof).
