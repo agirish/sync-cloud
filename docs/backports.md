@@ -16628,7 +16628,8 @@ card's action size; an Organize rail item's 24pt frame is a floor, not a height.
 
 2026-11-27. `PictureText` carried its own Vision read, CPU retry and invisible-line drawing, a copy
 of pdf-toolkit's OCR. pdf-toolkit 0.7.0 makes those steps public (`recognizeTextLines`,
-`drawInvisibleTextLine`, in Helvetica as `PictureText` drew), and `PictureText` calls them from its
+`drawInvisibleTextLine`; since 0.7.1 the latter draws in the system font unless named a font, and
+`PictureText` names Helvetica, as it drew), and `PictureText` calls them from its
 CoreGraphics page loop, so Vision stays off the PDFKit lane. A refactor: on the four deck fixtures
 the text, every line's and word's highlight box and the rendered pixels are identical before and
 after. `v6.x` carries the old copy and is not missing any behaviour.

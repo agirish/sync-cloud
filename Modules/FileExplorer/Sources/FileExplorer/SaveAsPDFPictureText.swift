@@ -123,11 +123,13 @@ public enum PictureText {
 
     /// Each line over its box, turned from a fraction of the page to points, by pdf-toolkit's
     /// `drawInvisibleTextLine`: invisible Helvetica, its height the box's, stretched to its width.
+    /// Helvetica, not the toolkit's default system font, because PDFKit highlights a line at its
+    /// font's natural width, and Helvetica's is close to the Arial and Helvetica slides print in.
     static func draw(_ lines: [RecognizedTextLine], in context: CGContext, paper: CGSize) {
         for line in lines {
             let box = CGRect(x: line.box.minX * paper.width, y: line.box.minY * paper.height,
                              width: line.box.width * paper.width, height: line.box.height * paper.height)
-            PDFToolkit.drawInvisibleTextLine(line.text, in: box, context: context)
+            PDFToolkit.drawInvisibleTextLine(line.text, in: box, fontName: "Helvetica", context: context)
         }
     }
 }
