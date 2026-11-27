@@ -65,6 +65,9 @@ proof (`CLAUDE.md` §5).
 
 ## 4. The gates
 
+Before queueing gate 3, and again before gate 4's Release build, run `scripts/gate-board list`
+(§8). Checking is required; sharing is not.
+
 All must hold before landing:
 
 1. **The rebuild kept everything** — this prints nothing (run it first):
@@ -85,6 +88,8 @@ All must hold before landing:
 5. **Any `docs/backports.md` row is inside the squash** (`CLAUDE.md` §1).
 6. **You have read what will land:** `git log --oneline origin/main..HEAD` and
    `git diff --stat origin/main..HEAD`.
+7. **Every `maybe` on the gate board was answered** (§8): you sent that session an offer, or
+   answered theirs, or your report says why not.
 
 ## 5. Land and push
 
@@ -144,11 +149,12 @@ git status --short         # must still list the file as modified when work was 
 
 ## 8. Share one landing gate
 
-Opt-in. When two sessions are about to run their gates and one gate already covers the other's,
-run it once, on a tree carrying both changes. Each session still squashes, lands and reports its
-own commit, with its own message. Everything in §3–§7 stands.
+Checking is required, sharing is opt-in. When two sessions are about to run their gates and one
+gate already covers the other's, run it once, on a tree carrying both changes. Each session still
+squashes, lands and reports its own commit, with its own message. Everything in §3–§7 stands.
 
-**Find each other.** Before queueing a gate:
+**Find each other.** Before queueing a gate, and again before the Release build for an install
+(gate 4), whatever state your own gate is in:
 
 ```sh
 scripts/gate-board announce   # your worktree, branch, SHA, files, gate, session id
@@ -160,10 +166,16 @@ Announce again with `--state running|passed|red` and `--passed <suites>` as your
 `local_…` id `list` shows (`ListAgents` lists who is live). An entry drops itself when its
 session's process is gone. `scripts/gate-board --help` has the rest.
 
-A hook reminds you. The first time a session starts a whole-suite run at a given HEAD (`swift
-test` without `--filter`, `test-shards`, `xcodebuild test` without `-only-testing:`) and has not
-announced, `scripts/gate-board-hook` adds a note to its context saying so, naming any announced
-gate it could share with and that session's address; announced, it names each new partner once.
+**Answer every `maybe`.** Send that session an offer, or accept theirs, or say in your report why
+not (one of the reasons under "It does not pay" below). Announcing is not enough: on 2026-11-27 a
+session announced, never ran `list`, and queued its own install beside a session whose gate covered
+its own.
+
+A hook reminds you. The first time a session starts a landing step at a given HEAD (a whole-suite
+run: `swift test` without `--filter`, `test-shards`, `xcodebuild test` without `-only-testing:`;
+or an install's `xcodebuild -configuration Release … build`) and has not announced,
+`scripts/gate-board-hook` adds a note to its context saying so, naming any announced gate it could
+share with and that session's address; announced, it names each new partner once.
 It never refuses a command, and stays quiet for narrow runs and maintenance lines.
 
 **It pays when all of these hold** — `list` checks the first three and says `maybe`:
@@ -223,3 +235,7 @@ and each runs its own gate.
 (`install-sync-cloud` from A's worktree), so the app running is the tested tree. Each session
 still checks its own change by hand in it, and tells the other when done; neither installs over
 it until both are. If B's `verify` fails, B installs and checks its own tree again.
+
+This pays even when B's own gate has already passed: the install is still ahead of both, and two
+installs in a row would race for `/Applications` (`CLAUDE.md` §6). That is why `list` comes again
+before the Release build.

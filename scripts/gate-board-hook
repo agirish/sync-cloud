@@ -1,9 +1,10 @@
 #!/usr/bin/python3
 """Claude Code PreToolUse hook: when a session starts a landing-gate run, point it at gate-board.
 
-Reads the Bash tool call as JSON on stdin. If the command starts a whole-suite run — `swift test`
-without --filter or --skip, `scripts/test-shards` other than --measure, or `xcodebuild test`
-without -only-testing — from a worktree bound for main, the session gets a note in its context
+Reads the Bash tool call as JSON on stdin. If the command starts a landing step — a whole-suite run
+(`swift test` without --filter or --skip, `scripts/test-shards` other than --measure, or
+`xcodebuild test` without -only-testing), or the Release `xcodebuild build` an install needs —
+from a worktree bound for main, the session gets a note in its context
 (never a refusal; COMMIT.md §8 is opt-in):
   - not announced at this HEAD: announce first, and any announced gate a quick check already
     finds shareable with this one, with its session's address;
@@ -32,7 +33,12 @@ SEPARATORS = re.compile(r"&&|\|\||[;|\n]")
 
 
 def gate_run(command):
-    """True if some part of the command runs a whole suite: the shape of a landing gate."""
+    """True if some part of the command is a landing step: a whole suite, or an install's build.
+
+    The Release build counts because the install is a gate too (COMMIT.md §4, gate 4), and one
+    install can serve two sessions (§8) even after one of them has finished its tests. Debug
+    builds, what iterating uses, do not.
+    """
     for part in SEPARATORS.split(command):
         words = part.split()
         if "swift" in words and "test" in words:
@@ -44,6 +50,9 @@ def gate_run(command):
         if any(os.path.basename(w) == "xcodebuild" for w in words) and \
                 {"test", "test-without-building"} & set(words) and \
                 not any(w.startswith("-only-testing") for w in words):
+            return True
+        if any(os.path.basename(w) == "xcodebuild" for w in words) and "build" in words and \
+                any(a == "-configuration" and b == "Release" for a, b in zip(words, words[1:])):
             return True
     return False
 
@@ -115,11 +124,13 @@ def nudge(event):
     lines = []
     if not announced and "announce" not in memory["said"]:
         memory["said"].append("announce")
-        lines.append("This runs a whole suite. If it is part of your landing gate, run "
+        lines.append("This is a landing step (a whole suite, or an install's Release build). "
+                     "If it is part of your landing, run "
                      "`scripts/gate-board announce` first, then `scripts/gate-board list`: "
                      "another session's gate may cover yours, or yours theirs, and one run "
-                     "would serve both (COMMIT.md §8). Opt-in; ignore this if sharing does not "
-                     "pay. Your gate: %s." % board.gate_text(mine))
+                     "would serve both (COMMIT.md §8). The check is required, sharing is not: "
+                     "answer any `maybe`, or say in your report why not. Your gate: %s."
+                     % board.gate_text(mine))
     for entry, said in partners:
         key = "%s@%s" % (entry["worktree"], entry["head"])
         if key in memory["said"]:

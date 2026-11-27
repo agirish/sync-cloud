@@ -89,6 +89,10 @@ call "$A" "cd $A && scripts/build-slot xcodebuild test -scheme SyncCloud"
 check "a new HEAD hears again, and xcodebuild test counts" has "scripts/gate-board announce"
 call "$A" "$WORK/bin/test-shards Modules/FileExplorer" s3
 check "test-shards counts" has "scripts/gate-board announce"
+call "$A" "scripts/build-slot xcodebuild -project P -scheme S -configuration Release -derivedDataPath .dd build" s3b
+check "an install's Release build counts" has "scripts/gate-board announce"
+call "$A" "scripts/build-slot xcodebuild -project P -scheme S -configuration Debug -derivedDataPath .dd build" s3c
+check "a Debug build passes silently" silent
 
 # A partner on the board.
 edit "$B" Modules/Design/file.swift b1
