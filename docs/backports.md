@@ -16553,3 +16553,13 @@ readers version 31.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |
+
+## Ask Claude's header buttons and the search chips — main only, recorded, not owed
+
+2026-11-26, for v7.2. Ask Claude's header closes through `CloseButton`, and its other buttons share
+its 12pt semibold glyph, hover ink and glass circle (`CloseButton` itself goes from 11pt to 12pt).
+Token filter chips take the mini `Pill`'s padding and a 10pt medium face instead of monospaced.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The earlier button and chip looks, where those surfaces exist | RECORDED — not owed (UI polish) |

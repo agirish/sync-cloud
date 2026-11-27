@@ -2,7 +2,10 @@ import SwiftUI
 
 /// The removable token-filter chips shared by every token search (Compare's Differences search,
 /// the Duplicates lens's search, the Activity Log search): each recognized word as a capsule with a
-/// monospaced label and a padded ✕ that edits that exact word back out of the raw query text.
+/// padded ✕ that edits that exact word back out of the raw query text. Shaped like the mini
+/// `Pill`s that share its rows (their padding and 10pt), medium rather than their semibold, with a
+/// hairline and the ✕ to mark it as a filter you can remove (RV, 2026-11-26; it was monospaced,
+/// which only the typed field above it still is).
 /// A chip superseded by a later same-family word (the grammars parse last-wins) renders dimmed
 /// and struck through, so the chips read as the query the filter actually runs.
 ///
@@ -51,7 +54,7 @@ public struct TokenChipsRow: View {
         let tint = item.isActive ? tint : Color.secondary
         return HStack(spacing: 4) {
             Text(item.label)
-                .scaledFont(.caption.monospaced())
+                .scaledFont(.system(size: 10, weight: .medium))
                 .strikethrough(!item.isActive)
             Button {
                 onRemove(item.word)
@@ -70,8 +73,8 @@ public struct TokenChipsRow: View {
             .help("Remove this filter")
             .accessibilityLabel("Remove filter \(item.label)")
         }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 2)
+        .padding(.horizontal, PillVariant.mini.horizontalPadding)
+        .padding(.vertical, PillVariant.mini.verticalPadding)
         // The word and its ✕ in label colour; the tint stays in the wash and the hairline.
         .foregroundStyle(PillVariant.labelInk(for: tint))
         .background(Capsule().fill(tint.opacity(item.isActive ? 0.16 : 0.08)))

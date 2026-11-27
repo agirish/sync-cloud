@@ -112,13 +112,14 @@ import Testing
     // MARK: A reservation, asserted rather than assumed
 
     /// `CloseButton`'s 26×26 is a hit target and stays a constant, which is safe only while the box
-    /// still holds the glyph inside it. The `xmark` draws 8.0 · 9.0 · 11.0 · 12.0pt of ink inside
-    /// 26pt across the presets, a large margin; raise its 11pt glyph far enough and this fails.
+    /// still holds the glyph inside it. At 11pt the `xmark` drew 8.0 · 9.0 · 11.0 · 12.0pt of ink
+    /// across the presets; at its 12pt (RS) a point or so more, still a large margin. Raise the
+    /// glyph far enough and this fails.
     @Test(.machinePinned(.pixelSampling))
     func theCloseButtonsReservationStillHoldsItsGlyph() {
         for scale in everySelectableScale {
-            let out = GlyphInk.outside(symbol: "xmark", point: 11, weight: .semibold,
-                                       box: 26, shape: Rectangle(), scale: scale)
+            let out = GlyphInk.outside(symbol: "xmark", point: 12, weight: .semibold,
+                                       box: CloseButton.side, shape: Rectangle(), scale: scale)
             #expect(out <= GlyphInk.tolerance,
                     "the close button's xmark puts \(out)pt² of ink outside its 26pt target at scale \(scale)")
         }

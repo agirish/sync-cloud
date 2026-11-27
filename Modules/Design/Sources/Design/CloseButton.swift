@@ -1,12 +1,17 @@
 import SwiftUI
 
-/// The one dismiss affordance: a plain secondary xmark, semibold at 11pt, with a 26x26 hit
-/// target. Overlays, banners and inspectors all close through this so the glyph and target can't
+/// The one dismiss affordance: a plain secondary xmark, semibold at 12pt, with a 26x26 hit
+/// target. Other icon buttons beside it (Ask Claude's header) take its ``glyphFont`` and ``side``. Overlays, banners and inspectors all close through this so the glyph and target can't
 /// drift per surface. Callers attach their own `.help`, `.accessibilityLabel` and
 /// `.keyboardShortcut`, which are per-site.
 public struct CloseButton: View {
     private let action: () -> Void
     private let chromeGlass: Bool
+
+    /// The glyph: 12pt semibold (RS, 2026-11-26; 11pt before).
+    public static let glyphFont = ScaledFont.system(size: 12, weight: .semibold)
+    /// The hit target's side.
+    public static let side: CGFloat = 26
 
     /// - Parameter chromeGlass: whether the button wears a bar button's glass circle in Frosted and
     ///   Clear (`ChromeGlass`). True in a panel's title row; false where the × is not a bar button,
@@ -19,9 +24,9 @@ public struct CloseButton: View {
     public var body: some View {
         Button(action: action) {
             Image(systemName: "xmark")
-                .scaledFont(.system(size: 11, weight: .semibold))
+                .scaledFont(Self.glyphFont)
                 .hoverInk()
-                .frame(width: 26, height: 26)
+                .frame(width: Self.side, height: Self.side)
                 .contentShape(Rectangle())
         }
         // Frosted and Clear: a glass circle like every bar button (`ChromeGlass`), with a round

@@ -275,7 +275,10 @@ struct AskClaudePanel: View {
             }
             AskClaudeHeaderButton(symbol: "plus.bubble", help: "New chat", label: "New Chat") { chat.newChat(); closePast() }
                 .disabled(chat.items.isEmpty && !chat.isRunning)
-            AskClaudeHeaderButton(symbol: "xmark", help: ShortcutHint.tooltip("Close", AppChord.askClaude.display), label: "Close", action: onClose)
+            // The app's one close button (`CloseButton`), as every panel's title row draws it.
+            CloseButton(action: onClose)
+                .help(ShortcutHint.tooltip("Close", AppChord.askClaude.display))
+                .accessibilityLabel("Close")
         }
         .padding(.leading, 12)
         .padding(.trailing, 8)
@@ -2078,7 +2081,9 @@ private struct AskClaudeTurnVoiceOverActions: ViewModifier {
     }
 }
 
-/// One of the header's icon buttons: a fixed hit area, a hover wash, and its own tooltip.
+/// One of the header's icon buttons: a fixed hit area and its own tooltip, drawn as `CloseButton`
+/// is beside it (RS, 2026-11-26): a 12pt semibold glyph, `hoverInk`, and a bar button's glass
+/// circle in Frosted and Clear, so the header's four buttons read as one set.
 private struct AskClaudeHeaderButton: View {
     let symbol: String
     let help: String
@@ -2087,21 +2092,20 @@ private struct AskClaudeHeaderButton: View {
     /// Lit while what it opens is showing.
     var isOn = false
     let action: () -> Void
-    @State private var hovering = false
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .scaledFont(ScaledFont.system(size: 13, weight: .medium))
-                .frame(width: 26, height: 26)
-                .background((hovering || isOn) && isEnabled ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear),
-                            in: RoundedRectangle(cornerRadius: Radius.chip))
+                .scaledFont(CloseButton.glyphFont)
+                .hoverInk()
+                .frame(width: CloseButton.side, height: CloseButton.side)
+                // Lit while what it opens is up; the hover answer is the style's own.
+                .background(isOn && isEnabled ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear), in: Circle())
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .chromeGlassGlyphButton()
         .foregroundStyle(isEnabled ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
-        .onHover { hovering = $0 }
         .help(help)
         .accessibilityLabel(label ?? help)
     }
