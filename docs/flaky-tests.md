@@ -5338,20 +5338,41 @@ while a trivial main-actor test in the same suite takes as long. Kin to "A wedge
 time spent waiting for the main thread": assert what the code did (the stat still parked), not how
 long the test took to see it.
 
-### 54. A file presenter not yet consulted when the coordinated write asks, under load — cause not proven
+### 54. A file presenter whose answer waited for a GCD thread past the writer's deadline — FIXED
 
-**Symptom.** `OneWaySyncAnswersTests.aFileArrivingInICloudBeforeTheWriteIsNotWrittenOver` red once
-on the self-hosted runner for the `v7.0` tag (run 41957561351, 2026-11-04, load 15–19, mostly
-`appstoreagent`): `arriving.arrived` false and the iCloud file not "arrived meanwhile". The rerun
-was green, and three runs of the suite alone at the tag passed in under a second each.
+**Seen.** `OneWaySyncAnswersTests.aFileArrivingInICloudBeforeTheWriteIsNotWrittenOver` red at
+`:219`/`:220` (`arriving.arrived` false, the iCloud file not "arrived meanwhile") on the self-hosted
+runner for the `v7.0` tag (run 41957561351) and in 4 of the 6 nightlies from 11-23 to 11-27 (runs
+45273608969, 45480726702, 45687409316, 46055427678). The writer threw, so `:216` passed. Never red
+alone here, even under `yes` spinners.
 
-**Likely mechanism.** The test's `Arriving` presenter writes the file when the coordinated write
-asks it to relinquish. `NSFileCoordinator.addFilePresenter` registers with `filecoordinationd`
-asynchronously, so a write that runs straight after can find no presenter yet, and the callback the
-test rests on never comes. Not reproduced; the app's own check is not involved.
+**Mechanism.** The test's `Arriving` presenter wrote the file when the coordinated write asked it to
+relinquish, on a plain `OperationQueue()`, whose work runs on GCD's global pool. A single-process
+Sync run (as `tests.yml` runs it) keeps that pool from starting new work for seconds at its start: a
+`DispatchQueue.global().async` probe placed in this test waited 10.75 s for a thread there, with only
+24 threads in the process, so the pool was refusing new threads, not full of blocked ones. The
+writer's coordination deadline in these tests is 10 s, so the write was cancelled before the
+presenter's callback ran, and threw `coordinationTimedOut`; the callback came later, after the
+assertions. A standalone probe showed the same thing: with the pool starved, a default-queue
+presenter was asked only once the pool drained and the write was never granted, while a presenter on
+its own serial dispatch queue was asked at once.
 
-**Tell.** `arriving.arrived` false, red once under load, green alone. Rerun before suspecting the
-writer.
+The earlier guess, that `addFilePresenter` registers asynchronously so the write finds no presenter,
+was wrong: a write straight after `addFilePresenter` asked the presenter in 2,000 of 2,000 tries, and
+with no presenter the write would have gone through and thrown nothing.
+
+**Fix.** `Arriving` runs its callbacks on a serial dispatch queue of its own
+(`presentedItemOperationQueue.underlyingQueue`), which never waits for a pool thread. The test first
+checks its premise with a coordinated read of the name until the presenter's
+`relinquishPresentedItem(toReader:)` has run (bounded at 30 s), and asserts the exact error,
+`.nameTaken`, so a red says what the writer threw. Mutation-checked: with the pool starved inside the
+test (128 blocks sleeping 30 s on `DispatchQueue.global()`), the old queue failed with
+`.coordinationTimedOut` and `arrived` false, the new one passed in 0.01 s; with no presenter
+registered, the premise check failed after its 30 s.
+
+**Tell.** A coordinated-access test that uses an `NSFilePresenter`, red only in a whole-package run,
+with `coordinationTimedOut` or a callback that "never came". Give the presenter a queue of its own
+before suspecting the code under test.
 
 ### 55. A scan's text layer counted seconds while it waited in the PDFKit lane — FIXED
 

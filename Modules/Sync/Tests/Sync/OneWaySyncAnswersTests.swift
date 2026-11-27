@@ -212,8 +212,14 @@ import Testing
         let arriving = Arriving(target, contents: "arrived meanwhile")
         NSFileCoordinator.addFilePresenter(arriving)
         defer { NSFileCoordinator.removeFilePresenter(arriving) }
+        // The premise, checked: a coordinated read of the name asks the presenter too.
+        let until = ContinuousClock.now + .seconds(30)
+        while !arriving.askedByAReader, ContinuousClock.now < until {
+            try OneWaySyncDisk.coordinatedRead(target, deadline: 30) { _ in }
+        }
+        try #require(arriving.askedByAReader, "a coordinated read of the name never asked the presenter")
         let writer = try world.writer()
-        #expect(throws: OneWaySyncWriteError.self) {
+        #expect(throws: OneWaySyncWriteError.nameTaken(target.path)) {
             try writer.writeIntoICloud(from: source, at: target, iCloudPath: "Legal/POA.pdf", expected: nil)
         }
         #expect(arriving.arrived)
@@ -224,18 +230,32 @@ import Testing
         let presentedItemURL: URL?
         let presentedItemOperationQueue = OperationQueue()
         let contents: String
-        private(set) var arrived = false
+        private let lock = NSLock()
+        private var asked = false
+        private var wrote = false
+        var askedByAReader: Bool { lock.withLock { asked } }
+        var arrived: Bool { lock.withLock { wrote } }
 
         init(_ url: URL, contents: String) {
             presentedItemURL = url
             self.contents = contents
+            super.init()
+            // A queue of its own, not a thread from GCD's pool: a package run can keep the pool
+            // from starting new work for longer than the writer's deadline (`docs/flaky-tests.md`,
+            // "A file presenter whose answer waited for a GCD thread past the writer's deadline").
+            presentedItemOperationQueue.underlyingQueue = DispatchQueue(label: "OneWaySyncAnswersTests.Arriving")
+        }
+
+        func relinquishPresentedItem(toReader reader: @escaping @Sendable ((@Sendable () -> Void)?) -> Void) {
+            lock.withLock { asked = true }
+            reader(nil)
         }
 
         func relinquishPresentedItem(toWriter writer: @escaping @Sendable ((@Sendable () -> Void)?) -> Void) {
-            if !arrived, let url = presentedItemURL {
-                arrived = true
+            if let url = presentedItemURL, lock.withLock({ !wrote }) {
                 try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? Data(contents.utf8).write(to: url)
+                lock.withLock { wrote = true }
             }
             writer(nil)
         }
