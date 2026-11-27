@@ -929,7 +929,7 @@ shared with whom.
   alone, and every sampled row was a joint household document: a swim-class invoice names the parent
   who pays, a bank nomination form names the spouse who is the nominee. That is testimony, not
   ownership. Requiring the page to name **exactly one person** takes it to **635** and keeps the case
-  the channel exists for — her disability claim, his bank KYC form, scans whose own names say
+  the channel exists for — a benefits claim, a bank KYC form, scans whose own names say
   nothing. So page evidence only ever *queues*; it never claims a document the way a filename can.
   Note what that gate is not: `maiden` is unique to Mother and passes the strength gate easily, and it
   was on all 2,011 rows. Strength asks whether a word could mean somebody else; this asks whether the

@@ -170,7 +170,7 @@ import Testing
     @Test func aRouterHomeKeepsItsMeasuredConfidenceEvenWhenContentDerived() throws {
         let root = "/prov"
         let index = FilingRouterTests.index(memoryDocs: [
-            "Health/Medical/Kaiser/Surgery": ["perioperative", "anesthesia", "stoll"],
+            "Health/Medical/Kaiser/Surgery": ["perioperative", "anesthesia", "sutures"],
         ])
         let s = [FilingSuggestion(filePath: "\(root)/TODO/scan001.pdf", fileName: "scan001.pdf",
                                   size: 10, modificationDate: nil, candidates: [],

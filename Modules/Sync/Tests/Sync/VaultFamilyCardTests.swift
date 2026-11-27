@@ -26,8 +26,8 @@ import Testing
     }
 
     @Test func oneRowWithABirthDateKeepsIt() throws {
-        let find = try #require(Self.read(["Medical Record No. Date of Birth", "12345678 01/09/1988"]).first)
-        #expect(find.value == "12345678" && find.facts.born == VaultReadingTests.day(1988, 1, 9))
+        let find = try #require(Self.read(["Medical Record No. Date of Birth", "12345678 07/11/1988"]).first)
+        #expect(find.value == "12345678" && find.facts.born == VaultReadingTests.day(1988, 7, 11))
         // A row whose label names no birth date takes none from a date beside the number.
         let other = try #require(Self.read(["Member ID: 87654321 01/09/2025"]).first)
         #expect(other.facts.born == nil)

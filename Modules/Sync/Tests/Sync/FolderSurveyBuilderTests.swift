@@ -294,9 +294,9 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
     /// Months are filing dates in a filename and subjects in a folder name. Both directions, or the
     /// rule would pass with its exception deleted.
     @Test func monthsSurviveOnlyWhenTheyNameTheFolder() {
-        let profile = build([dir("Lacewings JAN", [file("visit jan.pdf"), file("note jan.pdf")]),
+        let profile = build([dir("Kestrels JAN", [file("visit jan.pdf"), file("note jan.pdf")]),
                              dir("Trips", [file("jul photo.pdf"), file("jul video.pdf")])])
-        #expect(profile.folders["Lacewings JAN"]?.anchors == ["jan", "lacewings"])
+        #expect(profile.folders["Kestrels JAN"]?.anchors == ["jan", "kestrels"])
         #expect(profile.folders["Trips"]?.anchors == ["trips"])
     }
 

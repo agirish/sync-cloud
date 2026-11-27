@@ -576,12 +576,12 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
     @Test func aSourceIsMatchedByNameOrAWordNeverASubstring() {
         let sources: [AskClaudeBrowseTools.Source] = [
             .init(id: "dropbox", name: "Dropbox", root: "/d"), .init(id: "gp", name: "Google Drive (Personal)", root: "/g1"),
-            .init(id: "gh", name: "Google Drive (HPE)", root: "/g2"), .init(id: "od", name: "OneDrive (Personal)", root: "/o")]
+            .init(id: "gh", name: "Google Drive (Acme)", root: "/g2"), .init(id: "od", name: "OneDrive (Personal)", root: "/o")]
         #expect(AskClaudeBrowseTools.source(named: "dropbox", in: sources)?.id == "dropbox")
         #expect(AskClaudeBrowseTools.source(named: "Box", in: sources) == nil)
         #expect(AskClaudeBrowseTools.source(named: "onedrive", in: sources)?.id == "od")
         #expect(AskClaudeBrowseTools.source(named: "Google", in: sources) == nil)   // two Google Drives: ambiguous
-        #expect(AskClaudeBrowseTools.source(named: "HPE", in: sources)?.id == "gh")
+        #expect(AskClaudeBrowseTools.source(named: "Acme", in: sources)?.id == "gh")
     }
 
     @Test func outsideBrowseAFolderMoveGoesToBrowseFirst() async {
@@ -4206,8 +4206,8 @@ private final class OffersADownload: AskClaudeToolRunning {
 
     @Test func aLongDestinationIsCutInTheMiddleAndAShortOneStays() {
         #expect(AskClaudeThreadRowShortening.shortened("Elder - 2025", to: 18) == "Elder - 2025")
-        let cut = AskClaudeThreadRowShortening.shortened("Twin Creeks Elementary Donations", to: 18)
-        #expect(cut.count == 18 && cut.hasPrefix("Twin Cre") && cut.hasSuffix("Donations") && cut.contains("…"))
+        let cut = AskClaudeThreadRowShortening.shortened("Twin Willow Elementary Donations", to: 18)
+        #expect(cut.count == 18 && cut.hasPrefix("Twin Wil") && cut.hasSuffix("Donations") && cut.contains("…"))
     }
 
     @Test func aRowSaysWhereItGoesInAWordOrPicksAFolder() {

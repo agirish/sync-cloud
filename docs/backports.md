@@ -3797,9 +3797,9 @@ the lines have diverged too far for a pick to apply, so each was scrubbed direct
 its own.
 
 ```sh
-# The scrub is complete on a line when this prints nothing.
-git grep -nwiI -e Aditi -e Divit -e Shweta -e Muktha -e Anuraag -e Abhishek -e Girish -e Dani \
-  -e Ravindra -e Krishnamurthy -e HPE -e Cray -e MapR -e Hewlett origin/<line> \
+# The scrub is complete on a line when this prints nothing. The names it looks for are not
+# written here, since the repository is public: keep them one per line in a file outside it.
+git grep -nwiI -f ~/.config/synccloud/scrub-names.txt origin/<line> \
  | grep -vE 'com\.abhishekgirish|/Users/abhishek|github\.com/agirish|repos/agirish'
 ```
 

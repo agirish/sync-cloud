@@ -6,7 +6,7 @@ import Foundation
 /// whoever they name.
 ///
 /// **The person is the medical record number, not a name.** Names on medical pages mislead: a
-/// newborn's first records say `Female Dani`, the children print his first name as their surname,
+/// newborn's first records say `Female Maiden`, the children print his first name as their surname,
 /// and the account holder's name rides on every family member's record. The number is one per
 /// person and printed on almost every page, so it is looked up in what the filing memory learned:
 /// every folder whose filed pages printed it (``FilingMemory``'s hashed identifiers), rolled up to

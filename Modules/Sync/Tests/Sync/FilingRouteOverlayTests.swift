@@ -23,7 +23,7 @@ import Testing
 
     static var index: FilingRouter.Index {
         FilingRouterTests.index(memoryDocs: [
-            "Health/Medical/Kaiser/Surgery": ["perioperative", "anesthesia", "stoll"],
+            "Health/Medical/Kaiser/Surgery": ["perioperative", "anesthesia", "sutures"],
         ])
     }
 
@@ -39,7 +39,7 @@ import Testing
     /// Sixty loose files with no home, and the page each reads as.
     static func sixty() -> (files: [FilingSuggestion], snippets: [String: String]) {
         ((0..<60).map { suggestion("f\($0).pdf", best: nil) },
-         (0..<60).reduce(into: [String: String]()) { $0["/prov/TODO/f\($1).pdf"] = "perioperative anesthesia stoll" })
+         (0..<60).reduce(into: [String: String]()) { $0["/prov/TODO/f\($1).pdf"] = "perioperative anesthesia sutures" })
     }
 
     @Test func aFileWithNoHomeGetsTheRouterHome() {
@@ -101,7 +101,7 @@ import Testing
         let taught = Self.destination("Somewhere/Else", .medium, remembered: true)
         let s = [Self.suggestion("scan001.pdf", best: taught)]
         let (out, routed, _) = FileSyncManager.applyRoutes(
-            s, index: Self.index, snippets: ["\(Self.root)/TODO/scan001.pdf": "perioperative anesthesia stoll"],
+            s, index: Self.index, snippets: ["\(Self.root)/TODO/scan001.pdf": "perioperative anesthesia sutures"],
             providerRoot: Self.root)
         #expect(routed == 0)
         #expect(out[0].best == taught)
@@ -134,7 +134,7 @@ import Testing
         let weakExisting = Self.destination("Finance/US/Income Tax/2023", .low)
         let (out, routed, _) = FileSyncManager.applyRoutes(
             [Self.suggestion("op.pdf", best: weakExisting)], index: Self.index,
-            snippets: ["\(Self.root)/TODO/op.pdf": "perioperative anesthesia stoll"],
+            snippets: ["\(Self.root)/TODO/op.pdf": "perioperative anesthesia sutures"],
             providerRoot: Self.root)
         #expect(routed == 1)
         #expect(out[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Surgery")
@@ -197,7 +197,7 @@ import Testing
         let s = [Self.suggestion("op.pdf", best: strong)]
         let (out, routed, shortlist) = FileSyncManager.applyRoutes(
             s, index: Self.index,
-            snippets: ["\(Self.root)/TODO/op.pdf": "perioperative anesthesia stoll"],
+            snippets: ["\(Self.root)/TODO/op.pdf": "perioperative anesthesia sutures"],
             providerRoot: Self.root)
         #expect(routed == 1)
         #expect(out[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Surgery")
@@ -234,7 +234,7 @@ import Testing
                                          remembered: false, fromAI: false)
         let s = FilingRouteOverlayTests.suggestion("bill.pdf", best: creating)
         let (out, routed, _) = FileSyncManager.applyRoutes(
-            [s], index: FilingRouteOverlayTests.index, snippets: ["/prov/TODO/bill.pdf": "perioperative anesthesia stoll"],
+            [s], index: FilingRouteOverlayTests.index, snippets: ["/prov/TODO/bill.pdf": "perioperative anesthesia sutures"],
             providerRoot: "/prov")
         #expect(routed == 1)
         #expect(out.first?.best?.newSegments.isEmpty == true, "swapped one new folder for another")

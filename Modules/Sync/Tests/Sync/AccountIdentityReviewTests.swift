@@ -60,9 +60,9 @@ import Foundation
     }
 
     @Test func aCategoryWithDigitsDoesntSwallowTheAccountsBelow() {
-        let tree = [dir("Investments", [dir("Investments/401k", [dir("Investments/401k/Fidelity", [account("Investments/401k/Fidelity/HPE 4847")])])])]
+        let tree = [dir("Investments", [dir("Investments/401k", [dir("Investments/401k/Fidelity", [account("Investments/401k/Fidelity/Acme 4847")])])])]
         let roots = AccountIndex.build(tree: tree).accounts.map(\.root)
-        #expect(roots == ["Investments/401k/Fidelity/HPE 4847"], "\(roots)")
+        #expect(roots == ["Investments/401k/Fidelity/Acme 4847"], "\(roots)")
     }
 
     @Test func aProposalNeverGoesIntoAnInbox() {

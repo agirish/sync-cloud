@@ -17,9 +17,9 @@ import Testing
     }
 
     @Test func cloudOnlyDocumentsDownloadFirstAndStay() {
-        let hpe = SourceDocumentsFacts(sourceName: "Google Drive", documents: 1_768, toDownload: 1_410,
+        let acme = SourceDocumentsFacts(sourceName: "Google Drive", documents: 1_768, toDownload: 1_410,
                                        unreadableTypes: 1_089)
-        let points = SourceDocumentsText.points(hpe)
+        let points = SourceDocumentsText.points(acme)
         #expect(points.first == "1,410 are in the cloud only. They download first and stay on this Mac.")
         #expect(points.last?.hasPrefix("About 50 min plus downloads, in the background.") == true, "\(points.last ?? "")")
         let one = SourceDocumentsFacts(sourceName: "Box", documents: 3, toDownload: 1, unreadableTypes: 0)

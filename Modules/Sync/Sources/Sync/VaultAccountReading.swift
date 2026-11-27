@@ -204,7 +204,7 @@ extension VaultReading {
     }
 
     /// The birth date printed in a number's own row, when its label's row names one ("Medical
-    /// Record No./ID  Date of Birth" over "11 0012345678  01/09/1988"). A US paper's order when the
+    /// Record No./ID  Date of Birth" over "11 0012345678  07/11/1988"). A US paper's order when the
     /// date reads both ways: accounts are read from Health, Home, Vehicles and School.
     static func birthDate(of row: PrintedPage.Hit, on page: PrintedPage) -> Date? {
         let label = page.lines[row.label].lowercased()
@@ -264,8 +264,8 @@ extension VaultReading {
 
     /// Who issued the account, as the household's folders name it: the last folder below the
     /// area that is neither a year (or a year's folder, "2023 - Lindqvist"), a kind of paper, nor one
-    /// of the household's people ("EBMUD" in `Home/Utilities/EBMUD/2024`, "Twin Creeks" in
-    /// `School/US/Twin Creeks/Liv`, "Medical" in `Health/Medical/Sigrid/ID Cards`). With none,
+    /// of the household's people ("EBMUD" in `Home/Utilities/EBMUD/2024`, "Twin Willow" in
+    /// `School/US/Twin Willow/Liv`, "Medical" in `Health/Medical/Sigrid/ID Cards`). With none,
     /// the folder just below the area ("Insurance" in `Home/Insurance/Policy`); nil when the paper
     /// sits in the area itself.
     static func accountIssuer(_ path: String, under roots: [String] = [], people: [Person] = []) -> String? {

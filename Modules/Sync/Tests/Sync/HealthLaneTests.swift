@@ -12,8 +12,8 @@ import Testing
         #expect(kind("KAISER FOUNDATION HEALTH PLAN This is not a bill. This Explanation of Benefits is a summary") == .eob)
         #expect(kind("Your professional medical bill Pay with a credit card") == .bill(label: "Physician Bill"))
         #expect(kind("Status: Processed Claims report Claim number: 1 Provider: SANTA CLARA Your plan covers") == .claim)
-        #expect(kind("AFTER VISIT SUMMARY Jane Doe MRN: 11223344 Date of birth: 1/9/1988") == .visit(label: "After Visit Summary"))
-        #expect(kind("Continuity of Care Document - Jane Doe (Female, born Dec. 18, 1987)") == .visit(label: "Visit Record (CCD)"))
+        #expect(kind("AFTER VISIT SUMMARY Jane Doe MRN: 11223344 Date of birth: 8/6/1988") == .visit(label: "After Visit Summary"))
+        #expect(kind("Continuity of Care Document - Jane Doe (Female, born Dec. 15, 1987)") == .visit(label: "Visit Record (CCD)"))
         #expect(kind("Member name: Jane Doe MRN: 11223344 Lab results: Lipid panel") == .testResult)
         #expect(kind("Jane Doe (MRN: 1) Printed at 6/11/19 You were seen on Tuesday June 11, 2019. Tdap lab results") == .visit(label: "After Visit Summary"))
         #expect(kind("Jane Doe (MRN: 1) You saw CHARLES OWYANG MD on Wednesday August 21, 2019. Test results") == .visit(label: "After Visit Summary"))
@@ -22,11 +22,11 @@ import Testing
     }
 
     @Test func theDateIsTheVisitsNotTheBirthdayOrThePrintout() {
-        #expect(HealthLane.date(in: "after visit summary mrn: 1 date of birth: 1/9/1988 10/17/2025 wcr-hospital")
+        #expect(HealthLane.date(in: "after visit summary mrn: 1 date of birth: 8/6/1988 10/17/2025 wcr-hospital")
                 == P(year: 2025, month: 10, day: 17))
-        #expect(HealthLane.date(in: "date printed: 10/17/2016 member name x date of birth: 12/18/1987 visit date: 09/14/2015")
+        #expect(HealthLane.date(in: "date printed: 10/17/2016 member name x date of birth: 03/16/1987 visit date: 09/14/2015")
                 == P(year: 2015, month: 9, day: 14))
-        #expect(HealthLane.newestDate(in: "date printed: 1/6/2024 date of birth: 1/9/1988 collected on october 25, 2021")
+        #expect(HealthLane.newestDate(in: "date printed: 1/6/2024 date of birth: 8/6/1988 collected on october 25, 2021")
                 == P(year: 2024, month: 1, day: 6), "a result printed in 2024 showing a 2021 collection")
         #expect(HealthLane.date(in: "plan year: 01/01/2025 through 12/31/2025 the services you've received. december 02, 2025")
                 == P(year: 2025, month: 12, day: 2))
@@ -88,7 +88,7 @@ import Testing
     /// Her number decides, whatever name the page prints (here her brother's, as the holder's
     /// name rides on family records).
     @Test func theRecordNumberDecidesThePerson() throws {
-        let b = try #require(Self.best("AFTER VISIT SUMMARY Son Father MRN: 11223344 Date of birth: 1/9/2019 04/02/2025 Pediatrics"))
+        let b = try #require(Self.best("AFTER VISIT SUMMARY Son Father MRN: 11223344 Date of birth: 5/7/2019 04/02/2025 Pediatrics"))
         #expect(b.path == Self.root + "/" + Self.med + "/Daughter/Visits/2025")
         #expect(b.proposedName == "2. Apr 2 2025 - After Visit Summary.pdf")
         #expect(b.confidence == .high)

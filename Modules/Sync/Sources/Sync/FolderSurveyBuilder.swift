@@ -212,7 +212,7 @@ public enum FolderSurveyBuilder {
             guard (counts[token] ?? 0) >= 2 || fromPath.contains(token) else { return false }
             guard !anchorStopWords.contains(token) else { return false }
             // A month is a filing date, not a subject, unless the folder is named for one
-            // (`Lacewings JAN`), where it tells the folder from its siblings.
+            // (`Kestrels JAN`), where it tells the folder from its siblings.
             return !(monthWords.contains(token) && !fromPath.contains(token))
         }
         // Decorated sort because `sorted(by:)` isn't stable: the first-seen index keeps ties in

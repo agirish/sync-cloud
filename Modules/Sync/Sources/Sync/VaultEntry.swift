@@ -144,7 +144,7 @@ public enum VaultMask {
     /// `value` with every letter and digit but the last `keep` replaced by a dot. Spaces, dashes
     /// and brackets stay, so `(408) 555-0142` still reads as a phone number: `(•••) •••-0142`.
     ///
-    /// Four is what the rest of the app already shows (`Mortgage 7365`, `••7863`). A value of four
+    /// Four is what the rest of the app already shows (`Mortgage 7365`, `••3816`). A value of four
     /// characters or fewer is hidden whole: its ending would be all of it.
     public static func masked(_ value: String, keep: Int = 4) -> String {
         let significant = value.filter { $0.isLetter || $0.isNumber }.count
