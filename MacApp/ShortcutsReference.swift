@@ -101,7 +101,8 @@ enum ShortcutsReference {
             // right under ⌘[ / ⌘] so the reader sees the difference: these stop at the first column.
             Item(keys: "⌘ ↓ / ⌘ ↑", action: "In Columns, open the selected folder / close the rightmost column, stopping at the first"),
             Item(keys: "⌘ R", action: "Scan both panes for changes"),
-            Item(keys: "⇧⌘ N", action: "New folder in the focused pane’s current folder"),
+            // ⌃⌘N shares New Folder's row, paired like ⌘[ / ⌘], because a row of its own overflows.
+            Item(keys: "⇧⌘ N / ⌃⌘ N", action: "New folder here / with the selected items in it"),
             // ⌃⌘T shares the sidebar's row because a row of its own doesn't fit; the two toggle the
             // window's two side columns.
             Item(keys: "⌃⌘ S / ⌃⌘ T", action: "Show or hide sidebar / file list"),

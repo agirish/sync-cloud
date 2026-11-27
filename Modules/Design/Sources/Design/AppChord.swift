@@ -169,6 +169,8 @@ public extension AppChord {
     static let paneForward = AppChord("]", .command)
     static let rescan = AppChord("r", .command)
     static let newFolder = AppChord("n", [.shift, .command])
+    /// Finder's ⌃⌘N: File ▸ New Folder with Selection.
+    static let newFolderWithSelection = AppChord("n", [.control, .command])
     static let hiddenFiles = AppChord(".", [.shift, .command])
     static let deleteSelection = AppChord(.delete, .command)
     /// ⌘↓ opens the selected folder into a new column; ⌘↑ closes the rightmost one.
@@ -310,7 +312,7 @@ public extension AppChord {
     static let registry: [AppChord] = [
         settings, infoInspector, askClaude, activityLog, shortcutsReference, commandPalette, vault,
         selectAll, cut, copy, paste,
-        findInPane, paneBack, paneForward, rescan, newFolder,
+        findInPane, paneBack, paneForward, rescan, newFolder, newFolderWithSelection,
         saveDocument, newTextFile, printDocument, openInEditor,
         folderSidebar, hiddenFiles,
         deleteSelection, switchPaneFocus,

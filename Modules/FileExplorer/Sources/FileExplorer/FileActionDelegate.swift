@@ -123,6 +123,15 @@ public protocol FileActionDelegate: Sendable {
     /// panes, a scroll, and navigating away and back. Answered from the host's one `ComparePick`.
     var armedComparePath: String? { get }
 
+    /// Whether this host can make a folder from a selection. Gated like the doors above: a
+    /// conformer with no handler behind it draws no New Folder with Selection.
+    var canMakeFolderWithSelection: Bool { get }
+
+    /// Finder's New Folder with Selection: asks for a name, makes the folder beside the items and
+    /// moves them in, undoably. Offered only for items in one folder
+    /// (`FileSyncManager.newFolderWithSelectionParent`).
+    func handleNewFolderWithSelection(_ nodes: [FileNode])
+
     /// Whether this host can open a folder in a new tab. Gated like the doors above: a conformer
     /// with no pane strip behind it draws nothing rather than a no-op.
     var canOpenInNewTab: Bool { get }
@@ -221,6 +230,22 @@ extension FileActionDelegate {
     public func isEquivalent(to other: FileActionDelegate) -> Bool { false }
 }
 
+// MARK: - New Folder with Selection
+
+/// Whether a selection is offered New Folder with Selection, and under what title: one rule for
+/// the row menu and File ▸ New Folder with Selection, so the two can't disagree.
+public enum NewFolderWithSelectionOffer {
+    /// "New Folder with Selection (3 Items)", Finder's words, or nil where it isn't offered: a host
+    /// with no handler behind it, or items in more than one folder.
+    @MainActor
+    public static func title(for nodes: [FileNode], delegate: FileActionDelegate) -> String? {
+        guard delegate.canMakeFolderWithSelection,
+              FileSyncManager.newFolderWithSelectionParent(nodes) != nil else { return nil }
+        let count = nodes.pruneNestedNodes().count
+        return "New Folder with Selection (\(count == 1 ? "1 Item" : "\(count) Items"))"
+    }
+}
+
 // MARK: - Fixing one cloud-hostile name in place
 
 /// Fixing one file's name from its row: Organize's queue is for a batch, this is for the file
@@ -257,6 +282,8 @@ extension FileActionDelegate {
     /// Same default, same reason, and declared as requirements above for the same one.
     public var canOpenInNewTab: Bool { false }
     public func handleOpenInNewTab(_ node: FileNode) {}
+    public var canMakeFolderWithSelection: Bool { false }
+    public func handleNewFolderWithSelection(_ nodes: [FileNode]) {}
     public var canFavoriteFolder: Bool { false }
     public func isFolderFavorite(_ node: FileNode) -> Bool { false }
     public func handleToggleFolderFavorite(_ node: FileNode) {}

@@ -22,6 +22,8 @@ public class FileActionHandler {
     /// the real `NativeAlerts`; tests substitute closures because the real ones block on NSAlert.
     private let renamePrompter: (_ currentName: String, _ validate: (String) -> String?) -> String?
     private let newFolderPrompter: (_ validate: (String) -> String?) -> String?
+    private let newFolderWithSelectionPrompter: (_ itemCount: Int, _ initialName: String,
+                                                 _ validate: (String) -> String?) -> String?
     private let deleteConfirmer: (_ itemNames: [String], _ hiddenByFilter: Int) -> Bool
 
     public init(
@@ -33,6 +35,9 @@ public class FileActionHandler {
             { NativeAlerts.promptForRename(currentName: $0, validate: $1) },
         newFolderPrompter: @escaping (_ validate: (String) -> String?) -> String? =
             { NativeAlerts.promptForNewFolder(validate: $0) },
+        newFolderWithSelectionPrompter: @escaping (_ itemCount: Int, _ initialName: String,
+                                                   _ validate: (String) -> String?) -> String? =
+            { NativeAlerts.promptForNewFolderWithSelection(itemCount: $0, initialValue: $1, validate: $2) },
         deleteConfirmer: @escaping (_ itemNames: [String], _ hiddenByFilter: Int) -> Bool =
             { NativeAlerts.confirmDelete(for: $0, hiddenByFilter: $1) }
     ) {
@@ -42,6 +47,7 @@ public class FileActionHandler {
         self.pasteboard = pasteboard
         self.renamePrompter = renamePrompter
         self.newFolderPrompter = newFolderPrompter
+        self.newFolderWithSelectionPrompter = newFolderWithSelectionPrompter
         self.deleteConfirmer = deleteConfirmer
     }
     
@@ -390,6 +396,39 @@ public class FileActionHandler {
         }
     }
     
+    /// New Folder with Selection: asks for a name ("New Folder With Items" to start, as Finder
+    /// names it), then makes the folder beside the items and moves them in, one ⌘Z for both. The
+    /// prompt re-asks for a name already taken there, so the folder is never refused after the
+    /// question. Items in different folders have no one place for it, and nothing happens; the
+    /// menu doesn't offer it then.
+    public func beginNewFolderWithSelection(_ nodes: [FileNode]) {
+        guard !refusedWhileRunning() else { return }
+        let items = nodes.pruneNestedNodes()
+        guard let parent = FileSyncManager.newFolderWithSelectionParent(items) else { return }
+        let fm = syncManager.fileManager
+        let validate: (String) -> String? = { name in
+            if let reason = FileSyncManager.validateItemName(name) { return reason }
+            return fm.fileExists(atPath: (parent as NSString).appendingPathComponent(name))
+                ? "An item named “\(name)” already exists in this folder." : nil
+        }
+        guard let name = newFolderWithSelectionPrompter(
+            items.count, FileSyncManager.newFolderWithSelectionName(in: parent, fileManager: fm), validate)
+        else { return }
+        Logger.shared.info("User initiated New Folder with Selection: '\(name)' with \(items.count) item(s)")
+        let hidden = syncManager.typeFilterHiddenCounts(inside: items)
+        Task {
+            let receipt = SyncRunReceipt()
+            guard let made = await syncManager.moveIntoNewFolder(items, named: name, in: parent,
+                                                                 fileManager: fm, receipt: receipt),
+                  !made.moved.isEmpty else { return }
+            let includes = Self.filterHidingClause(made.moved.reduce(0) { $0 + (hidden[$1.id] ?? 0) })
+            syncManager.banner = .success((made.moved.count == 1
+                ? "Moved “\(made.moved[0].name)” into the new folder “\(name)”"
+                : "Moved \(made.moved.count) items into the new folder “\(name)”") + includes, undoable: true)
+                .reporting(run: receipt.runId)
+        }
+    }
+
     /// Deletes after the confirmation alert, or at once when "Confirm before deleting" is off
     /// (items still go to the Trash and stay undoable; a permanent delete keeps its own
     /// confirmation regardless).

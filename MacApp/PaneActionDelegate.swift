@@ -395,6 +395,9 @@ struct PaneActionDelegate: FileActionDelegate {
         Task { await syncManager.normalizeNames([risky]) }
     }
     func handleCreateFolder(at path: String) { handler?.beginCreateFolder(in: path) }
+    /// Offered wherever New Folder is: the same handler makes both.
+    var canMakeFolderWithSelection: Bool { handler != nil }
+    func handleNewFolderWithSelection(_ nodes: [FileNode]) { handler?.beginNewFolderWithSelection(nodes) }
     func handleGetInfo(for path: String) { onGetInfo(path) }
     func handleSort(_ option: SortOption) { 
         Logger.shared.info("User changed sort option to \(option)")

@@ -26,10 +26,12 @@ func scratchHandler(_ manager: FileSyncManager, settings: SettingsManager? = nil
                     label: String = #function, fileID: String = #fileID,
                     renamePrompter: @escaping (String, (String) -> String?) -> String? = { _, _ in nil },
                     newFolderPrompter: @escaping ((String) -> String?) -> String? = { _ in nil },
+                    newFolderWithSelectionPrompter: @escaping (Int, String, (String) -> String?) -> String? = { _, _, _ in nil },
                     deleteConfirmer: @escaping ([String], Int) -> Bool = { _, _ in false }) -> FileActionHandler {
     FileActionHandler(syncManager: manager, settings: settings ?? scratchSettings(providers: []),
                       defaults: defaults ?? ScratchDefaults("FileActionHandler"),
                       pasteboard: scratchPasteboard(label, fileID: fileID),
                       renamePrompter: renamePrompter, newFolderPrompter: newFolderPrompter,
+                      newFolderWithSelectionPrompter: newFolderWithSelectionPrompter,
                       deleteConfirmer: deleteConfirmer)
 }

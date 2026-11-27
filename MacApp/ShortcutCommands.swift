@@ -116,6 +116,10 @@ struct PaneRowVerbs {
     /// The row menu's Save as PDF for the selection — `SaveAsPDFOffer.forSelection`, the row's own
     /// question — or `nil` where the row shows none, which greys File ▸ Save as PDF.
     let saveAsPDF: SelectionSaveAsPDF?
+    /// The row menu's New Folder with Selection, titled with its count as that item is, or `nil`
+    /// where the row shows none (items in more than one folder). Defaulted, so `lockingWrites`
+    /// and `none` leave it out.
+    var newFolderWithSelection: NewFolderWithSelection? = nil
 
     /// During a long run Rename, Copy to… / Move to…, PDF Tools and Save as PDF go silent; the verbs
     /// that only open, show or fetch stay, as does Ignore (a list the app keeps).
@@ -133,6 +137,12 @@ struct PaneRowVerbs {
 
     struct IgnoreToggle {
         /// Already resolved: "Ignore in Comparison" or "Include in Comparison".
+        let title: String
+        let run: () -> Void
+    }
+
+    struct NewFolderWithSelection {
+        /// Already resolved: "New Folder with Selection (3 Items)".
         let title: String
         let run: () -> Void
     }
@@ -1746,7 +1756,14 @@ extension ContentView {
             saveAsPDF: delegate.canSaveAsPDF
                 ? SaveAsPDFOffer.forSelection(selection).map {
                     PaneRowVerbs.SelectionSaveAsPDF(offer: $0, run: { delegate.handleSaveAsPDF(paths: $0) })
-                } : nil)
+                } : nil,
+            // The row menu's own title and gate (`NewFolderWithSelectionOffer`); fire-time
+            // selection, as `chooseDestination` above.
+            newFolderWithSelection: NewFolderWithSelectionOffer.title(for: selection, delegate: delegate).map { title in
+                PaneRowVerbs.NewFolderWithSelection(title: title, run: {
+                    delegate.handleNewFolderWithSelection(activeSelectionNodes)
+                })
+            })
     }
 
     /// File ▸ Organize's verbs, over the active pane's selection.
@@ -2653,6 +2670,12 @@ struct PaneRowVerbCommands: View {
             .disabled(verbs?.chooseDestination == nil)
         Button("Move to…") { verbs?.chooseDestination?(true) }
             .disabled(verbs?.chooseDestination == nil)
+        // Finder's ⌃⌘N, titled with the count as the row menu titles it.
+        Button(verbs?.newFolderWithSelection?.title ?? "New Folder with Selection") {
+            verbs?.newFolderWithSelection?.run()
+        }
+        .keyboardShortcut(AppChord.newFolderWithSelection.key, modifiers: AppChord.newFolderWithSelection.modifiers)
+        .disabled(verbs?.newFolderWithSelection == nil)
         Button(verbs?.ignore?.title ?? "Ignore in Comparison") { verbs?.ignore?.run() }
             .disabled(verbs?.ignore == nil)
     }

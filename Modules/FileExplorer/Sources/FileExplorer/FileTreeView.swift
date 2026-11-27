@@ -1603,6 +1603,17 @@ struct FileContextMenu: View {
                 .lockedDuringRun()
             }
 
+            // Finder's New Folder with Selection, last of the verbs that put the selection
+            // somewhere. Only for items in one folder: there is no one place for the new folder
+            // otherwise. Greyed with Move to Trash for a file one-way sync keeps as a copy.
+            if let title = NewFolderWithSelectionOffer.title(for: selectedNodes, delegate: delegate) {
+                Button(action: { delegate.handleNewFolderWithSelection(selectedNodes) }) {
+                    Label(title, systemImage: "folder.badge.plus")
+                }
+                .disabled(OneWaySyncController.shared.refusal(forChanging: selectedNodes.map(\.id)) != nil)
+                .lockedDuringRun()
+            }
+
             SharedFileMenuItems.pasteHere(clipboardHasItems: delegate.clipboardHasItems) {
                 delegate.handlePaste(node)
             }

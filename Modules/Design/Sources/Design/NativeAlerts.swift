@@ -235,6 +235,21 @@ public struct NativeAlerts {
         )
     }
 
+    /// The name prompt for New Folder with Selection: `initialValue` pre-filled and selected, as
+    /// New Folder's is, and the count in the title so the dialog says what moves.
+    public static func promptForNewFolderWithSelection(itemCount: Int, initialValue: String,
+                                                       validate: (String) -> String?) -> String? {
+        promptForName(
+            title: itemCount == 1 ? "New Folder with 1 Item" : "New Folder with \(itemCount) Items",
+            prompt: itemCount == 1 ? "Enter a name for the new folder. The selected item moves into it."
+                                   : "Enter a name for the new folder. The \(itemCount) selected items move into it.",
+            buttonTitle: "Create",
+            initialValue: initialValue,
+            selectAllInitially: true,
+            validate: validate
+        )
+    }
+
     /// Why the entered name can't be used, or nil when it's acceptable: the one gate the name
     /// prompt re-prompts on.
     ///

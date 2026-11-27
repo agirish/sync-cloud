@@ -551,6 +551,60 @@ import Settings
         #expect(manager.currentError == nil)
     }
 
+    // MARK: - New Folder with Selection
+
+    /// The prompt is offered Finder's name and the count, and its validator refuses a name already
+    /// in the folder, so the folder can't be refused after the question; the items move in.
+    @MainActor
+    @Test func newFolderWithSelectionAsksThenMovesTheItemsIn() async throws {
+        let manager = FileSyncManager()
+        let dir = try makeTempDir("newfolder-selection")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = try makeFile(in: dir, named: "a.txt"), b = try makeFile(in: dir, named: "b.txt")
+        var asked: (count: Int, name: String, takenRefused: Bool)?
+        let handler = scratchHandler(manager, newFolderWithSelectionPrompter: { count, name, validate in
+            asked = (count, name, validate("a.txt") != nil)
+            return "Receipts"
+        })
+
+        handler.beginNewFolderWithSelection([a, b].map { FileNode(id: $0.path, name: $0.lastPathComponent, isDirectory: false) })
+
+        let folder = dir.appendingPathComponent("Receipts")
+        await waitUntil("both items to land in \(folder.lastPathComponent)") {
+            FileManager.default.fileExists(atPath: folder.appendingPathComponent("a.txt").path)
+                && FileManager.default.fileExists(atPath: folder.appendingPathComponent("b.txt").path)
+        }
+        await waitForOperationsToFinish(manager)
+        #expect(asked?.count == 2)
+        #expect(asked?.name == "New Folder With Items")
+        #expect(asked?.takenRefused == true, "a name already in the folder is refused at the prompt")
+        #expect(!FileManager.default.fileExists(atPath: a.path))
+        #expect(manager.currentError == nil)
+        await waitUntil("the banner") { manager.banner != nil }
+        #expect(manager.banner?.message == "Moved 2 items into the new folder “Receipts”")
+    }
+
+    /// Cancel makes nothing; rows from two folders are never asked about.
+    @MainActor
+    @Test func newFolderWithSelectionCancelledOrSpreadMakesNothing() async throws {
+        let manager = FileSyncManager()
+        let dir = try makeTempDir("newfolder-selection-cancel")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let sub = dir.appendingPathComponent("sub")
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: false)
+        let a = try makeFile(in: dir, named: "a.txt"), b = try makeFile(in: sub, named: "b.txt")
+        var prompts = 0
+        let handler = scratchHandler(manager, newFolderWithSelectionPrompter: { _, _, _ in prompts += 1; return nil })
+        let nodeA = FileNode(id: a.path, name: "a.txt", isDirectory: false)
+
+        handler.beginNewFolderWithSelection([nodeA])
+        handler.beginNewFolderWithSelection([nodeA, FileNode(id: b.path, name: "b.txt", isDirectory: false)])
+        await waitForOperationsToFinish(manager)
+
+        #expect(prompts == 1, "only the one-folder selection is asked about")
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: dir.path)) == ["a.txt", "sub"])
+    }
+
     // MARK: - Every operation runs on the manager's own file manager
 
     /// A real `FileManager` that notes the destination of every move and new folder, the call each

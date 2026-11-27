@@ -28,6 +28,7 @@ import Foundation
         #expect(AppChord.enclosingFolder.display == "⌘↑")
         #expect(AppChord.rescan.display == "⌘R")
         #expect(AppChord.newFolder.display == "⇧⌘N")
+        #expect(AppChord.newFolderWithSelection.display == "⌃⌘N")
         #expect(AppChord.folderSidebar.display == "⌃⌘S")
         // ⌘S beside ⌃⌘S and ⌘N beside ⇧⌘N are four separate chords: `noTwoChordsCollide`
         // compares key and modifiers.

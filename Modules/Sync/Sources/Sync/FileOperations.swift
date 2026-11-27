@@ -309,7 +309,8 @@ extension FileSyncManager {
         mergeOnly isLandingFolderRow: @escaping @Sendable (FileNode) -> Bool = { _ in false },
         direction: String? = nil,
         fileManager fm: FileManaging,
-        receipt: SyncRunReceipt? = nil
+        receipt: SyncRunReceipt? = nil,
+        madeFolder: MadeFolder? = nil
     ) async -> [FileNode] {
         let resolveCollision = collisionResolver
         // A merge's children are a batch of their own (several collisions, one gesture), so they
@@ -346,7 +347,8 @@ extension FileSyncManager {
         // is not an error: a log line, nothing transferred. An empty destination root skips the
         // prompt (confirming `Copy "x" to ""?` helps nobody); the enqueue guard reports it as
         // destinationRootUnavailable. The existence stat stays on the operation queue.
-        if let first = prunedNodes.first, !destinationRootPath.isEmpty {
+        // A folder made for this move was named a moment ago, so it asks nothing more.
+        if madeFolder == nil, let first = prunedNodes.first, !destinationRootPath.isEmpty {
             // Name the folder the first item lands in, not the destination root, which for an item
             // in a subfolder is levels too shallow. Like `sourceDirectory`, it speaks for the first
             // item only. A derivation that throws falls back to the root; the enqueue reports it.
@@ -774,12 +776,18 @@ extension FileSyncManager {
                 let moved = transferred.isEmpty
                     ? trashedSources.filter { path in !trashedSources.contains { path.hasPrefix($0 + "/") } }.count
                     : transferred.count
+                // A folder made for this move goes with it in the same ⌘Z: registered first, so
+                // it runs last, once the items are on their way out of it.
+                if madeFolder != nil { undoManager?.beginUndoGrouping() }
+                if let madeFolder { registerRemoveCreatedFolders([madeFolder.url.path]) }
                 let armed = self.registerMoveUndo(items: Self.undoItems(transferred, nodeStarts: result.nodeStarts,
                                                                         restoringFirst: result.trashedMergeSources),
                                                   mergeEmptiedFolders: Set(result.trashedMergeSources.map(\.item.to)),
                                                   redirectedIntoTrash: Set(result.redirectedIntoTrash.keys),
                                                   landedIdentities: result.landedIdentities,
-                                                  actionName: "Move \(CountedNoun.phrase(moved, "Item"))", fileManager: fm)
+                                                  actionName: madeFolder?.undoActionName
+                                                      ?? "Move \(CountedNoun.phrase(moved, "Item"))", fileManager: fm)
+                if madeFolder != nil { undoManager?.endUndoGrouping() }
                 // A group with no history records must not leave an earlier run's pairing live: an
                 // earlier "Move 1 Item" run would pass the name gate, and Undo Last Run would
                 // describe that run while reversing this merge.
@@ -863,6 +871,106 @@ extension FileSyncManager {
         return transferredNodes
     }
     
+    /// A folder made just now for a move into it: one ⌘Z takes back both, under this name.
+    struct MadeFolder {
+        let url: URL
+        let undoActionName: String
+    }
+
+    /// The undo name of ``moveIntoNewFolder(_:named:in:fileManager:receipt:)``, Finder's own.
+    public static let newFolderWithSelectionActionName = "New Folder with Selection"
+
+    /// The folder New Folder with Selection makes its folder in: the one every item is in, or nil
+    /// when they are in different folders (a tree's expanded rows) or there is nothing to move.
+    /// A row inside another selected row is counted as its folder, which moves it anyway.
+    public nonisolated static func newFolderWithSelectionParent(_ nodes: [FileNode]) -> String? {
+        let parents = Set(nodes.pruneNestedNodes().map { ($0.id as NSString).deletingLastPathComponent })
+        guard parents.count == 1, let parent = parents.first, !parent.isEmpty else { return nil }
+        return parent
+    }
+
+    /// Finder's name for the folder, "New Folder With Items", or "New Folder With Items 2" and on
+    /// when that is taken in `parent`.
+    public nonisolated static func newFolderWithSelectionName(in parent: String,
+                                                              fileManager fm: FileManaging = FileManager.default) -> String {
+        let base = "New Folder With Items"
+        var name = base
+        var n = 2
+        while fm.fileExists(atPath: (parent as NSString).appendingPathComponent(name)) {
+            name = "\(base) \(n)"
+            n += 1
+        }
+        return name
+    }
+
+    /// Finder's New Folder with Selection: makes `name` in `parent` and moves `nodes` into it, as
+    /// one ⌘Z that moves them back and removes the folder. Nothing is asked between the two: the
+    /// name was the question. When nothing lands (every item refused, or failed), the folder is
+    /// removed again if still empty, so a failed gesture leaves no stray folder.
+    /// - Returns: The new folder's path and what moved into it, or nil when the folder wasn't made.
+    @discardableResult
+    public func moveIntoNewFolder(_ nodes: [FileNode], named name: String, in parent: String,
+                                  fileManager fm: FileManaging = FileManager.default,
+                                  receipt: SyncRunReceipt? = nil) async -> (folder: String, moved: [FileNode])? {
+        guard !nodes.isEmpty else { return nil }
+        // Refused before the folder is made, so a refusal leaves nothing behind. The transfer
+        // asks both again; by then they answer the same.
+        if refusedDuringVerifyAll("Wait for Verify All to finish before copying or moving items") { return nil }
+        if let refusal = oneWaySyncRefusal?(nodes.map(\.id)) {
+            banner = .refusal(refusal, log: .warn)
+            return nil
+        }
+        if let reason = Self.validateItemName(name) {
+            present(SyncError(title: "Couldn’t Create Folder", message: reason, path: parent))
+            return nil
+        }
+        let parentPath = parent.isEmpty ? "" : URL(fileURLWithPath: (parent as NSString).expandingTildeInPath).path
+        guard !parentPath.isEmpty else {
+            present(.createFolderFailed(reason: FileOperationError.destinationRootUnavailable.localizedDescription, path: parent))
+            return nil
+        }
+        let folder = URL(fileURLWithPath: parentPath).appendingPathComponent(name)
+        let error = await enqueueFileOperation { () -> Error? in
+            do {
+                guard fm.fileExists(atPath: parentPath) else { throw FileOperationError.destinationRootUnavailable }
+                if fm.fileExists(atPath: folder.path) {
+                    throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError,
+                                  userInfo: [NSLocalizedDescriptionKey: "An item named “\(name)” already exists."])
+                }
+                try fm.createDirectory(at: folder, withIntermediateDirectories: false)
+                return nil
+            } catch {
+                return error
+            }
+        }
+        if let error {
+            present(.createFolderFailed(reason: error.localizedDescription, path: parent))
+            return nil
+        }
+        Logger.shared.info("Created folder \(name) at \(parent) to move \(nodes.count) item(s) into")
+        noteOwnWrite(atPath: folder.path)
+        let moved = await transferItems(
+            nodes: nodes,
+            isMove: true,
+            destinationDescription: "into the new folder \(folder.path)",
+            destinationRoot: folder.path,
+            targetURL: { node in folder.appendingPathComponent(node.name) },
+            fileManager: fm,
+            receipt: receipt,
+            madeFolder: MadeFolder(url: folder, undoActionName: Self.newFolderWithSelectionActionName)
+        )
+        guard !moved.isEmpty else {
+            // In the queue, behind anything the transfer left there.
+            await enqueueFileOperation { Self.removeIfEmpty([folder.path]) }
+            return (folder.path, [])
+        }
+        // Unpaired: the move's own records, written in its registration's turn, hold the pairing
+        // (`recordSyncHistory`), and this runs after an await.
+        recordSyncHistory([SyncHistoryRecord(runId: UUID(), action: .newFolder, sourcePath: folder.path)],
+                          pairedWithUndo: false)
+        return (folder.path, moved)
+    }
+
     /// Renames a specific file or folder on disk.
     public func renameItem(at path: String, to newName: String, fileManager fm: FileManaging = FileManager.default) async {
         await renameItem(
