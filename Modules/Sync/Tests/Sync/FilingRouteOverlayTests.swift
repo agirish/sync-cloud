@@ -23,7 +23,7 @@ import Testing
 
     static var index: FilingRouter.Index {
         FilingRouterTests.index(memoryDocs: [
-            "Health/Medical/Kaiser/Surgery": ["perioperative", "anesthesia", "sutures"],
+            "Health/Medical/Kaiser/Procedures": ["perioperative", "anesthesia", "sutures"],
         ])
     }
 
@@ -48,7 +48,7 @@ import Testing
             s, index: Self.index, snippets: ["\(Self.root)/TODO/scan001.pdf": "perioperative anesthesia note"],
             providerRoot: Self.root)
         #expect(routed == 1)
-        #expect(out[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Surgery")
+        #expect(out[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Procedures")
         // Content-derived, so it stays out of the blind batch and carries its evidence.
         #expect(out[0].best?.fromContent == true)
         #expect(out[0].best?.fromAI == false)
@@ -137,7 +137,7 @@ import Testing
             snippets: ["\(Self.root)/TODO/op.pdf": "perioperative anesthesia sutures"],
             providerRoot: Self.root)
         #expect(routed == 1)
-        #expect(out[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Surgery")
+        #expect(out[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Procedures")
     }
 
     /// A model's answer the router matches in confidence gives way to it; only a weaker one is kept.
@@ -166,7 +166,7 @@ import Testing
         let s = [Self.suggestion("scan001.pdf", best: nil)]
         let snippets = ["\(Self.root)/TODO/scan001.pdf": "perioperative anesthesia"]
         let rejected = ["\(Self.root)/TODO/scan001.pdf":
-                            Set(["\(Self.root)/Health/Medical/Kaiser/Surgery"])]
+                            Set(["\(Self.root)/Health/Medical/Kaiser/Procedures"])]
         let (out, routed, _) = FileSyncManager.applyRoutes(
             s, index: Self.index, snippets: snippets, providerRoot: Self.root, rejectedByFile: rejected)
         #expect(routed == 0)
@@ -176,7 +176,7 @@ import Testing
         let (kept, keptCount, _) = FileSyncManager.applyRoutes(
             s, index: Self.index, snippets: snippets, providerRoot: Self.root, rejectedByFile: unrelated)
         #expect(keptCount == 1)
-        #expect(kept[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Surgery")
+        #expect(kept[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Procedures")
     }
 
     /// With nothing extracted the router still has the filename, and must not invent a home from
@@ -200,7 +200,7 @@ import Testing
             snippets: ["\(Self.root)/TODO/op.pdf": "perioperative anesthesia sutures"],
             providerRoot: Self.root)
         #expect(routed == 1)
-        #expect(out[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Surgery")
+        #expect(out[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Procedures")
         #expect(out[0].candidates.contains(strong))
         #expect(!out[0].isBatchEligible, "a home read out of the document is never moved unseen")
         #expect(shortlist["\(Self.root)/TODO/op.pdf"]?.isEmpty == false, "it must still be ranked for the menu")

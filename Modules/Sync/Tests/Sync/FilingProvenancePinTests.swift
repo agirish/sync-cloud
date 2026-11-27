@@ -170,7 +170,7 @@ import Testing
     @Test func aRouterHomeKeepsItsMeasuredConfidenceEvenWhenContentDerived() throws {
         let root = "/prov"
         let index = FilingRouterTests.index(memoryDocs: [
-            "Health/Medical/Kaiser/Surgery": ["perioperative", "anesthesia", "sutures"],
+            "Health/Medical/Kaiser/Procedures": ["perioperative", "anesthesia", "sutures"],
         ])
         let s = [FilingSuggestion(filePath: "\(root)/TODO/scan001.pdf", fileName: "scan001.pdf",
                                   size: 10, modificationDate: nil, candidates: [],
@@ -193,8 +193,8 @@ import Testing
     @Test func aRouterHomeRankedFromTheFilenameAloneStaysInTheBlindBatch() throws {
         let root = "/prov"
         let index = FilingRouterTests.index()
-        let path = "\(root)/TODO/kaiser surgery notes.pdf"
-        let s = [FilingSuggestion(filePath: path, fileName: "kaiser surgery notes.pdf",
+        let path = "\(root)/TODO/kaiser procedures notes.pdf"
+        let s = [FilingSuggestion(filePath: path, fileName: "kaiser procedures notes.pdf",
                                   size: 10, modificationDate: nil, candidates: [],
                                   providerRoot: root)]
         // No snippets at all: the ranking can only have come from the name.
@@ -202,7 +202,7 @@ import Testing
                                                           providerRoot: root)
         #expect(routed == 1)
         let best = try #require(out[0].best)
-        #expect(best.path == "\(root)/Health/Medical/Kaiser/Surgery")
+        #expect(best.path == "\(root)/Health/Medical/Kaiser/Procedures")
         #expect(!best.fromContent, "fixture must exercise the NAME branch of the evidence ternary")
         #expect(best.evidenceToken == nil)
         #expect(best.reasons == ["Fits how this folder is used"])

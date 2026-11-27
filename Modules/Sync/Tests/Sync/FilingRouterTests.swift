@@ -17,7 +17,7 @@ import Testing
         var folders = [
             "Home/Utilities/PG&E/2023", "Home/Utilities/PG&E/2024",
             "Home/Utilities/AT&T/2023", "Home/Utilities/AT&T/2024",
-            "Health/Medical/Kaiser/Surgery", "Finance/US/Income Tax/2023",
+            "Health/Medical/Kaiser/Procedures", "Finance/US/Income Tax/2023",
         ]
         folders.append(contentsOf: extraFolders)
         var entries = folders.map { path in
@@ -172,12 +172,12 @@ import Testing
     /// a screenshot carrying only a case number. It beats a folder sharing ordinary words.
     @Test func anIdentifierOutweighsSharedVocabulary() {
         let idx = Self.index(memoryDocs: [
-            "Health/Medical/Kaiser/Surgery": ["AA00CVPBHP", "record"],
+            "Health/Medical/Kaiser/Procedures": ["AA00CVPBHP", "record"],
             "Finance/US/Income Tax/2023": ["record", "statement", "summary"],
         ])
         let r = FilingRouter.rank(fileName: "scan.pdf",
                                   contentSnippet: "record AA00CVPBHP summary", index: idx)
-        #expect(r.best?.relativePath == "Health/Medical/Kaiser/Surgery")
+        #expect(r.best?.relativePath == "Health/Medical/Kaiser/Procedures")
     }
 
     /// Inboxes are never destinations: listing one teaches the classifier to file into the place
@@ -203,7 +203,7 @@ import Testing
     /// The margin is what the app reports as confidence, so it has to move with the evidence: a
     /// document matching one folder alone must not read the same as one matching two equally.
     @Test func theMarginSeparatesAClearWinnerFromATie() {
-        let clear = Self.index(memoryDocs: ["Health/Medical/Kaiser/Surgery": ["perioperative", "anesthesia"]])
+        let clear = Self.index(memoryDocs: ["Health/Medical/Kaiser/Procedures": ["perioperative", "anesthesia"]])
         let decided = FilingRouter.rank(fileName: "op.pdf",
                                         contentSnippet: "perioperative anesthesia note", index: clear)
         #expect(decided.confidence == .high)
@@ -396,7 +396,7 @@ import Testing
         #expect(FolderProfile.isInboxPath("Health/New (TODO)/Dental"))
         #expect(FolderProfile.isInboxPath("Home/TODO - May 2025"))
         #expect(!FolderProfile.isInboxPath("Media/Mastodon"))
-        #expect(!FolderProfile.isInboxPath("School/IN/BMS College of Engineering/Misc"))
+        #expect(!FolderProfile.isInboxPath("School/IN/Riverside College of Engineering/Misc"))
         #expect(!FolderProfile.isInboxPath("Finance/US/Income Tax/2023"))
     }
 
