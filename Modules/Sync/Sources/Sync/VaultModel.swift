@@ -186,7 +186,10 @@ public final class VaultModel: ObservableObject {
     }
 
     @Published public private(set) var entries: [VaultEntry] = [] { didSet { rowsRevision &+= 1 } }
-    @Published public private(set) var contents: Contents = .notLoaded
+    @Published public private(set) var contents: Contents = .notLoaded {
+        // Loaded: the key read for it stays held for its seals until the numbers go (VT31).
+        didSet { if contents == .loaded { store?.pinKey() } }
+    }
     /// The lock. A change the panel cannot show (the idle timer restarting while it is far from
     /// running out, a shown number's thirty seconds starting again) redraws nothing (VT9).
     public private(set) var lock: VaultLock {
@@ -1461,6 +1464,18 @@ public final class VaultModel: ObservableObject {
         load()
     }
 
+    /// "For every ID", with something sealed and the key's touch not given (refused, or another
+    /// prompt was up): the panel shows its lock with a way to open, not an empty Vault.
+    public var waitsForKeyTouch: Bool {
+        lock.settings.ask == .everyNumber && contents == .notLoaded && hasSomethingSealed
+    }
+
+    /// The lock's Open under "For every ID": the key's one touch, then the list.
+    public func openWithKey() async {
+        guard await keyReady("open the Vault") else { return }
+        load()
+    }
+
     /// The key, kept behind Touch ID since VT31, ready for a change made with the Vault locked
     /// (Add, Discover More, the "For every ID" open): one touch when it needs one, which reads the
     /// key and opens nothing else. True when the key can be read, or there is none to read yet.
@@ -1672,7 +1687,7 @@ public final class VaultModel: ObservableObject {
 
     /// Touch ID was given since the Vault last loaded: to open it, or for a number. What the weekly
     /// backup waits for (VT114).
-    private var provedSinceLoad = false
+    private(set) var provedSinceLoad = false
 
     /// The weekly backup being written, if one is.
     private(set) var backingUp: Task<Void, Never>?
@@ -2035,11 +2050,15 @@ public final class VaultModel: ObservableObject {
         let proof = await authenticator.prove(reason: reason)
         now = clock()
         // What was asked for, never for which ID or person (VT22).
-        let asked = ids.count > 1 ? "a proof for \(ids.count) IDs" : !ids.isEmpty ? "a proof for one ID" : reason == Self.unlockReason ? "a proof to unlock" : "a proof for a person’s IDs"
+        let asked = ids.count > 1 ? "a proof for \(ids.count) IDs" : !ids.isEmpty ? "a proof for one ID"
+            : !opens ? "a proof for the Vault’s key" : reason == Self.unlockReason ? "a proof to unlock" : "a proof for a person’s IDs"
         // The panel closed, Lock Now was chosen or the Mac locked while the prompt was up: an
         // answer given after that opens nothing, and nothing is shown or copied for it.
         guard session.stands(epoch) else {
             logSession("Vault: \(asked) was answered after the Vault closed or locked, and set aside")
+            // Set aside for the key too: the proof's context reached the key holder as macOS
+            // answered, and must not read the key now (the third review).
+            store?.letGoOfKeyUnlessPinned()
             return false
         }
         switch proof {
@@ -2056,7 +2075,9 @@ public final class VaultModel: ObservableObject {
             // Activity lines written while the key could not be read are sealed now (VT31).
             activity?.sealWaiting(now: now)
             noticeNewFingerprints()
-            provedSinceLoad = true
+            // A touch for the key alone is no proof for an ID: the weekly backup still waits for one
+            // (VT114; the third review).
+            if opens { provedSinceLoad = true }
             // "For every ID": the weekly backup waits for the first proof (VT114).
             if !ids.isEmpty { backUpIfDue() }
             return true
@@ -3331,6 +3352,9 @@ public final class VaultModel: ObservableObject {
         // Corrected into a number another waiting ID has: adding drops that one. What both numbers'
         // documents said, and it, are kept from before, for Undo.
         let correcting = VaultReading.normalized(draft.value) != VaultReading.normalized(find.value)
+        // A number typed over the one worked out of a smudged zone is the user's, checked: the
+        // note to compare it goes (VT51; the third review).
+        if correcting { draft.facts?.zoneWorkedOut = nil }
         let kept = correcting ? held(find.value, draft.value) : nil
         let dropping = correcting ? waiting(draft.value, except: findID) : []
         draft.chosenSource = find.chosenSource
@@ -4370,6 +4394,10 @@ public final class VaultModel: ObservableObject {
         switch error {
         case .keyMissing:
             return "This Vault was sealed with a key that isn’t in this Mac’s Keychain, so it can’t be opened here."
+        case .keyUnreadable(let status) where status == errSecMissingEntitlement || status == errSecNotAvailable:
+            // Kept behind Touch ID (VT31), where this copy of SyncCloud cannot reach it: a build
+            // without the installed copy's profile (the third review: it said to unlock a keychain).
+            return "This copy of SyncCloud can’t reach the Vault’s key, which is kept behind Touch ID. Open the SyncCloud in Applications, or install it again."
         case .keyUnreadable(let status):
             return "The Keychain wouldn’t release the Vault’s key (status \(status)). Unlock your login keychain and try again."
         case .keyNotSaved(let status):

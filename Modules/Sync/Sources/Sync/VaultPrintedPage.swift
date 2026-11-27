@@ -326,12 +326,15 @@ struct PrintedPage {
             guard let hit = Self.labelHit(labels, in: lettered[index]) else { continue }
             // A label in a header row ("RxBIN    Member ID") heads its own column of the line under
             // it, when both lines have as many cells (the second review); else the line's start.
-            let column = Self.cells(line[..<hit.lowerBound]).count
+            // Its column is the cell its start is in: a word before it with one space between
+            // ("Your Account Number") shares its cell (the third review: counted as a cell of its
+            // own, it named a column past the last, and the read crashed).
             let header = Self.cells(line).count
+            let column = Self.column(of: hit.lowerBound, in: line)
             func under(_ at: Int) -> Substring {
                 guard column > 0, header > 1 else { return lines[at][...] }
                 let row = Self.cells(lines[at])
-                return row.count == header ? row[column][...] : lines[at][...]
+                return row.count == header && column < row.count ? row[column][...] : lines[at][...]
             }
             if let found = leading(line[hit.upperBound...].drop(while: skipping.contains)).flatMap(keeping) {
                 out.append(Hit(value: found, label: index, line: index))
@@ -345,6 +348,15 @@ struct PrintedPage {
             if first { break }
         }
         return out
+    }
+
+    /// The index, among ``cells(_:)``, of the cell `at` starts in: after two or more spaces, or the
+    /// line's start, a new one; after a word and one space, that word's.
+    static func column(of at: String.Index, in line: String) -> Int {
+        let before = line[..<at]
+        let count = cells(before).count
+        guard count > 0 else { return 0 }
+        return before.hasSuffix("  ") ? count : count - 1
     }
 
     /// A line's cells: runs of text two spaces or more apart, as a typed table's row prints them.

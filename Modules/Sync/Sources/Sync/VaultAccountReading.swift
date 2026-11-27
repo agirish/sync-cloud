@@ -276,7 +276,7 @@ extension VaultReading {
         let notAPerson = below.filter { registry?.detect(in: $0).isEmpty ?? true }
         let named = notAPerson.filter { folder in
             !paperFolders.contains(folder.lowercased())
-                && folder.range(of: #"^(?:19|20)[0-9]{2}(?![0-9])"#, options: .regularExpression) == nil
+                && folder.range(of: VaultReadPlan.yearFolderPattern, options: .regularExpression) == nil
         }
         return named.last ?? notAPerson.first
     }

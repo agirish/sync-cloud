@@ -171,7 +171,11 @@ public struct VaultReadPlan: Equatable, Sendable {
         pattern: #"(?<![a-z])(?:id|card|enrol(?:l)?ment|registration|report card|admission)(?![a-z])"#,
         options: [.caseInsensitive])
 
-    private static let yearFolder = try! NSRegularExpression(pattern: #"^((?:19|20)[0-9]{2})(?![0-9])"#)
+    /// A year's folder: the year alone, or the year, a dash and a name ("2023 - Pat"), never a
+    /// year that starts a name ("2019 Honda Odyssey", the third review). The issuer takes one alike
+    /// (``VaultAccountReading/accountIssuer(_:under:people:)``).
+    static let yearFolderPattern = #"^((?:19|20)[0-9]{2})(?:\s*[-–—]\s*\S.*)?$"#
+    private static let yearFolder = try! NSRegularExpression(pattern: yearFolderPattern)
     private static let yearInName = try! NSRegularExpression(pattern: #"(?<![0-9])(20[0-9]{2})(?![0-9])"#)
 
     /// What a paper's name says beyond its date and its kind: "PG&E 2024-03 Statement" and

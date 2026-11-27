@@ -16539,3 +16539,17 @@ not 135%.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The smaller header buttons and switches | RECORDED — not owed (UI polish) |
+
+## Vault: the key behind Touch ID, and a third review — main only, recorded, not owed
+
+2026-11-26, for v7.2. The installed copy keeps the Vault's key in the data-protection keychain,
+readable only with Touch ID, moved there once at the first proof and held until the Vault lets go
+(VT31, VT10; `89a72e200`); `scripts/vault-sign-installed` embeds the profile at install. The third
+review: a moved key found nowhere is never "no key"; the "For every ID" open's touch is not an
+unlock; the editor's number fields edit in a field editor of their own; a crash's Vault copy is
+cleared at launch; backups are named for the local day and not written for an unchanged Vault;
+readers version 31.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |

@@ -164,10 +164,45 @@ import Testing
         // The page printing the number and both dates outside the zone: no note.
         let printed = ["PASSPORT", "Passport No. X1234567", "Date of Birth 12 AUG 1974", "Date of Expiry 15 APR 2032"] + Array(page.dropFirst())
         #expect(VaultFixtures.read(printed).first { $0.facts.category == .passport }?.facts.zoneWorkedOut == nil)
+        // The number printed but not its dates: no vouching, for a filled date (the third review).
+        let numberOnly = ["PASSPORT", "Passport No. X1234567"] + Array(page.dropFirst())
+        #expect(VaultFixtures.read(numberOnly).first { $0.facts.category == .passport }?.facts.zoneWorkedOut == true)
         // Two copies, one read cleanly: it vouches for the number.
         var other = clean
         other.facts.sources = [VaultSource(path: "/docs/copy.pdf", role: "Passport photo page", rank: 50)]
         #expect(VaultCopies.merged([find, other])?.facts.zoneWorkedOut == nil)
         #expect(VaultCopies.merged([find])?.facts.zoneWorkedOut == true)
+    }
+
+    /// An OCI card's zone holds no real expiry, so its page vouches with the number and the birth
+    /// date alone (the third review: it could never vouch, and every recovered card was marked).
+    @Test func anOCICardsPageVouchesWithItsNumberAndBirthDate() throws {
+        let zone = VaultReadingTests.zone("V", number: "A1234567", born: "800101", expires: "190701", country: "IND")
+        var smudged = Array(zone[1])
+        smudged[15] = "~"
+        let card = ["OVERSEAS CITIZEN OF INDIA CARD HOLDER", zone[0], String(smudged)]
+        let marked = try #require(VaultReading.finds(in: card, from: "/OCI/card.pdf").first { $0.title == "OCI card" })
+        #expect(marked.value == "A1234567" && marked.facts.zoneWorkedOut == true)
+        let printed = ["OVERSEAS CITIZEN OF INDIA CARD HOLDER", "OCI No. A1234567", "Date of Birth 01/01/1980",
+                       "Valid LIFELONG", zone[0], String(smudged)]
+        let vouched = try #require(VaultReading.finds(in: printed, from: "/OCI/card.pdf").first { $0.title == "OCI card" })
+        #expect(vouched.facts.zoneWorkedOut == nil)
+    }
+
+    /// A number typed over the one worked out of a smudged zone is the user's, checked: its note
+    /// goes with the correction (the third review).
+    @MainActor @Test func aCorrectedNumberLosesTheNoteToCheckIt() async throws {
+        let rig = try VaultRig(); defer { rig.cleanUp() }
+        let zone = VaultReadingTests.zone("P", number: "X1234567", born: "740812", expires: "320415")
+        var smudged = Array(zone[1])
+        smudged[15] = "~"
+        let model = rig.model()
+        await model.readDocuments(with: VaultFakeDocuments(pages: ["/docs/passport.pdf": ["PASSPORT", zone[0], String(smudged)]]))
+        let find = try #require(model.finds.first { $0.facts.category == .passport })
+        #expect(find.facts.zoneWorkedOut == true)
+        var draft = VaultModel.Draft(find)
+        draft.value = "X1234568"
+        let saved = try #require(model.confirm(find.id, as: draft))
+        #expect(model.entries.first { $0.id == saved }?.facts?.zoneWorkedOut == nil, "the note stayed on a number typed by hand")
     }
 }

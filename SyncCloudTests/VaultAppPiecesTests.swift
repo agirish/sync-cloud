@@ -10,7 +10,8 @@ import Testing
 /// The Vault's app-side pieces no other suite reaches (VT27): copying a number, the card's size,
 /// which window's use counts, and what Read Documents leaves unread. Every number is made up; the
 /// clipboard tests use a pasteboard of their own, never the user's. Serialized: there is one copy
-/// waiting to be cleared at a time, app-wide, and a later copy takes the place of an earlier one.
+/// waiting to be cleared at a time on each pasteboard, and a later copy takes the place of an
+/// earlier one.
 @MainActor
 @Suite(.serialized) struct VaultAppPiecesTests {
     // MARK: Copying a number
@@ -26,6 +27,19 @@ import Testing
                 "clipboard-history apps skip it only when it is marked")
         #expect(board.string(forType: .string) == "Z0000009")
         await waitUntil("the copy was cleared") { board.string(forType: .string) == nil }
+    }
+
+    /// A copy on another pasteboard keeps its own clear: the second review's Cut test and this
+    /// suite took the one pending clear from each other (the third review).
+    @Test func aCopyOnAnotherPasteboardLeavesThisOnesClear() async throws {
+        let board = Self.pasteboard(), other = Self.pasteboard()
+        defer { board.releaseGlobally(); other.releaseGlobally() }
+        VaultPasteboard.copyConcealed("Z0000009", on: board, after: .milliseconds(100))
+        VaultPasteboard.copyConcealed("Y0000008", on: other, after: .seconds(3600))
+        await waitUntil("the first copy was cleared") { board.string(forType: .string) == nil }
+        #expect(other.string(forType: .string) == "Y0000008")
+        VaultPasteboard.clearPending()
+        #expect(other.string(forType: .string) == nil, "the other copy outlived a lock")
     }
 
     @Test func somethingCopiedSinceIsNeverCleared() async throws {
@@ -78,7 +92,9 @@ import Testing
             let text = try String(contentsOf: file, encoding: .utf8)
             let code = text.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             copies += code.filter { $0.contains("VaultPasteboard.copyPlain(") }.count
-            #expect(!code.contains { $0.contains("NSPasteboard") }, "\(file.lastPathComponent) writes the clipboard itself")
+            // A type named in a signature (the number field's Services override) writes nothing.
+            #expect(!code.contains { $0.replacingOccurrences(of: "NSPasteboard.PasteboardType", with: "").contains("NSPasteboard") },
+                    "\(file.lastPathComponent) writes the clipboard itself")
         }
         #expect(copies >= 2, "the scan reads the panel's copies")
     }

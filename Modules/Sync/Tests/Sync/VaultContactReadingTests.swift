@@ -62,6 +62,13 @@ import Testing
         let pictureOnly = try #require(source([bare, picture], [VaultPageOrigin(page: 1, half: .textLayer),
                                                                 VaultPageOrigin(page: 1, half: .picture)]))
         #expect(pictureOnly.phones?.map(\.number) == ["4085550148"], "a layer with no phone leaves the picture's")
+        // Page 2's layer repeats page 1's phone: its picture's misread still is not added (the
+        // third review).
+        let first = [Self.account, "ANNA ERIKSSON", "2841 LARKSPUR LN", "SAN JOSE CA 95132", "Cell: (408) 555-0142"]
+        let repeated = try #require(source([first, layer, picture],
+                                           [VaultPageOrigin(page: 1, half: .textLayer), VaultPageOrigin(page: 2, half: .textLayer),
+                                            VaultPageOrigin(page: 2, half: .picture)]))
+        #expect(repeated.phones?.map(\.number) == ["4085550142"])
     }
 
     @Test func aNameLineMayHoldAWordPeopleDoesNotKnow() {

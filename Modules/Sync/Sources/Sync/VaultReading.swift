@@ -117,7 +117,7 @@ public enum VaultReading {
 
     /// Raised whenever a rule changes what is read, so the next Read Documents reads every file
     /// again rather than trusting what an older build made of it.
-    public static let version = 30
+    public static let version = 31
 
     /// Every number on a document, once each, and the numbers it only names.
     /// `roots` are the read folders and `people` the household's, for account numbers: which area
@@ -835,12 +835,14 @@ public struct MachineZone: Equatable, Sendable {
     /// Whether this zone was read only by working out a smudged character (VT51): filled or
     /// swapped, with the page printing neither its number nor both its dates outside the zone, which
     /// would be a second reading of the paper.
-    func workedOut(on printed: PrintedPage) -> Bool {
+    /// An OCI card's zone carries no real expiry (``ociFind(from:page:printed:)``): its page vouches
+    /// with the number and the birth date alone (the third review).
+    func workedOut(on printed: PrintedPage, lifelong: Bool = false, order: DateOrder? = nil) -> Bool {
         guard recovery == .fill || recovery == .swap else { return false }
         let outside = PrintedPage(printed.lines.filter { !$0.contains("<") })
         let number = VaultReading.normalized(self.number).lowercased()
-        let dates = Set(outside.dates(order: nil))
-        let datesAgree = [born, expires].allSatisfy(dates.contains)
+        let dates = Set(outside.dates(order: order))
+        let datesAgree = (lifelong ? [born] : [born, expires]).allSatisfy(dates.contains)
         return !(outside.squeezed.contains(number) && datesAgree)
     }
 
@@ -908,7 +910,7 @@ public struct MachineZone: Equatable, Sendable {
         var facts = VaultReadFacts(category: .usVisa, holder: holder.isEmpty ? nil : holder, born: born, issuer: "IND",
                                    form: "OCI", dated: issued, details: details,
                                    sources: [VaultSource(path: path, role: "OCI card" + where_, rank: VaultReading.Rank.visaFoil)])
-        facts.zoneWorkedOut = workedOut(on: printed) ? true : nil
+        facts.zoneWorkedOut = workedOut(on: printed, lifelong: true, order: .dayFirst) ? true : nil
         let note = [holder, "OCI for life"].filter { !$0.isEmpty }
         return VaultFind(title: "OCI card", value: number, note: VaultReading.sentence(note), facts: facts)
     }

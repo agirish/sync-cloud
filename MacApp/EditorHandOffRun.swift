@@ -321,7 +321,9 @@ enum EditorRevealInBrowse {
                          log: (String) -> Void) {
         // A document behind a Vault number is named in the log masked: its file and folder
         // names can hold the very number (``VaultMask``).
-        let shown = door == .vault ? VaultMask.folder(path) : path
+        // Whole: an SSN's or Aadhaar's ending is itself a secret, and the log never needs one (the
+        // third review).
+        let shown = door == .vault ? VaultMask.folder(path, keep: 0) : path
         let folder = (shown as NSString).deletingLastPathComponent
         guard let target = browseTarget(for: path, sourceRoot: sourceRoot, links: links) else {
             log("Reveal in Browse from \(door.name): \(shown) is outside the left source — Browse stays where it is")

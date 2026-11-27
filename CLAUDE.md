@@ -126,6 +126,10 @@ For a mechanical choice with a clear default, pick it, say so in the report, and
 - **The certificate expires 2027-11-27** (renewed 2026-11-26; the old one ends 2026-12-01). The skill
   signs through a renewal while both certificates share a name; with none, or two with different
   names, it installs ad-hoc and says so.
+- **The installed copy keeps the Vault's key behind Touch ID** (VT31). Only it can reach the key:
+  `scripts/vault-sign-installed` embeds the free team's provisioning profile at install, and the
+  profile lasts 7 days, so reinstall at least weekly (Settings ▸ Vault ▸ Lock shows the end date).
+  A worktree or ad-hoc build says it can't reach the key; test the Vault in the installed copy.
 
 ---
 

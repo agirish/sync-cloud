@@ -1097,6 +1097,17 @@ when it gives up, and the test requires that it did not: "Cancel was never press
 reads as "Cancel did nothing". Mutated so the test never hands over the `Progress`, it now fails
 on `!fm.gaveUpWaitingForProgress` rather than on the copied file.
 
+#### Seen: `VaultDocumentStoreTests.aReplaceWaitsForTheLockBeforeSettingTheVaultAside`, 2026-11-27 — FIXED
+
+Red once on hosted CI at `89a72e200` (the Vault's key behind Touch ID; nothing in the store's lock),
+after 65.6 s, beside `OneWaySyncDropboxGateTests.aHungReadEndsAtTheDeadline` (65.6 s for a 20 s
+bound) and a TestSupport park give-up in the same chunk: the whole process stalled for about a
+minute. The second store's lock wait, `lockWait = 60`, is a `Date()` deadline, so the stall spent
+it and the Replace gave up before the test let go of the lock. Locally the suite passes.
+
+Fixed in the third Vault review: both lock tests wait up to 600 s. The wait returns as soon as the
+lock is let go, so a healthy run takes no longer; only a stalled runner uses the extra time.
+
 ### 6. Load-scaled benchmarks
 
 **Symptom.** A timing assertion fails on a busy machine and passes on an idle one.

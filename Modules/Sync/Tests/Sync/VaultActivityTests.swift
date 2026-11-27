@@ -89,6 +89,16 @@ import Testing
         #expect(model.notice == nil, "said once")
     }
 
+    /// Clear leaves one line saying the list was cleared: a list wiped after an unknown finger
+    /// opened the Vault is never silent about it (the third review).
+    @Test func clearingTheListLeavesALineSayingSo() throws {
+        let (rig, activity, _) = try Self.rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.passport])
+        activity.append([VaultActivityEvent(at: VaultLockTests.t0, kind: .copied, what: "Passport")], now: VaultLockTests.t0)
+        activity.clear(now: VaultLockTests.t0)
+        #expect(activity.load().map(\.line) == ["Cleared the activity list"])
+    }
+
     /// Events older than ninety days are not shown, though only the next addition takes them off
     /// the disk: a Vault left alone keeps none of them on view (the final review).
     @Test func eventsPastNinetyDaysAreNotShownBeforeTheNextOneIsAdded() throws {
@@ -305,16 +315,16 @@ import Testing
         #expect(kept.count == VaultActivityStore.limit)
         #expect(kept.first?.what == "0" && !kept.contains { $0.what == "Old" }, "the newest, and nothing past ninety days")
         // Each bound alone (VT95): under the count, one past ninety days goes and one within stays.
-        activity.clear()
+        activity.clear(now: now)
         activity.append([VaultActivityEvent(at: now.addingTimeInterval(-91 * 86_400), kind: .copied, what: "Past"),
                          VaultActivityEvent(at: now.addingTimeInterval(-86_400), kind: .copied, what: "Within")], now: now)
-        #expect(activity.load().map(\.what) == ["Within"], "the age bound held only because the count did")
+        #expect(Set(activity.load().map(\.what)) == ["Cleared the activity list", "Within"], "the age bound held only because the count did")
         // And on what was stored: ninety-one days on, "Within" is past it.
         let later = now.addingTimeInterval(91 * 86_400)
         activity.append([VaultActivityEvent(at: later, kind: .unlocked)], now: later)
         #expect(activity.load().map(\.what) == [""], "a stored event outlived ninety days")
-        activity.clear()
-        #expect(activity.load().isEmpty)
+        activity.clear(now: later)
+        #expect(activity.load().map(\.what) == ["Cleared the activity list"])
     }
 
     @Test func aVaultWithNoKeyKeepsNoListAndMakesNoKey() throws {

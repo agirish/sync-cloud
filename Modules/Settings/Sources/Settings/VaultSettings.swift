@@ -83,7 +83,7 @@ struct VaultSettingsTab: View {
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.screensDidSleepNotification)) { _ in closeWhatAProofOpened() }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.sessionDidResignActiveNotification)) { _ in closeWhatAProofOpened() }
         .onReceive(DistributedNotificationCenter.default().publisher(for: .init("com.apple.screenIsLocked"))) { _ in closeWhatAProofOpened() }
-        .sheet(isPresented: Binding(get: { activityShown != nil }, set: { if !$0 { activityShown = nil } })) {
+        .sheet(isPresented: Binding(get: { activityShown != nil }, set: { if !$0 { activityShown = nil; letGoOfKey() } })) {
             VaultActivitySheet(events: activityShown ?? []) {
                 activityStore?.clear()
                 SettingsWindowLog.log("vault.activity", "cleared")
@@ -107,7 +107,7 @@ struct VaultSettingsTab: View {
             }
             .presentedNativeControlAccent()
         }
-        .sheet(item: $askingPassphraseFor) { file in
+        .sheet(item: $askingPassphraseFor, onDismiss: { if restoreOffer == nil { letGoOfKey() } }) { file in
             let url = file.url
             VaultPassphraseSheet(title: "Passphrase for This Backup",
                                  note: "“\(url.lastPathComponent)” was sealed with a different passphrase from the one kept here.",
@@ -125,7 +125,7 @@ struct VaultSettingsTab: View {
             }
             .presentedNativeControlAccent()
         }
-        .confirmationDialog(restoreOffer?.title ?? "", isPresented: Binding(get: { restoreOffer != nil }, set: { if !$0 { restoreOffer = nil } }),
+        .confirmationDialog(restoreOffer?.title ?? "", isPresented: Binding(get: { restoreOffer != nil }, set: { if !$0 { restoreOffer = nil; letGoOfKey() } }),
                             presenting: restoreOffer) { offer in
             if let missing = offer.missing, missing > 0 {
                 Button(missing == 1 ? "Add the 1 ID Missing Here" : "Add the \(missing) IDs Missing Here") { restore(offer.contents, .addMissing) }
@@ -224,7 +224,7 @@ struct VaultSettingsTab: View {
         ) {
             // The installed copy's Apple profile, which lets the key be kept behind Touch ID (VT31):
             // a free team's lasts a week, and SyncCloud does not open once it has run out.
-            if let ends = VaultProfile.expiry() {
+            if let ends = VaultProfile.installed {
                 let soon = ends.timeIntervalSinceNow < 2 * 86_400
                 Label("The Vault’s key is kept behind Touch ID. This copy of SyncCloud can open until "
                       + ends.formatted(date: .abbreviated, time: .shortened)
@@ -311,6 +311,7 @@ struct VaultSettingsTab: View {
                             if await proved(hasPassphrase ? "change the Vault’s backup passphrase" : "set the Vault’s backup passphrase") {
                                 settingPassphrase = true
                             }
+                            letGoOfKey()
                         }
                     }
                     .controlSize(.small)
@@ -326,6 +327,7 @@ struct VaultSettingsTab: View {
                     Button("Choose…") {
                         Task { @MainActor in
                             if await proved("choose where the Vault’s backups go") { chooseBackupFolder() }
+                            letGoOfKey()
                         }
                     }
                     .controlSize(.small)
@@ -408,6 +410,8 @@ struct VaultSettingsTab: View {
     private func showActivity() {
         Task { @MainActor in
             guard await proved("show the Vault’s activity") else { return }
+            // Lines written while the key waited for a touch are sealed first, so the list shows them.
+            activityStore?.sealWaiting(now: Date())
             activityShown = activityStore?.load(now: Date()) ?? []
         }
     }
@@ -440,7 +444,9 @@ struct VaultSettingsTab: View {
     }
 
     private func refreshBackupState() {
-        guard let backup else { return }
+        // Only inside SyncCloud: a package test drawing this page must never read the owner's
+        // backup passphrase from the Keychain (the third review).
+        guard Bundle.main.bundleIdentifier == "com.abhishekgirish.SyncCloud", let backup else { return }
         hasPassphrase = backup.hasPassphrase
         backupFolder = backup.folder.path
         lastBackup = backup.lastBackup
@@ -454,7 +460,12 @@ struct VaultSettingsTab: View {
         askingPassphraseFor = nil
         restoreOffer = nil
         restoreProvedAt = nil
+        letGoOfKey()
     }
+
+    /// Settings' own use of the key is done: it goes, unless the Vault holds it (the third review:
+    /// a touch here left the key in memory, and a later "For every ID" open asked none).
+    private func letGoOfKey() { VaultKeyHolder.shared.releaseUnlessPinned() }
 
     /// Touch ID before a change to the backup or a restore (VT114, owner, 2026-11-26): someone at
     /// the unlocked Mac must not send the next backup, every ID in it, somewhere of theirs.
@@ -465,7 +476,13 @@ struct VaultSettingsTab: View {
         defer { isAsking = false }
         let proof = await VaultDeviceOwnerProof(keyHolder: .shared).prove(reason: reason)
         if case .allowed = proof { return true }
-        if case .cancelled = proof, VaultActivitySettings.keeps(in: .standard) {
+        // A wrong finger or a lockout is listed as a dismissal is (the third review).
+        let refused: Bool
+        switch proof {
+        case .cancelled, .failed: refused = true
+        default: refused = false
+        }
+        if refused, VaultActivitySettings.keeps(in: .standard) {
             let now = Date()
             activityStore?.append([VaultActivityEvent(at: now, kind: .proofRefused, what: reason)], now: now)
         }
@@ -480,7 +497,11 @@ struct VaultSettingsTab: View {
         Binding(get: { binding.wrappedValue }, set: { new in
             let old = binding.wrappedValue
             guard old != new, loosens(old, new) else { binding.wrappedValue = new; return }
-            Task { @MainActor in if await proved(reason) { binding.wrappedValue = new } }
+            Task { @MainActor in
+                // Applied only if nothing else was chosen while Touch ID was up (the third review).
+                if await proved(reason), binding.wrappedValue == old { binding.wrappedValue = new }
+                letGoOfKey()
+            }
         })
     }
 
@@ -516,6 +537,7 @@ struct VaultSettingsTab: View {
                 progress.message = Self.message(for: error)
             }
             refreshBackupState()
+            letGoOfKey()
         }
     }
 
@@ -545,6 +567,7 @@ struct VaultSettingsTab: View {
                 progress.failed = true
                 progress.isRestore = true
                 progress.message = Self.message(for: error)
+                letGoOfKey()
             }
         }
     }
@@ -559,6 +582,7 @@ struct VaultSettingsTab: View {
         Task { @MainActor in
             let result = await backup.restore(contents, mode: mode, provedAt: restoreProvedAt)
             restoreProvedAt = nil
+            letGoOfKey()
             progress.isBackingUp = false
             switch result {
             case .success(let count):
@@ -781,9 +805,13 @@ public enum VaultReadFoldersPanel {
 /// The installed copy's provisioning profile (VT31): when it runs out, read from the bundle
 /// without the network. Nil for a build with none (every build but the installed one).
 enum VaultProfile {
+    /// The app's, read once: the bundle's profile does not change while it runs, and Settings
+    /// draws often (the third review).
+    static let installed: Date? = expiry()
+
     static func expiry(in bundle: Bundle = .main) -> Date? {
         guard let url = bundle.url(forResource: "embedded", withExtension: "provisionprofile"),
-              let data = try? Data(contentsOf: url) else { return nil }
+              let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
         var made: CMSDecoder?
         guard CMSDecoderCreate(&made) == errSecSuccess, let decoder = made else { return nil }
         let updated = data.withUnsafeBytes { bytes in

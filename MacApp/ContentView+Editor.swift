@@ -2065,7 +2065,7 @@ extension ContentView {
         var masksInLog = false
 
         /// `path` as the log may show it.
-        var logged: String { masksInLog ? VaultMask.folder(path) : path }
+        var logged: String { masksInLog ? VaultMask.folder(path, keep: 0) : path }
 
         /// Every row the payment selects.
         var rows: Set<String> { Set(companions).union([path]) }
@@ -2210,7 +2210,7 @@ extension ContentView {
             PaneLogic.payOwedSelection(path, with: companions, state: syncManager,
                                        markPaid: { editorPaneSelectionPaid = $0 },
                                        markRightCleared: { editorPaneRightClearPaid = true })
-            Logger.shared.info("[pane-follow] Selected \(owed.masksInLog ? VaultMask.folder(path) : path) in the left pane"
+            Logger.shared.info("[pane-follow] Selected \(owed.masksInLog ? VaultMask.folder(path, keep: 0) : path) in the left pane"
                                + (companions.isEmpty ? "" : ", with \(companions.count) more beside it"))
             paneRowRevealToken &+= 1
             paneRowReveal = PaneRowReveal(path: path, token: paneRowRevealToken,

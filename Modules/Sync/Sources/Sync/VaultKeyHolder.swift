@@ -43,6 +43,11 @@ public final class VaultKeyHolder: KeychainStore, @unchecked Sendable {
     private let lock = NSLock()
     private var held: Data?
     private var context: LAContext?
+    /// The Vault's model holds the key while its numbers are loaded: a proof given elsewhere
+    /// (Settings) lets go of it once its own use is done, unless this says the Vault needs it.
+    private var pinned = false
+    /// A move that failed this session is not tried again at every read, only after a release.
+    private var moveFailed = false
 
     public init(inner: KeychainStore, protected: VaultProtectedKeys?, defaults: UserDefaults) {
         self.inner = inner
@@ -58,6 +63,23 @@ public final class VaultKeyHolder: KeychainStore, @unchecked Sendable {
     /// The Vault let go of its numbers: so does this, and the proof with them.
     public func release() {
         lock.withLock {
+            held = nil
+            context = nil
+            pinned = false
+            moveFailed = false
+        }
+    }
+
+    /// The Vault's numbers are loaded: the key stays held for its seals until release().
+    public func pin() { lock.withLock { pinned = true } }
+
+    /// A proof given for one use outside the Vault (Settings ▸ Show…, a backup, a guarded
+    /// setting) is let go once that use is done, unless the Vault itself holds the key (the third
+    /// review: the key stayed in memory after Settings, and the next "For every ID" open asked
+    /// no touch).
+    public func releaseUnlessPinned() {
+        lock.withLock {
+            guard !pinned else { return }
             held = nil
             context = nil
         }
@@ -91,8 +113,19 @@ public final class VaultKeyHolder: KeychainStore, @unchecked Sendable {
                 var login = query
                 login[kSecReturnData as String] = true
                 let (found, result) = inner.copyMatching(login)
-                guard found == errSecSuccess, let key = result as? Data else { return (found, wantsData ? result : nil) }
-                if context != nil, move(key, with: protected) { held = key }
+                guard found == errSecSuccess, let key = result as? Data else {
+                    // Moved, yet found in neither: out of reach (another team's access group, a copy of
+                    // this Mac's files on another), never "no key", which would invite a new one over
+                    // the Vault (the third review).
+                    if isBehindTouchID {
+                        Logger.shared.warning("Vault: the Vault's key was moved behind Touch ID and is not in reach — nothing is made in its place")
+                        return (errSecNotAvailable, nil)
+                    }
+                    return (found, wantsData ? result : nil)
+                }
+                if context != nil, !moveFailed {
+                    if move(key, with: protected) { held = key } else { moveFailed = true }
+                }
                 return answer(key)
             case errSecMissingEntitlement:
                 if isBehindTouchID {
@@ -120,8 +153,9 @@ public final class VaultKeyHolder: KeychainStore, @unchecked Sendable {
             if added == errSecSuccess { protected.delete() }
             return false
         }
-        let removed = inner.delete(VaultKeychain.query())
+        // Marked before the login copy goes, so a stop in between never reads as no key.
         defaults.set(true, forKey: Self.movedKey)
+        let removed = inner.delete(VaultKeychain.query())
         Logger.shared.info("Vault: the Vault's key is now kept behind Touch ID"
                            + (removed == errSecSuccess ? ", and gone from the login keychain" : "; the login keychain's copy could not be removed (status \(removed))"))
         return true

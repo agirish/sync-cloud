@@ -129,4 +129,39 @@ import Testing
         VaultPasteboard.clearPending()
         #expect(pasteboard.string(forType: .string) == nil, "cleared as the Vault's copies are")
     }
+
+    /// A Vault copy a crash left on the clipboard is cleared at the next launch; anything else is
+    /// left alone (the third review).
+    @Test func aVaultCopyLeftOverIsClearedAtLaunch() {
+        let pasteboard = NSPasteboard(name: .init("vault-left-over-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("someone else's", forType: .string)
+        VaultPasteboard.clearLeftOver(on: pasteboard)
+        #expect(pasteboard.string(forType: .string) == "someone else's")
+        // As a copy from a run that crashed leaves it: marked, with no clear to come in this run
+        // (copyConcealed here would take the one pending clear from a suite running beside it).
+        pasteboard.clearContents()
+        pasteboard.setData(Data(), forType: .init("org.nspasteboard.ConcealedType"))
+        pasteboard.setData(Data(), forType: VaultPasteboard.vaultCopyType)
+        pasteboard.setString("Z0000009", forType: .string)
+        VaultPasteboard.clearLeftOver(on: pasteboard)
+        #expect(pasteboard.string(forType: .string) == nil)
+    }
+
+    /// The number field's own editor: a right-click menu of editing alone, no Services, no drag
+    /// (the third review).
+    @Test func theNumberFieldsEditorLetsNothingOutButTheVaultsCopy() throws {
+        let editor = VaultNumberFieldEditor()
+        let event = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                    windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        let titles = editor.menu(for: event)?.items.map(\.title)
+        #expect(titles == ["Cut", "Copy", "Paste", "", "Select All"])
+        #expect(editor.validRequestor(forSendType: .string, returnType: nil) == nil, "Services would take the selection")
+        #expect(!editor.dragSelection(with: event, offset: .zero, slideBack: false))
+        #expect(VaultNumberFieldCell(textCell: "").fieldEditor(for: NSView()) is VaultNumberFieldEditor)
+        // Monospaced, at Settings ▸ Text size, as the SwiftUI field it replaced.
+        #expect(VaultNumberField.font(scale: 1.25).pointSize > VaultNumberField.font(scale: 1).pointSize)
+        #expect(VaultNumberField.font(scale: 1).isFixedPitch)
+    }
 }

@@ -392,6 +392,14 @@ import Testing
         #expect(other.account != newer.account, "another person's years are another account")
         let plain = try #require(year("/Users/a/Documents/Home/Utilities/Water/2024/Mar.pdf"))
         #expect(plain.year == "2024" && !plain.account.contains("2024"))
+        // A name that starts with a year is no year's folder: each paper keeps its own year (the
+        // third review: three years' registrations of one car collapsed into its model year).
+        let cars = ["2023", "2024", "2025"].map { "/Users/a/Documents/Vehicles/2019 Honda Odyssey/Registration \($0).pdf" }
+        let years = try cars.map { try #require(year($0)) }
+        #expect(years.map(\.year) == ["2023", "2024", "2025"])
+        #expect(Set(years.map(\.account)).count == 1, "one car, one account")
+        #expect(VaultReading.accountIssuer(cars[0], under: roots) == "2019 Honda Odyssey")
+        #expect(VaultReading.accountIssuer("/Users/a/Documents/Home/Utilities/Water/2024 – Pat/Mar.pdf", under: roots) == "Water")
     }
 
     @Test func aCenterCodeFollowedByAWordIsNotAReceiptNumber() {

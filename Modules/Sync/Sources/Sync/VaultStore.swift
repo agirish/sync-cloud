@@ -812,6 +812,12 @@ public struct VaultStore {
     /// The Vault let go of its numbers: the key held since the proof goes too (VT10).
     public func letGoOfKey() { (keychain as? VaultKeyHolder)?.release() }
 
+    /// The Vault's numbers are loaded: the key stays held for their seals until letGoOfKey().
+    public func pinKey() { (keychain as? VaultKeyHolder)?.pin() }
+
+    /// A proof the Vault set aside, or one given outside it: let go unless the Vault holds the key.
+    public func letGoOfKeyUnlessPinned() { (keychain as? VaultKeyHolder)?.releaseUnlessPinned() }
+
     /// The app's store: the Vault's file in Application Support, its key kept by the shared
     /// ``VaultKeyHolder``, behind Touch ID where this build can (VT31).
     public static func live() -> VaultStore? {

@@ -177,7 +177,7 @@ import Testing
             // A minute: a loaded Mac can stretch the test's own wait past the five seconds a save
             // waits, which made this red under a full gate (the second review).
             var other = VaultStore(fileURL: url, keychain: keychain, migrating: true, anotherCopyRunning: { false })
-            other.lockWait = 60
+            other.lockWait = 600   // returns at the unlock; only a stalled runner waits longer (docs/flaky-tests.md)
             return (try? other.saveDocument(Self.document([Self.entry(1), Self.entry(2)]), expecting: nil)) != nil
         }
         try await Task.sleep(for: .milliseconds(300))
@@ -200,7 +200,7 @@ import Testing
         let url = setup.scratch.fileURL, keychain = setup.keychain, now = setup.clock.now
         let replacing = Task.detached { () -> Bool in
             var other = VaultStore(fileURL: url, keychain: keychain, migrating: true, anotherCopyRunning: { false })
-            other.lockWait = 60
+            other.lockWait = 600   // returns at the unlock; only a stalled runner waits longer (docs/flaky-tests.md)
             return (try? other.saveDocument(Self.document([Self.entry(3)]), expecting: .absent, replacingAt: now)) != nil
         }
         try await Task.sleep(for: .milliseconds(300))

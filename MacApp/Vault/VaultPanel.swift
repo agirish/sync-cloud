@@ -184,6 +184,9 @@ struct VaultCard: View {
     @State private var contactEdit: ContactEdit?
     /// The Contact card row open in the details pane, by its id; nil while an ID is.
     @State private var contactChosen: String?
+    @State private var newFieldValueFocused = false
+    /// A new ID's Save is under way (its touch for the key, then the add).
+    @State private var savingNew = false
     /// The contact whose removal is being asked about.
     @State private var removingContact: VaultContactCard.Item?
     /// The group whose Color choice is open, from its heading's menu.
@@ -217,7 +220,8 @@ struct VaultCard: View {
     @State private var newFieldLabel = ""
     @State private var newFieldValue = ""
     @State private var newFieldHidden = false
-    @FocusState private var valueFocused: Bool
+    /// The number field has the focus, or is asked to take it (``VaultNumberField``).
+    @State private var valueFocused = false
     /// An ID just moved to another tab, said on the ID the selection moved on to.
     @State private var moved: MovedNote?
     struct MovedNote: Equatable {
@@ -953,7 +957,9 @@ struct VaultCard: View {
                     }
             }
         case .notLoaded, .loaded:
-            if model.isSealedShut {
+            // "For every ID" with its key's touch refused: locked, with a way to open, never the
+            // empty state over a Vault that holds IDs (the third review).
+            if model.isSealedShut || model.waitsForKeyTouch {
                 // Locked means locked: nothing behind the lock is drawn, or was even read.
                 HStack(spacing: 0) {
                     lockedView
@@ -1014,7 +1020,7 @@ struct VaultCard: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             Button {
-                Task { await model.unlock() }
+                Task { if model.waitsForKeyTouch { await model.openWithKey() } else { await model.unlock() } }
             } label: {
                 Label("Unlock", systemImage: "touchid")
             }
@@ -3745,9 +3751,8 @@ struct VaultCard: View {
             Text("Add a Field")
                 .scaledFont(.headline)
             TextField("Label", text: $newFieldLabel, prompt: Text("Payer ID"))
-            TextField("Value", text: $newFieldValue, prompt: Text("60054"))
-                .fontDesign(.monospaced)
-                .autocorrectionDisabled()
+            // The number field's own editor here too: a value hidden like an ID copies as one.
+            VaultNumberField(text: $newFieldValue, isFocused: $newFieldValueFocused, placeholder: "60054", help: "")
             Toggle("Hide It Like an ID", isOn: $newFieldHidden)
                 .toggleStyle(.checkbox)
             // A refused save stays open: why is said here, not behind the sheet.
@@ -4046,16 +4051,13 @@ struct VaultCard: View {
                     TextField("What it is", text: $draft.title, prompt: Text("Mortgage loan number"))
                 }
                 field("ID or Account Number") {
-                    TextField("ID or Account Number", text: $draft.value)
-                        .fontDesign(.monospaced)
-                        .autocorrectionDisabled()
-                        .focused($valueFocused)
-                        // Copy and Cut here go through the Vault's concealed, cleared copy.
-                        .onChange(of: valueFocused, initial: true) { _, focused in VaultPasteboard.editingNumber = focused }
+                    // Its own field editor: Copy, Cut, Services and drag let the number out only the
+                    // Vault's way (the third review). No number in its tooltip: a window of its own,
+                    // which screen sharing sees.
+                    VaultNumberField(text: $draft.value, isFocused: $valueFocused, placeholder: "",
+                                     help: readValue.map { VaultReading.normalized($0) != VaultReading.normalized(draft.value) } == true
+                                         ? "The document reads this a little differently. Scans often mix up Z and 2, O and 0, I and 1, B and 8." : "")
                         .onDisappear { VaultPasteboard.editingNumber = false }
-                        // No number in it: a tooltip is a window of its own, which screen sharing sees.
-                        .help(readValue.map { VaultReading.normalized($0) != VaultReading.normalized(draft.value) } == true
-                              ? "The document reads this a little differently. Scans often mix up Z and 2, O and 0, I and 1, B and 8." : "")
                 }
                 // What its documents were noted to read for it, when its number was corrected.
                 if case .existing(let id) = editing, case let readings = model.readings(of: id), !readings.isEmpty {
@@ -4546,9 +4548,14 @@ struct VaultCard: View {
     private func save() {
         switch editing {
         case .new:
+            // One Save at a time: two before the first closes the editor would add the ID twice
+            // (the third review).
+            guard !savingNew else { return }
+            savingNew = true
             let sealed = model.isSealedShut
             // With the Vault locked, the key behind Touch ID asks for one touch first (VT31).
             Task {
+                defer { savingNew = false }
                 guard await model.keyReady("add an ID to the Vault") else { return }
                 if model.add(draft) != nil {
                     editing = nil

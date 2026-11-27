@@ -247,6 +247,10 @@ public struct VaultDocument: Codable, Equatable, Sendable {
             (kept.savedAt, kept.savedBy) = (.distantPast, "")
             return kept
         }
+        // As the file holds them: its dates are whole seconds, the model's have fractions, and
+        // compared as they are, every save after an edit kept a backup (the third review).
+        let encoder = VaultFile.jsonEncoder()
+        if let mine = try? encoder.encode(kept(self)), let theirs = try? encoder.encode(kept(other)) { return mine == theirs }
         return kept(self) == kept(other)
     }
 

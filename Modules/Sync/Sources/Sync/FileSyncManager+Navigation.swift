@@ -131,7 +131,7 @@ extension FileSyncManager {
         let focus = isLeft ? leftRelativePath : rightRelativePath
         let side = isLeft ? "left" : "right"
         // Every branch logs, so a crumb click that goes nowhere still leaves a line.
-        let target = combined.isEmpty ? "root" : masksInLog ? VaultMask.folder(combined) : combined
+        let target = combined.isEmpty ? "root" : masksInLog ? VaultMask.folder(combined, keep: 0) : combined
         // Tree has no stack, so a browse move would write state it never draws and the click would
         // do nothing. Every target is a re-root there, which also makes it reachable by Back.
         if !drawsColumns {
@@ -150,11 +150,11 @@ extension FileSyncManager {
             Logger.shared.debug("[crumb] \(side) pane returns to its scope \(target)")
             setBrowsePath(isLeft: isLeft, PaneBrowsePath())
         } else if combined.hasPrefix(focus + "/") {
-            Logger.shared.debug("[crumb] \(side) pane browses to \(target) inside scope \(masksInLog ? VaultMask.folder(focus) : focus)")
+            Logger.shared.debug("[crumb] \(side) pane browses to \(target) inside scope \(masksInLog ? VaultMask.folder(focus, keep: 0) : focus)")
             setBrowsePath(isLeft: isLeft, PaneBrowsePath(relativePath: String(combined.dropFirst(focus.count + 1))))
         } else {
             // Above the comparison scope: a real re-root, history and all.
-            Logger.shared.debug("[crumb] \(side) pane re-roots to \(target) from scope \(masksInLog ? VaultMask.folder(focus) : focus)")
+            Logger.shared.debug("[crumb] \(side) pane re-roots to \(target) from scope \(masksInLog ? VaultMask.folder(focus, keep: 0) : focus)")
             focusOn(relativePath: combined, isLeft: isLeft)
         }
     }

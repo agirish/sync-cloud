@@ -40,6 +40,9 @@ import Testing
             VaultBackup.folderKey, VaultBackup.lastKey, VaultBackup.weeklyKey,
             VaultGroups.namesKey, VaultGroups.membersKey, VaultGroups.orderKey,
             VaultColors.cardsKey, VaultColors.groupsKey, VaultReadFolders.key,
+            // The key's move behind Touch ID and the fingerprints last seen (the third review):
+            // lost, a build without the profile would read "no key".
+            VaultKeyHolder.movedKey, VaultModel.enrolledKey,
         ] + VaultMigration.movedKeys
         for key in vaultKeys {
             #expect(SettingsResetKeeps.keeps(key), "Reset All would remove the Vault's \(key)")

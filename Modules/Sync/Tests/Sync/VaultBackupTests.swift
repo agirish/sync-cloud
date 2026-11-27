@@ -203,6 +203,32 @@ import Testing
         #expect(try await backup.read(made).get().entries == [Self.mortgage])
     }
 
+    /// A backup is named for this Mac's own day, not UTC's (the third review: an evening's took
+    /// the next day's name).
+    @Test func aBackupIsNamedForTheLocalDay() throws {
+        let pacific = try #require(TimeZone(identifier: "America/Los_Angeles"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = pacific
+        let evening = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 25, hour: 17, minute: 30)))
+        #expect(VaultBackup.fileName(evening, in: pacific).hasPrefix("Vault Backup 2026-11-25"))
+    }
+
+    /// Saved data compared as the file holds it, to the second: a save after an edit that changes
+    /// only waiting IDs keeps no backup (the third review: the fractions made every one differ).
+    @Test func savedDataIsComparedAsTheFileHoldsIt() {
+        var entry = Self.mortgage
+        entry.updatedAt = VaultLockTests.t0.addingTimeInterval(0.25)
+        let mine = VaultDocument(entries: [entry], state: VaultReadingState(), setAside: .init(), kinds: [], savedAt: VaultLockTests.t0)
+        var stored = entry
+        stored.updatedAt = VaultLockTests.t0
+        let theirs = VaultDocument(entries: [stored], state: VaultReadingState(finds: [VaultRecordTests.fullFind()]),
+                                   setAside: .init(), kinds: [], savedAt: VaultLockTests.t0)
+        #expect(mine.sameSavedData(as: theirs), "a quarter second, which the file does not keep, made a backup")
+        stored.updatedAt = VaultLockTests.t0.addingTimeInterval(1)
+        let later = VaultDocument(entries: [stored], state: VaultReadingState(), setAside: .init(), kinds: [], savedAt: VaultLockTests.t0)
+        #expect(!mine.sameSavedData(as: later))
+    }
+
     /// A last backup dated ahead of now (a clock set ahead, then put right) does not hold the
     /// weekly backup off for that long (the second review).
     @Test func aLastBackupDatedAheadOfNowIsDue() async throws {

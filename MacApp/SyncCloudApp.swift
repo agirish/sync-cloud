@@ -979,6 +979,9 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     /// re-run), so the log's first line unambiguously names the build that produced the session.
     func applicationDidFinishLaunching(_ notification: Notification) {
         hasFinishedLaunching = true
+        // A number the Vault copied that a crash or a force quit left on the clipboard (the third
+        // review). Not in tests: their host is this app, and the clipboard is the owner's.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil { VaultPasteboard.clearLeftOver() }
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"

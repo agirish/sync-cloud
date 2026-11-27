@@ -272,9 +272,11 @@ extension VaultReading {
             if out.address == nil { out.address = homeAddress(on: lines, names: names) }
             let origin = origins?[index]
             if let origin, origin.half == .picture, layerPhones.contains(origin.page) { continue }
-            for phone in phones(on: lines, names: names) where seen.insert(phone.person + phone.number).inserted {
-                out.phones.append(phone)
+            for phone in phones(on: lines, names: names) {
+                // The layer gave a phone, a new one or one an earlier page gave: its picture adds
+                // none (the third review: a repeated phone left the picture's misread in).
                 if let origin, origin.half == .textLayer { layerPhones.insert(origin.page) }
+                if seen.insert(phone.person + phone.number).inserted { out.phones.append(phone) }
             }
         }
         return out

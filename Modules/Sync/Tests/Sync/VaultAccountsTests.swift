@@ -164,6 +164,19 @@ import Testing
         #expect(Self.read(first, at: "Health/Dental/ID Cards/card.pdf").map(\.value) == ["XZB123456789"])
     }
 
+    /// A label whose cell starts with another word ("Your Account Number") reads that cell's
+    /// column, never one past it (the third review: the read crashed on the first page, and lost
+    /// the number on the second).
+    @Test func aHeaderRowsLabelAfterAWordOfItsOwnCellReadsThatCell() throws {
+        let last = ["Pacific Water", "Statement Date    Your Account Number", "01/15/2026    1234-5678-90"]
+        #expect(Self.read(last, at: "Home/Utilities/Pacific Water/2026/Bill.pdf").map(\.value) == ["1234-5678-90"])
+        let first = ["Pacific Water", "Your Account Number    Bill Date    Amount Due", "1234-5678-90    01/15/2026    $45.00"]
+        #expect(Self.read(first, at: "Home/Utilities/Pacific Water/2026/Bill.pdf").map(\.value) == ["1234-5678-90"])
+        let line = "Statement Date    Your Account Number"
+        #expect(PrintedPage.column(of: try #require(line.range(of: "Account")).lowerBound, in: line) == 1)
+        #expect(PrintedPage.column(of: try #require(line.range(of: "Statement")).lowerBound, in: line) == 0)
+    }
+
     @Test func aHealthCardsMemberIDHasItsGroupAndHolder() throws {
         let card = ["Delta Dental", "Member Name: ANNA ERIKSSON", "Member ID: XZB123456789", "Group Number: 0012345"]
         let finds = Self.read(card, at: "Health/Dental/ID Cards/card.pdf")

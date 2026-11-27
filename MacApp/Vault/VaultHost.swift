@@ -148,8 +148,11 @@ enum VaultPasteboard {
 
     /// Copy or Cut in a text view: the selection, concealed and cleared, when it is the editor's
     /// number field; false, for the text view's own copy, otherwise.
-    @MainActor static func copyOrCut(_ editor: NSTextView, cut: Bool, on pasteboard: NSPasteboard = .general) -> Bool {
-        guard editingNumber else { return false }
+    /// `always` for the number field's own field editor (``VaultNumberFieldEditor``), whatever has
+    /// the focus.
+    @MainActor static func copyOrCut(_ editor: NSTextView, cut: Bool, always: Bool = false,
+                                     on pasteboard: NSPasteboard = .general) -> Bool {
+        guard editingNumber || always else { return false }
         let range = editor.selectedRange()
         guard range.length > 0 else { return true }
         copyConcealed((editor.string as NSString).substring(with: range), on: pasteboard)
@@ -178,9 +181,12 @@ enum VaultPasteboard {
         // honour (nspasteboard.org).
         pasteboard.setData(Data(), forType: .init("org.nspasteboard.ConcealedType"))
         pasteboard.setData(Data(), forType: .init("org.nspasteboard.TransientType"))
+        // SyncCloud's own mark, so a copy a crash or a force quit left behind is cleared at the
+        // next launch (``clearLeftOver(on:)``; the third review).
+        pasteboard.setData(Data(), forType: Self.vaultCopyType)
         pasteboard.setString(value, forType: .string)
         let stamp = pasteboard.changeCount
-        pendingClear = (pasteboard, stamp)
+        pendingClears[pasteboard.name] = (pasteboard, stamp)
         watchForQuit()
         let delay = delay ?? clearAfter
         Task { @MainActor in
@@ -198,13 +204,14 @@ enum VaultPasteboard {
         pasteboard.setString(value, forType: .string)
     }
 
-    /// The copy that has yet to be cleared: its pasteboard, and that pasteboard's change count.
-    @MainActor private static var pendingClear: (pasteboard: NSPasteboard, stamp: Int)?
+    /// The copy that has yet to be cleared on each pasteboard, with that pasteboard's change count:
+    /// the app's is the general pasteboard's alone; a test's own pasteboard keeps its own.
+    @MainActor private static var pendingClears: [NSPasteboard.Name: (pasteboard: NSPasteboard, stamp: Int)] = [:]
     @MainActor private static var quitWatch: NSObjectProtocol?
 
     @MainActor private static func clear(ifStill stamp: Int, on pasteboard: NSPasteboard) {
-        guard let pending = pendingClear, pending.stamp == stamp, pending.pasteboard === pasteboard else { return }
-        pendingClear = nil
+        guard let pending = pendingClears[pasteboard.name], pending.stamp == stamp, pending.pasteboard === pasteboard else { return }
+        pendingClears[pasteboard.name] = nil
         guard pasteboard.changeCount == stamp else { return }
         pasteboard.clearContents()
     }
@@ -212,7 +219,16 @@ enum VaultPasteboard {
     /// What quitting, a lock and closing the Vault do (the model calls it at every end of access):
     /// clears the copy still waiting, unless something else was copied since.
     @MainActor static func clearPending() {
-        if let pending = pendingClear { clear(ifStill: pending.stamp, on: pending.pasteboard) }
+        for pending in pendingClears.values { clear(ifStill: pending.stamp, on: pending.pasteboard) }
+    }
+
+    /// Marks a copy the Vault made.
+    static let vaultCopyType = NSPasteboard.PasteboardType("com.abhishekgirish.SyncCloud.vault-copy")
+
+    /// A Vault copy still on the clipboard at launch: the last run ended before it was cleared.
+    @MainActor static func clearLeftOver(on pasteboard: NSPasteboard = .general) {
+        guard pasteboard.types?.contains(vaultCopyType) == true else { return }
+        pasteboard.clearContents()
     }
 
     /// Quitting inside the minute would leave the number on the clipboard for good: it is cleared

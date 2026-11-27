@@ -24,11 +24,12 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/vault-sign.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
-# The newest profile for this app on this Mac, with the keychain permission and a day or more left.
+# The newest profile for this app on this Mac, with the keychain permission and at least $1 hours
+# left (24 by default).
 find_profile() {
-  python3 - "$PROFILES" "$BUNDLE" "$TEAM" <<'PY'
+  python3 - "$PROFILES" "$BUNDLE" "$TEAM" "${1:-24}" <<'PY'
 import os, plistlib, subprocess, sys, datetime
-folder, bundle, team = sys.argv[1:4]
+folder, bundle, team, hours = sys.argv[1:5]
 best = None
 for name in os.listdir(folder) if os.path.isdir(folder) else []:
     path = os.path.join(folder, name)
@@ -42,7 +43,7 @@ for name in os.listdir(folder) if os.path.isdir(folder) else []:
     if ents.get("com.apple.application-identifier", ents.get("application-identifier")) != f"{team}.{bundle}": continue
     if not ents.get("keychain-access-groups"): continue
     ends = profile["ExpirationDate"].replace(tzinfo=datetime.timezone.utc)
-    if ends - datetime.datetime.now(datetime.timezone.utc) < datetime.timedelta(days=1): continue
+    if ends - datetime.datetime.now(datetime.timezone.utc) < datetime.timedelta(hours=float(hours)): continue
     if best is None or ends > best[0]: best = (ends, path)
 if best: print(best[1])
 PY
@@ -56,6 +57,10 @@ if [ -z "$PROFILE" ]; then
       CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM=$TEAM CODE_SIGN_IDENTITY="Apple Development" \
       CODE_SIGN_ENTITLEMENTS=Signing/SyncCloud-installed.entitlements > "$WORK/refresh.log" 2>&1 )
   PROFILE=$(find_profile)
+  # Not made again (Xcode signed out, no network): the one still valid, if any, for the hours it
+  # has left, rather than a copy that cannot reach the key at all (the third review).
+  [ -z "$PROFILE" ] && PROFILE=$(find_profile 1) && [ -n "$PROFILE" ] && \
+    echo "vault-sign-installed: not made again ($(grep -m1 'error:' "$WORK/refresh.log" | cut -c1-120)); using the one that ends soonest-but-valid — install again within the day"
   if [ -z "$PROFILE" ]; then
     echo "vault-sign-installed: still no profile ($(grep -m1 'error:' "$WORK/refresh.log" | cut -c1-160)); signing the plain way"
     exit 2

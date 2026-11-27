@@ -413,8 +413,10 @@ public struct VaultBackup {
 
     // MARK: Backing up
 
-    static func fileName(_ date: Date) -> String {
-        let parts = Calendar(identifier: .gregorian).dateComponents(in: TimeZone(identifier: "UTC") ?? .current, from: date)
+    /// Named for this Mac's own day, as the rotation counts days (the third review: in UTC, an
+    /// evening's backup was named for the next day).
+    static func fileName(_ date: Date, in zone: TimeZone = .current) -> String {
+        let parts = Calendar(identifier: .gregorian).dateComponents(in: zone, from: date)
         return String(format: "Vault Backup %04d-%02d-%02d.%@", parts.year ?? 0, parts.month ?? 1, parts.day ?? 1,
                       VaultBackupFile.fileExtension)
     }
@@ -638,7 +640,9 @@ public struct VaultBackup {
     /// ``proofLasts`` of it nothing more is asked; otherwise Restore asks.
     public func restore(_ contents: VaultBackupContents, mode: VaultRestoreMode,
                         provedAt: Date? = nil) async -> Result<Int, VaultBackupError> {
-        let fresh = provedAt.map { clock().timeIntervalSince($0) < Self.proofLasts } ?? false
+        // Fresh only while the key it read is still at hand: let go meanwhile (the Vault locked),
+        // Restore asks again rather than fail as unreadable (the third review).
+        let fresh = (provedAt.map { clock().timeIntervalSince($0) < Self.proofLasts } ?? false) && !store.keyNeedsProof
         if !fresh {
             guard case .allowed = await authenticator.prove(reason: "restore your Vault from a backup") else {
                 return .failure(.notProved)

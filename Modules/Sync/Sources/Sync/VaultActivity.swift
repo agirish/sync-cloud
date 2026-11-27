@@ -172,19 +172,24 @@ public struct VaultActivityStore {
         let key: SymmetricKey
         switch VaultKeychain.read(from: keychain) {
         case .found(let found): key = found
-        case .unreadable(let status) where status == errSecInteractionNotAllowed:
+        // Every answer that means "a touch would read it" (the third review: two of them dropped).
+        case .unreadable(let status) where [errSecInteractionNotAllowed, errSecAuthFailed, errSecUserCanceled].contains(status):
             // The key behind Touch ID with no proof yet (VT31): held here until the next one, or
             // the next line that can be sealed; lost if the app quits first (owner, 2026-11-26).
             Self.waitingLock.withLock { Self.waiting[fileURL.path, default: []] += events }
             return
         default: return
         }
-        let events = events + Self.waitingLock.withLock { Self.waiting.removeValue(forKey: fileURL.path) ?? [] }
+        let waited = Self.waitingLock.withLock { Self.waiting.removeValue(forKey: fileURL.path) ?? [] }
+        let events = events + waited
+        // Not sealed after all: what waited waits on, never dropped (the third review).
+        func keepWaiting() { if !waited.isEmpty { Self.waitingLock.withLock { Self.waiting[fileURL.path, default: []] += waited } } }
         // A list there that does not open (damaged, a later build's, another key's) is set aside
         // under a name of its own, never sealed over. Opened once, for both questions.
         var held: [Stored] = []
         if fileManager.fileExists(atPath: fileURL.path), fileManager.contents(atPath: fileURL.path) == nil {
             Logger.shared.warning("Vault: the activity list is there but could not be read from disk — nothing was added to it")
+            keepWaiting()
             return
         }
         if let data = fileManager.contents(atPath: fileURL.path) {
@@ -197,6 +202,7 @@ public struct VaultActivityStore {
                     Logger.shared.warning("Vault: the activity list did not open (\(VaultFile.summary(of: data))) and was set aside as \(aside.lastPathComponent)")
                 } catch {
                     Logger.shared.warning("Vault: the activity list did not open (\(VaultFile.summary(of: data))) and could not be set aside — nothing was added to it")
+                    keepWaiting()
                     return
                 }
             }
@@ -233,8 +239,10 @@ public struct VaultActivityStore {
     /// How many lines wait for a proof, for a test.
     var waitingCount: Int { Self.waitingLock.withLock { Self.waiting[fileURL.path]?.count ?? 0 } }
 
-    /// Clear: the list goes, for good.
-    public func clear() {
+    /// Clear: the list goes, for good, but for one line saying it was cleared, so a list wiped
+    /// after an unknown fingerprint opened the Vault is never silent about it (the third review).
+    public func clear(now: Date = Date()) {
         try? fileManager.removeItem(at: fileURL)
+        append([VaultActivityEvent(at: now, kind: .other, what: "Cleared the activity list")], now: now)
     }
 }

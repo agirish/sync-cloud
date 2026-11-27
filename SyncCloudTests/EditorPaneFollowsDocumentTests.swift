@@ -511,7 +511,7 @@ import FileExplorer
         #expect(body.contains("paneRowReveal = PaneRowReveal(path: path, token: paneRowRevealToken, selection: Set(companions).union([path]))"),
                 "the selected rows are not revealed — or the reveal speaks for another selection than the one written")
         // A document revealed from the Vault is named masked (`PaneSelectionDebt.masksInLog`).
-        #expect(body.contains("Logger.shared.info(\"[pane-follow] Selected \\(owed.masksInLog ? VaultMask.folder(path) : path) in the left pane\""),
+        #expect(body.contains("Logger.shared.info(\"[pane-follow] Selected \\(owed.masksInLog ? VaultMask.folder(path, keep: 0) : path) in the left pane\""),
                 "a selection on the user's behalf is not logged at info")
         #expect(body.contains("Logger.shared.info(\"[pane-follow] Not selecting \\(owed.logged) in the left pane: \\(reason.sentence)\")"),
                 "a dropped debt is not logged at info, with its reason")
