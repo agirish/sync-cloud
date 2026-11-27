@@ -16576,3 +16576,15 @@ already did for a click.
 | `v6.x` / `v5.x` | The defect; both pieces the fix stands on (`quickLookFollowsPane`, `PaneListKeyFocus`) | RECORDED — not owed |
 | `v4.x` / `v2.x` | The defect; `quickLookFollowsPane` but no `PaneListKeyFocus`, so the pick needs another way to tell a pane list | RECORDED — not owed |
 | `v3.x` | The defect; no follow-the-pane preview at all, so arrows would move a selection the preview ignores | RECORDED — not owed |
+
+## Organize's lens card buttons at the regular size — main only, recorded, not owed
+
+2026-11-26, for v7.2. Every action on a lens card's row 2 (Rescan, Refine with Claude, File All,
+Apply, Rename All, New Rule, Preview All, the ⋯ menu, Organize "…") goes from `.small` to `.regular`
+(`LensHeaderMetrics.actionControlSize`), about 24pt like the pane bar; row 2 grows to 26pt, the
+card's side padding to 14pt, its vertical padding to 13.5 so it stays 88pt; Rescan and Refine fold
+into ⋯ below 572pt (was 520). At about 800pt To File's readout is cut about 50pt sooner, accepted.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The small lens buttons, where those lenses exist | RECORDED — not owed (UI polish) |

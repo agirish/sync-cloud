@@ -648,10 +648,10 @@ import Design
 
 // The card's own inset and padding are charged, asserted as a consequence rather than by
 // restating the body: a column holding exactly the rail and toggle is still too narrow.
-        #expect(OrganizeRailMetrics.cardChrome == 29)
+        #expect(OrganizeRailMetrics.cardChrome == 33)
         #expect(OrganizeRailMetrics.style(columnWidth: leading + OrganizeRailMetrics.searchToggleWidth,
                                           leadingWidth: leading) == .iconOnly,
-                "the card's own inset and padding have stopped being charged — the rail will draw 29pt past the room it has")
+                "the card's own inset and padding have stopped being charged — the rail will draw 33pt past the room it has")
 
         // The boundary from both sides, so a chrome constant cannot move it unnoticed.
         let threshold = leading + OrganizeRailMetrics.searchToggleWidth + OrganizeRailMetrics.cardChrome
@@ -1078,11 +1078,16 @@ import Design
 // Not settled: To File at 800 with refine and a heavy readout is over-subscribed before the
 // survey counts, and `ShrinkableRun` takes the spinner's ~19pt off the readout's tail. Only a
 // row-2 width model can remove it, so asserted as a bound.
+//
+// The bound moved deliberately on 2026-11-26 (RR): row 2's buttons went to `.regular` (24pt, like
+// the pane bar's), about 52pt wider in all, and the readout gives up that much more here. His
+// call, with the cost stated: 468 measured then, against 66 before. Still a bound, so a further
+// addition without a width model fails it.
         let residue = differingPixels(
             try #require(PixelProbe.render(mount(busy, lens: .toFile, width: width), readout)),
             try #require(PixelProbe.render(mount(quiet, lens: .toFile, width: width), readout)))
-        #expect(residue < 150,
-                "To File's readout gave up \(residue) pixels to a running survey at 800pt, against 66 when this was measured — row 2 is over-subscribed by more than the spinner now, so something has been added to it without a width model to seat it")
+        #expect(residue < 550,
+                "To File's readout gave up \(residue) pixels to a running survey at 800pt, against 468 when this was measured — row 2 is over-subscribed by more than the spinner now, so something has been added to it without a width model to seat it")
 
 // The half that must hold at every width: a destructive button keeps its words. Two bands, because
 // ``trailingZone`` over Renames' single Rescan would catch the status text across the divider.

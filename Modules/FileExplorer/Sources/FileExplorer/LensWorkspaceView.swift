@@ -668,8 +668,10 @@ public struct LensWorkspaceView: View {
     /// The workspace is too narrow for row 2's buttons side by side: Rescan and Refine go into one ⋯
     /// menu and File All stays. Measured on the probe below, with the text size.
     @State private var rowTwoCompact = false
-    /// Where row 2's buttons stop fitting at the default text size, scaled by it.
-    private static let compactActionsWidth: CGFloat = 520
+    /// Where row 2's buttons stop fitting at the default text size, scaled by it. 572: the 520 it
+    /// was at `.small`, plus the 52pt the three buttons gained at `LensHeaderMetrics.actionControlSize`
+    /// (`.regular`, RR): Refine 162→187, File All 100→115, Rescan 79→91, by `fittingSize`.
+    private static let compactActionsWidth: CGFloat = 572
 
     /// Which of Storage's ranked lists the rail is showing, or absent for all three. Optional
     /// for ``OrganizeLens/defaultsKey``'s reason: there is no value to write for "none picked".
@@ -1972,7 +1974,7 @@ public struct LensWorkspaceView: View {
             .buttonStyle(.borderedProminent)
             .accentedProminent(glassHue)
             .chromeHover()
-            .controlSize(.small)
+            .controlSize(LensHeaderMetrics.actionControlSize)
             .disabled(syncManager.isSuggestingFiles)
             .lockedDuringRun()
             .help("Look over the \(n.formatted()) matched file\(n == 1 ? "" : "s")"
@@ -2043,7 +2045,7 @@ public struct LensWorkspaceView: View {
                 }
                 .buttonStyle(.bordered)
                 .chromeHover()
-                .controlSize(.small)
+                .controlSize(LensHeaderMetrics.actionControlSize)
                 // `canRefineFilingSuggestions` is false while a pass runs (it reads the same
                 // in-flight token), and a running pass is exactly when the button is Stop.
                 .disabled(!syncManager.canRefineFilingSuggestions && !syncManager.isRefiningFilingSuggestions)
@@ -2056,7 +2058,7 @@ public struct LensWorkspaceView: View {
                     Label("Refine with Claude…", systemImage: "sparkles")
                 }
                 .buttonStyle(.bordered)
-                .controlSize(.small)
+                .controlSize(LensHeaderMetrics.actionControlSize)
                 .disabled(true)
                 .help(Self.allHiddenFromClaudeHelp)
             }
@@ -2066,7 +2068,7 @@ public struct LensWorkspaceView: View {
             }
             .buttonStyle(.bordered)
             .chromeHover()
-            .controlSize(.small)
+            .controlSize(LensHeaderMetrics.actionControlSize)
             .help("These suggestions came from the free on-device pass. Add your Claude key in the "
                   + "Ask Claude panel to re-ask a stronger model about them — billed to your "
                   + "own API key, and never used by a scan.")
@@ -2155,7 +2157,7 @@ public struct LensWorkspaceView: View {
                           systemImage: reaimClearsScope ? "square.stack.3d.up.slash" : movedIcon)
                 }
             }
-                .buttonStyle(.borderedProminent).accentedProminent(glassHue).controlSize(.small)
+                .buttonStyle(.borderedProminent).accentedProminent(glassHue).controlSize(LensHeaderMetrics.actionControlSize)
                 .chromeHover()
                 .disabled(disabled)
                 .help(movedTitle == nil && reaimClearsScope
@@ -2164,7 +2166,7 @@ public struct LensWorkspaceView: View {
                       : movedHelp)
         } else {
             Button(action: action) { Label("Rescan", systemImage: "arrow.clockwise") }
-                .chromeButtonStyle(glassLevel).controlSize(.small)
+                .chromeButtonStyle(glassLevel).controlSize(LensHeaderMetrics.actionControlSize)
                 .chromeHover()
                 .disabled(disabled).help("Scan this folder again")
         }
@@ -2273,7 +2275,7 @@ public struct LensWorkspaceView: View {
             .menuStyle(.button)
             .menuIndicator(.hidden)
             .chromeButtonStyle(glassLevel)
-            .controlSize(.small)
+            .controlSize(LensHeaderMetrics.actionControlSize)
             .fixedSize()
             .help("More: Rescan, and Refine with Claude")
             .accessibilityLabel("More actions")
@@ -2366,7 +2368,7 @@ public struct LensWorkspaceView: View {
             }
             .menuStyle(.button)
             .chromeButtonStyle(glassLevel)
-            .controlSize(.small)
+            .controlSize(LensHeaderMetrics.actionControlSize)
             .chromeHover()
             .fixedSize()
             .disabled(syncManager.isSuggestingFiles)
@@ -2754,7 +2756,7 @@ public struct LensWorkspaceView: View {
             .buttonStyle(.borderedProminent)
             .accentedProminent(glassHue)
             .chromeHover()
-            .controlSize(.small)
+            .controlSize(LensHeaderMetrics.actionControlSize)
             // The row sheds its readouts before its controls (the workspace-bar shedding rule), so
             // priority keeps this label whole.
             .layoutPriority(1)
@@ -2785,7 +2787,7 @@ public struct LensWorkspaceView: View {
             .buttonStyle(.borderedProminent)
             .accentedProminent(glassHue)
             .chromeHover()
-            .controlSize(.small)
+            .controlSize(LensHeaderMetrics.actionControlSize)
             .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)
             .lockedDuringRun()
             .help("Renames \(files) file\(files == 1 ? "" : "s") across \(plans.count) "
@@ -2815,7 +2817,7 @@ public struct LensWorkspaceView: View {
             Label("New Rule", systemImage: AutomationsGlyph.newRule)
         }
         .chromeButtonStyle(glassLevel)
-        .controlSize(.small)
+        .controlSize(LensHeaderMetrics.actionControlSize)
         .chromeHover()
         .help("Write a plain-words rule for where loose files belong")
     }
@@ -2837,7 +2839,7 @@ public struct LensWorkspaceView: View {
         .buttonStyle(.borderedProminent)
         .accentedProminent(glassHue)
         .chromeHover()
-        .controlSize(.small)
+        .controlSize(LensHeaderMetrics.actionControlSize)
         .disabled(runnableRuleCount == 0 || providerAnchor == nil)
         // Name the actual blocker: with no provider root there is nothing to preview over, and
         // asking for conditions on already-complete rules would be a dead end.

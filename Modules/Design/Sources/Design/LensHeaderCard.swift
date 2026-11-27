@@ -13,9 +13,13 @@ public enum LensHeaderMetrics {
     /// names the lens, and it keeps `restingHeight` at 88, which the pane's header↔list boundary is
     /// pinned to.
     public static let tabRow: CGFloat = 27
-    /// Row 2: the scanned-folder chip, the stat pills, and the trailing detail or "N of M". 22pt is
-    /// a `.standard` `Pill` (12pt semibold number plus 2×4pt padding).
-    public static let summaryRow: CGFloat = 22
+    /// Row 2: the scanned-folder chip, the stat pills, the trailing detail or "N of M", and the
+    /// lens's actions. 26pt, the actions' height at ``actionControlSize`` (a `.standard` `Pill` is
+    /// 22, centred in it).
+    public static let summaryRow: CGFloat = 26
+    /// The size of every action on row 2: `.regular`, which draws about 24pt, the pane bar's height,
+    /// so a lens card's buttons match the headers beside it (RR, 2026-11-26; `.small` before).
+    public static let actionControlSize: ControlSize = .regular
     /// The revealed search field (`ExpandingSearchField`): 16pt of text over 2×6pt padding.
     public static let searchRow: CGFloat = 28
     /// The parsed token chips, when a query contains any.
@@ -23,13 +27,13 @@ public enum LensHeaderMetrics {
     /// The gap between any two rows of the card.
     public static let rowGap: CGFloat = 8
     /// The card's internal padding, leading and trailing.
-    public static let padding: CGFloat = 12
-    /// The card's internal padding, top and bottom. Taller than the sides so `restingHeight` meets
-    /// `LiquidGlass.headerHeight`, which the pane header's titled bar row sets: the extra goes
-    /// to the card's margins rather than stretching either row.
-    public static let verticalPadding: CGFloat = 15.5
+    public static let padding: CGFloat = 14
+    /// The card's internal padding, top and bottom: what's left of `LiquidGlass.headerHeight` (set
+    /// by the pane header's titled bar row) once the two rows and their gap are paid for, so the
+    /// card meets the pane header's bottom line without stretching either row.
+    public static let verticalPadding: CGFloat = 13.5
 
-    /// 15.5 + 27 + 8 + 22 + 15.5 = 88, the card's visible height with the search collapsed. It must
+    /// 13.5 + 27 + 8 + 26 + 13.5 = 88, the card's visible height with the search collapsed. It must
     /// equal `LiquidGlass.headerHeight` so the card's bottom edge lands on the file pane's
     /// header↔list boundary. Derived, not typed: change a row and this follows.
     public static var restingHeight: CGFloat {
