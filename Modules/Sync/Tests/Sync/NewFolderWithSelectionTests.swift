@@ -53,6 +53,26 @@ import Testing
                 "banner: \(String(describing: m.banner?.message))")
     }
 
+    /// The moved rows leave the selection as they land, not at the next rescan: until then Info
+    /// reads a path that is gone and says "Can't show this item".
+    @Test func theMovedRowsLeaveTheSelectionAtOnce() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "new-folder-with-selection-selection")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let a = root.appendingPathComponent("a.txt"), keep = root.appendingPathComponent("keep.txt")
+        try writeText("a", a)
+        try writeText("k", keep)
+        let m = manager()
+        defer { removeHistoryStoreFiles(m.syncHistoryStore) }
+        // The tree as the pane holds it until the rescan: both rows still listed, so the prune the
+        // move schedules keeps both paths. Only the new code takes the moved one out.
+        let nodeA = FileNode(id: a.path, name: "a.txt", isDirectory: false)
+        m.leftTree = [nodeA, FileNode(id: keep.path, name: "keep.txt", isDirectory: false)]
+        m.selectedLeftPaths = [a.path, keep.path]
+
+        _ = await m.moveIntoNewFolder([nodeA], named: "Receipts", in: root.path, fileManager: ScratchTrash(in: root))
+        #expect(m.selectedLeftPaths == [keep.path], "selection: \(m.selectedLeftPaths)")
+    }
+
     @Test func aNameAlreadyTakenMakesNothingAndMovesNothing() async throws {
         let root = try makeCanonicalTempRoot(prefix: "new-folder-with-selection-taken")
         defer { try? FileManager.default.removeItem(at: root) }

@@ -964,6 +964,12 @@ extension FileSyncManager {
             await enqueueFileOperation { Self.removeIfEmpty([folder.path]) }
             return (folder.path, [])
         }
+        // The pane's selection still names the old paths until the rescan publishes the new tree
+        // and the prune runs, and Info, reading one in that gap, says "Can't show this item".
+        // They are gone now, so they go now.
+        let movedPaths = Set(moved.map(\.id))
+        if !selectedLeftPaths.isDisjoint(with: movedPaths) { selectedLeftPaths.subtract(movedPaths) }
+        if !selectedRightPaths.isDisjoint(with: movedPaths) { selectedRightPaths.subtract(movedPaths) }
         // Unpaired: the move's own records, written in its registration's turn, hold the pairing
         // (`recordSyncHistory`), and this runs after an await.
         recordSyncHistory([SyncHistoryRecord(runId: UUID(), action: .newFolder, sourcePath: folder.path)],
