@@ -17,7 +17,9 @@ import SwiftUI
     static let solidProbe = SelectionLensAppearance(level: .solid, hue: .blue, tint: 0, drawsProbe: true)
     static let isTodayGreen: Pixel.Match = { r, g, b in g > 229 && r < 26 && b < 26 }
 
-    /// A bar button as a call site writes one: today's resting pill, wrapped; glass outside it.
+    /// A bar button as a call site writes one: a capsule pill, wrapped; glass outside it. 33×20, the
+    /// pane bar's pill before 2026-11-26 (now 40×24, `PaneNavMetrics.pill` in Dashboard). The glass
+    /// mechanism doesn't depend on the size, and the figures below are this fixture's.
     struct BarButton: View {
         var outset: CGFloat = 0
         /// Grows the glass up and down only.

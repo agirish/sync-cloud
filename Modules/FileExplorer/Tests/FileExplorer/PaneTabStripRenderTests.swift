@@ -783,7 +783,7 @@ import Design
         #expect(inked(rep) < 50, "an empty strip painted something")
     }
 
-    /// The strip is one 34pt row at every rung: it shares the pane's vertical budget with an 81pt
+    /// The strip is one 34pt row at every rung: it shares the pane's vertical budget with an 88pt
     /// header, and a second row would push the list down. Measured on a canvas taller than a row,
     /// since `render()` sizes its bitmap to the row: `.frame(height:)` doesn't clip, so a rung that
     /// wanted two rows paints outside the row rather than growing it. So the question is asked in

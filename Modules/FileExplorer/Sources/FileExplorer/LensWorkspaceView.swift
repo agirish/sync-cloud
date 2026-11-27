@@ -937,7 +937,7 @@ public struct LensWorkspaceView: View {
             lensHeaderCard(rows: rows, counts: counts, scopeFolders: scopeFolders)
             // The reading is a long background job and its card lives on one lens; the strip is
             // how the other five show it running. Padded like `sourceBar`, below the header card,
-            // whose 81pt this must not touch.
+            // whose 88pt this must not touch.
             if let documentSurveyCard, DocumentSurveyStrip.isShown(for: documentSurveyCard) {
                 DocumentSurveyStrip(state: documentSurveyCard,
                                     accent: glassHue.accentColor,
@@ -1038,7 +1038,7 @@ public struct LensWorkspaceView: View {
     // MARK: Header card
 
     /// The one header of this workspace: the rail on row 1, what the lens found and its controls on
-    /// row 2, and the search below. 81pt at rest, in every lens and every state, including intro,
+    /// row 2, and the search below. 88pt at rest, in every lens and every state, including intro,
     /// scanning, empty and clean, so the rail never moves when a scan lands.
     private func lensHeaderCard(rows: FilteredRows, counts: RailCounts,
                                 scopeFolders: Int?) -> some View {
@@ -1079,7 +1079,7 @@ public struct LensWorkspaceView: View {
     }
 
     /// Row 1 of the header card: navigation, not a name. The workspace bar already says
-    /// "Organize", and a fixed 81pt header can't afford to repeat it, so the row goes to the rail,
+    /// "Organize", and a fixed 88pt header can't afford to repeat it, so the row goes to the rail,
     /// which names where you are more precisely (the ringed item is the lens, not just the
     /// workspace).
     @ViewBuilder

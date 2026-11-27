@@ -80,7 +80,7 @@ import Testing
                 "the workspace decides for itself which states to draw it in, rather than asking the strip")
     }
 
-    /// Below the header card, above the source bar. The header is pinned at 81pt and every lens
+    /// Below the header card, above the source bar. The header is pinned at 88pt and every lens
     /// lines its lower edge up with the file pane's, so a strip above it would move that edge
     /// while a survey runs.
     @Test func theStripSitsBetweenTheHeaderAndTheSourceBar() throws {

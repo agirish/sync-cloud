@@ -146,7 +146,7 @@ struct OrganizeScopeChipTests {
 
     // MARK: It fits the row it was given
 
-/// The chip must not grow row 2: `LensHeaderCard` is 81pt at rest and its bottom edge is pinned to
+/// The chip must not grow row 2: `LensHeaderCard` is 88pt at rest and its bottom edge is pinned to
 /// the file pane's header↔list boundary, so a summary row past its 22pt budget shifts a boundary
 /// two panes away.
     @Test(.machinePinned(.layoutMetrics)) func theChipFitsTheSummaryRowsHeightBudget() {
@@ -154,7 +154,7 @@ struct OrganizeScopeChipTests {
         let natural = host.fittingSize
         #expect(natural.height > 0, "the chip measured as zero-height — nothing was laid out")
         #expect(natural.height <= LensHeaderMetrics.summaryRow,
-                "the scope chip is \(natural.height)pt tall against a \(LensHeaderMetrics.summaryRow)pt summary row — the header's 81pt resting height would move")
+                "the scope chip is \(natural.height)pt tall against a \(LensHeaderMetrics.summaryRow)pt summary row — the header's \(LiquidGlass.headerHeight)pt resting height would move")
     }
 
     // MARK: The COUNT is real

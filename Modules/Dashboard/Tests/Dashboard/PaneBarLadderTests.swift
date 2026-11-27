@@ -58,7 +58,7 @@ import FileExplorerTestSupport
     /// trail to the card's floor: this test's half. Asserted as balance, not just a floor: a bar
     /// pinned to the narrowest rung still clears the top padding, but its imbalance is what shows.
     @Test(.machinePinned(.pixelSampling)) func theHeaderIsBalancedTopToBottom() {
-        for (name, scale, width) in [("iCloud Drive", 1.0, CGFloat(250)), ("iCloud Drive", 1.0, 330),
+        for (name, scale, width) in [("iCloud Drive", 1.0, CGFloat(250)), ("iCloud Drive", 1.0, 400),
                                      ("iCloud Drive", 1.0, 660), ("iCloud Drive", 1.35, 660),
                                      ("Marketing Team Shared Archive Drive", 1.0, 660)] {
             guard let (top, bottom) = Self.inkGaps(Self.header(name).environment(\.appFontScale, scale),
@@ -447,7 +447,7 @@ import FileExplorerTestSupport
     /// The clearance the header keeps from its card edges, shared by both tests that apply it
     /// because `rowBudget` is calibrated to it.
     private static let headerInkFloor: CGFloat = 6
-    /// How far down a titled header's ink may start: 9.0pt or less, against 13.0pt or more for an
+    /// How far down a titled header's ink may start: 8.5pt or less, against 13.5pt or more for an
     /// untitled bar. 11 sits in the gap.
     private static let titledInkCeiling: CGFloat = 11
 

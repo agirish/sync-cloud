@@ -331,7 +331,7 @@ public struct PaneHeader: View {
         .padding(.vertical, 9)
         // Pinned, not intrinsic: this header and the lens workspaces' `LensHeaderCard` both read
         // `headerHeight`, so the pane's header/list boundary and the card's bottom edge land on the
-        // same line (83.5 = cardInset + headerHeight). The intrinsic height varies with the rung
+        // same line (90.5 = cardInset + headerHeight). The intrinsic height varies with the rung
         // and with the provider, worst when panes are narrow.
         .frame(height: LiquidGlass.headerHeight)
         .contentSurface(hue: glassHue, tint: surfaceTint)

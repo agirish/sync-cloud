@@ -423,8 +423,8 @@ public enum PaneBarLayout {
     /// The width of one item once its title is taken into account.
     ///
     /// An item is as wide as the wider of its pill and its word. Most words are narrower than the
-    /// 40pt pill and cost nothing; only New Folder, Search, Hidden and the Back/Forward pair are
-    /// ever the binding half. Uses the widest of `titleVariants` (see there).
+    /// 40pt pill and cost nothing; only Collapse and New Folder bind at every size, and Search and
+    /// Hidden from 115% text. The Back/Forward pair's two pills outmeasure its word. Uses the widest of `titleVariants` (see there).
     @MainActor
     static func titledWidth(of item: PaneBarItem, pill: CGSize, compactsViewMode: Bool,
                             scale: CGFloat) -> CGFloat {

@@ -19,7 +19,7 @@ import Testing
     /// badged controls overhang toward each other, so a whole-gap allowance lets them meet, and
     /// wouldn't catch the key growing a size step. Mini, which the compact pane header uses, is the
     /// tighter: a 27pt pill against a 30pt key, 1.5pt of overhang per side against a 3pt allowance.
-    @Test(arguments: [ControlSize.regular, .mini])
+    @Test(arguments: [ControlSize.small, .mini])
     func theKeyFitsTheNavPillItIsCentredOn(size: ControlSize) {
         let key = NSHostingView(rootView: ShortcutKeycap(Self.widestNavSymbol)).fittingSize
         let pill = PaneNavMetrics.pill(size)

@@ -78,7 +78,7 @@ public enum LabelMetrics {
     /// `defaultLineHeightIsNotTheDrawnLineBoxButTheAttributedSizeIs`.
     ///
     /// `PaneBarTitleMetrics.rowHeight` needs it: a titled bar row is a pill, a 2pt gap and one line
-    /// of title, inside a pinned 81pt pane header.
+    /// of title, inside a pinned 88pt pane header.
     public static func lineHeight(font: ScaledFont, scale: CGFloat) -> CGFloat {
         let key = TextKey(text: lineHeightSample, font: font.nsFont(scale: scale))
         if let cached = lineHeightCache[key] { return cached }

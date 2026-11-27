@@ -58,7 +58,7 @@ import Design
     func hoverWashesTheGlass() throws {
         func pill(_ phase: HoverAffordancePhase) -> ProbeRig<AnyView> {
             ProbeRig(AnyView(Color.clear
-                .paneNavChrome(accent: LiquidGlassHue.blue.accentColor, controlSize: .regular)
+                .paneNavChrome(accent: LiquidGlassHue.blue.accentColor, controlSize: .small)
                 .environment(\.hoverAffordancePhase, phase)
                 .paneNavGlass()
                 .padding(10)

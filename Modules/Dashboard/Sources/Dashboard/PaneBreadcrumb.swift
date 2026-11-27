@@ -201,7 +201,7 @@ struct PaneBreadcrumb: View {
     /// `Text(Image(systemName:))` and `Image(nsImage:)` silently draw nothing. Only
     /// `.menuIndicator(.visible)` puts one there.
     ///
-    /// The chip is heavier than a crumb on purpose (6/7/3 padding against 4/1, an 18pt mark, `.body`
+    /// The chip is heavier than a crumb on purpose (6/7/4 padding against 4/1, an 18pt mark, `.body`
     /// against `.callout`): with a hairline and a disclosure mark it is a control, and a control may
     /// outweigh the crumbs after it. Its wash (`SourceChip.washOpacity`) is the fastest "which
     /// account am I in" signal on the pane, and in dark, where the name's tint is dropped, the wash

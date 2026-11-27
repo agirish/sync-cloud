@@ -85,7 +85,7 @@ public struct LensHeaderCard<Title: View, Actions: View, Summary: View, Trailing
     /// lens can't surface here through `isSearching`.
     ///
     ///     The card's height doesn't change with it: the toggle sits in a fixed-height row
-    ///     (``LensHeaderMetrics/tabRow``), so the header is 81pt either way.
+    ///     (``LensHeaderMetrics/tabRow``), so the header is 88pt either way.
     ///   - chips: the parsed tokens of the live query. Empty ⇒ no chip row, so the card only
     ///     grows the extra 30pt once a token actually parses.
     ///   - title: row 1 leading — the lens's name, which tells you where you are.

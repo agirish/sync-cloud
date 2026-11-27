@@ -91,7 +91,7 @@ import Design
         // measured: a `.background` inside an AppKit-drawn label never paints, so the wash is drawn
         // outside the `Menu` and the `NSPopUpButton`'s frame is the label alone.
         let drawn = chip.height + 2 * SourceChip.vertical
-        let barControl = PaneNavMetrics.pill(.regular).height
+        let barControl = PaneNavMetrics.pill(PaneBarIconSize.regular.ceiling).height
         #expect(drawn >= barControl,
                 "the source chip draws \(drawn)pt tall against the bar's \(barControl)pt controls, so the pane's identity element is the smallest thing on the pane again")
     }
