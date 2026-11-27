@@ -60,23 +60,18 @@ func renderInSRGBWindow(_ view: some View, size: CGSize, scheme: ColorScheme,
 @MainActor
 func pixels(near color: Color, in rep: NSBitmapImageRep) throws -> Int {
     let target = try #require(NSColor(color).usingColorSpace(.sRGB))
-    var n = 0
-    for y in 0..<rep.pixelsHigh {
-        for x in 0..<rep.pixelsWide {
-            guard let c = rep.colorAt(x: x, y: y) else { continue }
-            if max(abs(c.redComponent - target.redComponent), abs(c.greenComponent - target.greenComponent),
-                   abs(c.blueComponent - target.blueComponent)) < 0.02 { n += 1 }
-        }
+    // Once per distinct pixel value (`PixelMemo`): per pixel, a 2× render is 2.5 million `colorAt`
+    // calls, and a suite counting several colours held the main actor for a minute.
+    let near = PixelMemo(rep) { c -> Bool in
+        guard let c else { return false }
+        return max(abs(c.redComponent - target.redComponent), abs(c.greenComponent - target.greenComponent),
+                   abs(c.blueComponent - target.blueComponent)) < 0.02
     }
-    return n
+    return near.count(rows: 0..<rep.pixelsHigh, columns: 0..<rep.pixelsWide)
 }
 
 /// How many pixels two renders differ in; `.max` when their sizes differ.
 func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
     guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return .max }
-    var count = 0
-    for y in 0..<a.pixelsHigh {
-        for x in 0..<a.pixelsWide where a.colorAt(x: x, y: y) != b.colorAt(x: x, y: y) { count += 1 }
-    }
-    return count
+    return PixelDifference(a, b).count(rows: 0..<a.pixelsHigh, columns: 0..<a.pixelsWide)
 }

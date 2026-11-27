@@ -162,12 +162,13 @@ import Testing
     static func rows(of tint: VaultTint, in rep: NSBitmapImageRep) throws -> [(first: Int, last: Int)] {
         let target = try #require(NSColor(shade(tint)).usingColorSpace(.sRGB))
         var runs: [(first: Int, last: Int)] = []
+        let near = PixelMemo(rep) { c -> Bool in
+            guard let c else { return false }
+            return max(abs(c.redComponent - target.redComponent), abs(c.greenComponent - target.greenComponent),
+                       abs(c.blueComponent - target.blueComponent)) < 0.02
+        }
         for y in 0..<rep.pixelsHigh {
-            let hit = (0..<rep.pixelsWide).contains { x in
-                guard let c = rep.colorAt(x: x, y: y) else { return false }
-                return max(abs(c.redComponent - target.redComponent), abs(c.greenComponent - target.greenComponent),
-                           abs(c.blueComponent - target.blueComponent)) < 0.02
-            }
+            let hit = near.count(rows: y..<(y + 1), columns: 0..<rep.pixelsWide) > 0
             guard hit else { continue }
             if let last = runs.last, last.last == y - 1 { runs[runs.count - 1].last = y } else { runs.append((y, y)) }
         }
@@ -192,11 +193,8 @@ import Testing
         #expect(rows.count == 2)
         // A row's band: its swatches and the ring round one, which reaches a little past them.
         func differing(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep, row: Int) -> Int {
-            var n = 0
-            for y in max(0, rows[row].first - 10)...min(a.pixelsHigh - 1, rows[row].last + 10) {
-                for x in 0..<a.pixelsWide where a.colorAt(x: x, y: y) != b.colorAt(x: x, y: y) { n += 1 }
-            }
-            return n
+            PixelDifference(a, b).count(rows: max(0, rows[row].first - 10)..<min(a.pixelsHigh, rows[row].last + 11),
+                                        columns: 0..<a.pixelsWide)
         }
         #expect(differing(follows, own, row: 0) > 100, "the card's row: a ring round plum")
         #expect(differing(follows, own, row: 1) == 0, "the group's row keeps its ring where it was")

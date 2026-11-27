@@ -98,12 +98,12 @@ import Testing
     /// over it and how far from grey the second is, on average.
     static func grounds(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) throws -> [(count: Int, lightA: Double, lightB: Double, hueB: Double)] {
         var rows: [Int: [(NSColor, NSColor)]] = [:]
+        // Once per distinct pixel value, not per pixel: see `PixelDifference`.
+        let differs = PixelDifference(a, b)
         // The cards are the left part; an ID's details, which also change with the choice, the right.
-        for y in 0..<a.pixelsHigh {
-            for x in 0..<(a.pixelsWide * 6 / 10) {
-                guard let p = a.colorAt(x: x, y: y), let q = b.colorAt(x: x, y: y), p != q else { continue }
-                rows[y, default: []].append((p, q))
-            }
+        differs.forEachDiffering(rows: 0..<a.pixelsHigh, columns: 0..<(a.pixelsWide * 6 / 10)) { x, y in
+            guard let p = differs.a(x, y), let q = differs.b(x, y) else { return }
+            rows[y, default: []].append((p, q))
         }
         // Two runs of rows of pixels with a gap between: one chosen row, then the other.
         var runs: [[Int]] = []

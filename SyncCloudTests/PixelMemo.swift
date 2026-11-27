@@ -77,4 +77,138 @@ final class PixelMemo<Answer> {
         last = (key, answer)
         return answer
     }
+    /// Row `y` as 32-bit words, for a scan's inner loop: nil unless every pixel is four aligned
+    /// bytes, or outside the bitmap.
+    func words(_ y: Int) -> UnsafePointer<UInt32>? {
+        guard let layout, layout.bytesPerPixel == 4, layout.bytesPerRow % 4 == 0,
+              Int(bitPattern: layout.base) % 4 == 0, y >= 0, y < pixelsHigh else { return nil }
+        return UnsafeRawPointer(layout.base + y * layout.bytesPerRow).assumingMemoryBound(to: UInt32.self)
+    }
+
+    /// Whether `x`, `y`'s pixel holds exactly the bytes of `other`'s at the same place, over a run
+    /// of `count` pixels.
+    fileprivate func bytesMatch<Other>(_ x: Int, _ y: Int, count: Int, in other: PixelMemo<Other>) -> Bool {
+        guard let mine = layout, let theirs = other.layout, mine.bytesPerPixel == theirs.bytesPerPixel,
+              x >= 0, y >= 0, y < pixelsHigh, y < other.pixelsHigh,
+              x + count <= pixelsWide, x + count <= other.pixelsWide else { return false }
+        let n = mine.bytesPerPixel
+        return memcmp(mine.base + y * mine.bytesPerRow + x * n, theirs.base + y * theirs.bytesPerRow + x * n, count * n) == 0
+    }
+}
+
+extension PixelMemo where Answer == Bool {
+    /// How many pixels of rows `ys` and columns `xs` the question answers true for: the count of
+    /// `self(x, y)` over that rectangle, in one loop that asks again only when a pixel's bytes
+    /// change. Asking per pixel through `callAsFunction` costs about 0.35 µs a pixel in a Debug
+    /// build, which a 2× render's 2.5 million pixels turn into a second of the main actor.
+    func count(rows ys: Range<Int>, columns xs: Range<Int>) -> Int {
+        let ys = ys.clamped(to: 0..<pixelsHigh), xs = xs.clamped(to: 0..<pixelsWide)
+        var n = 0
+        var lastWord: UInt32 = 0, lastAnswer = false, primed = false
+        // `while` over plain integers, not `for` over a range: unoptimized, a range's iterator
+        // looks up generic metadata on every step, which cost more than the pixels.
+        var y = ys.lowerBound
+        while y < ys.upperBound {
+            var x = xs.lowerBound
+            if let row = words(y) {
+                while x < xs.upperBound {
+                    let word = row[x]
+                    if !primed || word != lastWord {
+                        lastWord = word
+                        lastAnswer = self(x, y)
+                        primed = true
+                    }
+                    if lastAnswer { n += 1 }
+                    x += 1
+                }
+            } else {
+                while x < xs.upperBound {
+                    if self(x, y) { n += 1 }
+                    x += 1
+                }
+            }
+            y += 1
+        }
+        return n
+    }
+}
+
+/// `a.colorAt(x: x, y: y) != b.colorAt(x: x, y: y)`, asked once per distinct pair of pixel values,
+/// for two renders of one size. Exact for the reason `PixelMemo` is: each side's answer depends only
+/// on that pixel's bytes and its bitmap's format. So where two bitmaps of one format hold the same
+/// bytes, nothing differs, and a scan skips that stretch of a row with one `memcmp`.
+final class PixelDifference {
+    /// Each side's `colorAt`, read once per distinct pixel value.
+    let a: PixelMemo<NSColor?>
+    let b: PixelMemo<NSColor?>
+    private let sameFormat: Bool
+    private var verdicts: [Pair: Bool] = [:]
+    private var last: (pair: Pair, differs: Bool)?
+
+    private struct Pair: Hashable { let a: UInt64, b: UInt64 }
+
+    init(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) {
+        self.a = PixelMemo(a) { $0 }
+        self.b = PixelMemo(b) { $0 }
+        sameFormat = self.a.sameFormat(as: self.b)
+    }
+
+    func callAsFunction(_ x: Int, _ y: Int) -> Bool {
+        guard let ka = a.key(x, y), let kb = b.key(x, y) else {
+            return a.rep.colorAt(x: x, y: y) != b.rep.colorAt(x: x, y: y)
+        }
+        let pair = Pair(a: ka, b: kb)
+        if let last, last.pair == pair { return last.differs }
+        let differs: Bool
+        if let known = verdicts[pair] {
+            differs = known
+        } else {
+            differs = a(x, y) != b(x, y)
+            verdicts[pair] = differs
+        }
+        last = (pair, differs)
+        return differs
+    }
+
+    /// Calls `body` with each pixel of rows `ys` and columns `xs` that differs, row by row, left to
+    /// right: the pixels `self(x, y)` is true for, found in one loop that skips matching rows and
+    /// asks again only when a pair of pixels changes.
+    func forEachDiffering(rows ys: Range<Int>, columns xs: Range<Int>, _ body: (_ x: Int, _ y: Int) -> Void) {
+        let ys = ys.clamped(to: 0..<min(a.pixelsHigh, b.pixelsHigh))
+        let xs = xs.clamped(to: 0..<min(a.pixelsWide, b.pixelsWide))
+        guard !xs.isEmpty else { return }
+        var lastA: UInt32 = 0, lastB: UInt32 = 0, lastDiffers = false, primed = false
+        // `while`, not `for` over a range: see `PixelMemo.count(rows:columns:)`.
+        var y = ys.lowerBound
+        while y < ys.upperBound {
+            defer { y += 1 }
+            if sameFormat, a.bytesMatch(xs.lowerBound, y, count: xs.count, in: b) { continue }
+            var x = xs.lowerBound
+            if let rowA = a.words(y), let rowB = b.words(y) {
+                while x < xs.upperBound {
+                    let wa = rowA[x], wb = rowB[x]
+                    if !primed || wa != lastA || wb != lastB {
+                        lastA = wa
+                        lastB = wb
+                        lastDiffers = self(x, y)
+                        primed = true
+                    }
+                    if lastDiffers { body(x, y) }
+                    x += 1
+                }
+            } else {
+                while x < xs.upperBound {
+                    if self(x, y) { body(x, y) }
+                    x += 1
+                }
+            }
+        }
+    }
+
+    /// How many pixels of rows `ys` and columns `xs` differ.
+    func count(rows ys: Range<Int>, columns xs: Range<Int>) -> Int {
+        var n = 0
+        forEachDiffering(rows: ys, columns: xs) { _, _ in n += 1 }
+        return n
+    }
 }

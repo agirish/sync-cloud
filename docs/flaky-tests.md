@@ -4903,6 +4903,43 @@ Eight more Setup tests (the 2026-10-27 review fixes) pushed both, and the two ne
 two-minute limit. It is a hang guard, not a speed check: a walk that never lands still fails, at two
 minutes. Why the walk is starved for most of the run is not yet known.
 
+**Past two minutes too, 2026-11-26.** On `main` at `6611536a9`–`d6d6bb2c0`, every local full app
+run was red: 4–15 tests over the two-minute limit, the host restarted, `TEST FAILED`. Setup's walk,
+Save and teardown tests in `SetupModelTests`, `SetupReadingHandOverTests` and
+`SetupSheetTeardownTests`, and `AskClaudeScreenGuessTests` with them. All green alone.
+
+**The cause: the main actor, not the pool.** `sample`s of the test host at 8, 20, 35, 50 and 70 s:
+- At 50 and 70 s, the pool was idle (two threads, both parked). Every main-thread sample at 70 s was
+  in one `VaultPanelRenderTests` test, two thirds of them in `pixels(near:in:)` →
+  `-[NSBitmapImageRep colorAtX:y:]`.
+- That suite took 93 s; its six tests 40–92 s each, interleaved. Each scans whole 2000×1240 renders
+  pixel by pixel through `colorAt`, synchronously on the main actor: 2.5 million calls a scan at
+  1–2 µs each in Debug, up to nine scans a test. `RenderSupport.swift`'s `pixels(near:in:)` and `differingPixels`,
+  `VaultPanelRenderTests.grounds` and `VaultCardColorsTests`' scans all did this. `PixelMemo`
+  (mechanism 34's fix) already existed; these newer helpers didn't use it.
+- A walk hops to the main actor several times (`walkForSetup` runs there; so does the task that
+  lands it, and `discoverProviders` returns there). Each hop waited behind seconds-long scans, so a
+  two-folder walk took minutes.
+- At 8 s, 7 of 10 pool threads waited on Swift Testing's console-output lock, behind a `write` to
+  xcodebuild's pipe. It passes by 35 s, so it is not what holds the walks.
+
+**Fix, 2026-11-26.** The scans ask `colorAt` once per distinct pixel value: `PixelMemo.count(rows:
+columns:)` and a new `PixelDifference`, which skips byte-identical stretches of a row with one
+`memcmp`. Their inner loops are `while` loops over plain integers: in Debug, `for x in 0..<n` looks
+up generic metadata on every step, and in a first version that cost more than the pixels did.
+**Proved** exact: old and new were run on six real Vault panel renders (2000×1240) and four
+color-popover renders, and all 212 answers matched (counts, row runs and `grounds`' averages). Per
+call, `pixels(near:in:)` went from 2.5 s to 0.06 s, `differingPixels` from 2.6 s to 0.04 s, and
+`grounds` on the tests' own pairs from about 2 s to 0.15 s. The two-minute limits stay hang guards.
+
+**After.** Full local app runs at load 4–14: 2,153 tests in 77 s, `VaultPanelRenderTests` 15 s
+(from 93 s), and the Setup walk tests 34 s (from past 120 s). One of those runs failed `aFieldThatGoesAwayTakesItsListOffTheScreen`, which passed 3 of 3 alone:
+"A palette wait that has to outlast a 36-hop retry budget".
+
+**Tell.** A Setup or other main-actor wait red only in a full app run, with the pool idle and the
+main thread in a test's own pixel loop. Look for `colorAt` called per pixel over a whole render on
+the main actor; route it through `PixelMemo`.
+
 ### 45. A clip view parked before its window's first display cycle is pixel-aligned later, by AppKit — FIXED
 
 **Symptom.** `PaneColumnsOverscrollReturnCycleTests.testAFractionalOffsetIsLeftAloneNotCorrectedForever`
