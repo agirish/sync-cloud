@@ -82,8 +82,10 @@ import FileExplorerTestSupport
     /// would read as two styles at once.
     @Test func theActionsShedTheirWordsTogether() throws {
         let rungs = EditorPDFHeaderControls.Rung.allCases
-        #expect(rungs == [.worded, .glyphs])
-        #expect(rungs.map(\.isWorded) == [true, false])
+        // `.compact` is the glyphs again at the compact size (`EditorHeaderChipMetrics`), for the
+        // narrowest column: still no words.
+        #expect(rungs == [.worded, .glyphs, .compact])
+        #expect(rungs.map(\.isWorded) == [true, false, false])
         let source = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
         #expect(source.contains("EditorPDFFindButton(find: find, accent: accent, accentFill: accentFill, onAccent: onAccent, worded: rung.isWorded)"))
         #expect(source.contains("EditorPDFFillSignButton(fill: fill, tools: tools, accent: accent, accentFill: accentFill, onAccent: onAccent, worded: rung.isWorded)"))

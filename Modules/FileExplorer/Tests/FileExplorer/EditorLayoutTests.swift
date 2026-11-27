@@ -238,10 +238,14 @@ import FileExplorerTestSupport
         760 - 150 - EditorLayoutMetrics.railWidth - 2 * LiquidGlass.cardGutter
     }
 
-    /// At the 760pt window floor the labelled rung fits up to 130% and sheds only at 135%, the
-    /// `Largest` preset, pinned as a boundary both ways over every slider step. Above it the names
-    /// stay reachable through the tooltip and accessibility label.
-    @Test func theWordsShedAtTheNarrowestWindowOnlyAtTheTopOfTheTextRange() {
+    /// At the 760pt window floor the labelled rung fits up to 110% and sheds from 115%, pinned as a
+    /// boundary both ways over every slider step. Above it the names stay reachable through the
+    /// tooltip and accessibility label.
+    ///
+    /// It was 130% until RP (2026-11-26) gave every segmented switch a 13pt glyph and 24pt height:
+    /// the labelled capsule went from about 207pt to 235pt at 100% (220–279 across the range), and
+    /// keeping 130% would have meant shrinking it back. Moved deliberately, at the floor window only.
+    @Test func theWordsShedAtTheNarrowestWindowAbove110Percent() {
         let column = Self.documentWidthAtWindowFloor
         let fitting = FontSize.selectablePercents.filter { percent in
             capsule(.labelled, scale: FontSize(percent: percent).scale).width
@@ -250,9 +254,9 @@ import FileExplorerTestSupport
         // Contiguous from the bottom, or "the last one that fits" is not a boundary.
         #expect(fitting == Array(FontSize.selectablePercents.prefix(fitting.count)),
                 "the percents that fit are \(fitting) — not a contiguous run, so there is no single boundary")
-        #expect(fitting.last == 130, """
+        #expect(fitting.last == 110, """
                 the labelled capsule sheds its words above \(fitting.last.map(String.init) ?? "no")% \
-                rather than 130% — at the 760pt window floor the \(column)pt document column takes \
+                rather than 110% — at the 760pt window floor the \(column)pt document column takes \
                 the rung plus a \(Self.nameAllowance)pt name up to there. Re-measure and move this \
                 number deliberately; do not widen the allowance to make it go away.
                 """)

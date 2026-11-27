@@ -816,6 +816,9 @@ public struct EditorWorkspaceView: View {
         /// New Text File, Find, Files and Close: all four keep their words, or none does, since
         /// three words beside one bare glyph read as two styles.
         var chipsWorded: Bool
+        /// The narrowest rung: bare chips and capsule at their compact size
+        /// (``EditorHeaderChipMetrics/compactHeight``).
+        var compact = false
     }
 
     /// The name row's rungs, widest first. The buttons' words go before the capsule's.
@@ -823,9 +826,11 @@ public struct EditorWorkspaceView: View {
         isMarkdown
             ? [NameRowRung(capsule: .labelled, chipsWorded: true),
                NameRowRung(capsule: .labelled, chipsWorded: false),
-               NameRowRung(capsule: .glyphOnly, chipsWorded: false)]
+               NameRowRung(capsule: .glyphOnly, chipsWorded: false),
+               NameRowRung(capsule: .glyphOnly, chipsWorded: false, compact: true)]
             : [NameRowRung(capsule: nil, chipsWorded: true),
-               NameRowRung(capsule: nil, chipsWorded: false)]
+               NameRowRung(capsule: nil, chipsWorded: false),
+               NameRowRung(capsule: nil, chipsWorded: false, compact: true)]
     }
 
     /// One reading of the name row; see ``NameRowRung``.
@@ -879,8 +884,7 @@ public struct EditorWorkspaceView: View {
                 } label: {
                     EditorHeaderChipLabel(symbol: "magnifyingglass", word: reading.chipsWorded ? Self.findWord : nil)
                 }
-                .chromeGlassGlyphButton(tint: accent, shape: .capsule, outset: ChromeGlass.smallGlyphOutset)
-                .chromeGlassClearance(.leading, rowSpacing: 6)
+                .chromeGlassGlyphButton(tint: accent, shape: .capsule)
                 .accessibilityLabel("Find in this document")
                 .accessibilityInputLabels(EditorSpokenNames.names(word: Self.findWord, label: "Find in this document"))
                 .shortcutKeycap(AppChord.findInPane.display)
@@ -908,11 +912,16 @@ public struct EditorWorkspaceView: View {
             // Close, at the far end, since it acts on the whole document. File ▸ Close Document is
             // the other door, with no key, because ⌘W is Close Tab. The host settles the buffer
             // first, so Cancel leaves everything as it was. Drawn in every mode and on read-only or
-            // refused files too. The clearance keeps it 4pt from Expand's outset glass.
+            // refused files too.
             EditorCloseChip(name: document.name, worded: reading.chipsWorded, accent: accent,
                             action: onCloseDocument)
-                .chromeGlassClearance(.leading, rowSpacing: 6)
         }
+        // Never shorter than the buttons: below 100% text the capsule is, and the narrowest rung's
+        // compact chips are, so without this the row would change height between rungs.
+        .frame(minHeight: EditorHeaderChipMetrics.height)
+        // The narrowest rung's chips and capsule glyphs draw compact, at the same height, so the
+        // header doesn't move as the name grows.
+        .environment(\.editorHeaderCompact, reading.compact)
     }
 
     /// The words the header's buttons wear on their worded rung. New Text File is the menu item's
@@ -933,7 +942,7 @@ public struct EditorWorkspaceView: View {
             EditorHeaderChipLabel(symbol: "plus", word: worded ? Self.newTextFileWord : nil)
                 .foregroundStyle(onNewTextFile == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
         }
-        .chromeGlassGlyphButton(tint: accent, shape: .capsule, outset: ChromeGlass.smallGlyphOutset)
+        .chromeGlassGlyphButton(tint: accent, shape: .capsule)
         .accessibilityLabel("New text file")
         .shortcutKeycap(AppChord.newTextFile.display)
         .lockedDuringRun()
@@ -1164,11 +1173,9 @@ public struct EditorWorkspaceView: View {
             Spacer(minLength: 0)
             // Its own glass capsule in Frosted and Clear, as in the document's header.
             newTextFileButton(worded: chipsWorded)
-            // At the end of the row, where a document's header draws it, with the clearance that
-            // keeps it apart from New Text File's outset glass.
+            // At the end of the row, where a document's header draws it.
             if railIsHidden {
                 expandButton(worded: chipsWorded)
-                    .chromeGlassClearance(.leading, rowSpacing: 6)
             }
             // The capsule's height, reserved as a plain-text header reserves it, and like that one
             // drawn at Solid, so it runs no lens of its own.
@@ -1227,15 +1234,16 @@ public struct EditorWorkspaceView: View {
     /// it is about the columns. ⌃⌘E (Text ▸ Expand) on its keycap and tooltip, from one `AppChord`.
     /// One view, drawn by both headers.
     ///
-    /// Its own glass capsule in Frosted and Clear, like every header button, 18pt tall worded or
-    /// not, so the pinned header height never moves; the word only widens it.
+    /// Its own glass capsule in Frosted and Clear, like every header button, 24pt tall worded or
+    /// not (``EditorHeaderChipMetrics``), so the pinned header height never moves; the word only
+    /// widens it.
     func expandButton(worded: Bool) -> some View {
         Button(action: onToggleJustTheText) {
             Group {
                 if worded {
-                    HStack(spacing: 4) {
+                    HStack(spacing: EditorHeaderChipMetrics.glyphGap) {
                         Image(systemName: Self.expandSymbol(railIsHidden: railIsHidden))
-                            .scaledFont(.system(size: 10, weight: .semibold))
+                            .scaledFont(EditorHeaderChipMetrics.glyph)
                         // Laid out at the wider word, so lighting it moves nothing: "Files" sits in
                         // the room "Expand" takes, and the buttons to its left stay put.
                         ZStack(alignment: .leading) {
@@ -1244,17 +1252,16 @@ public struct EditorWorkspaceView: View {
                             }
                             Text(Self.expandTitle(railIsHidden: railIsHidden))
                         }
-                        .scaledFont(.system(size: 10, weight: .semibold))
+                        .scaledFont(EditorHeaderChipMetrics.word)
                         .lineLimit(1)
                     }
-                    .padding(.horizontal, 7)
-                    .frame(height: 18)
+                    .padding(.horizontal, EditorHeaderChipMetrics.wordedPadding)
+                    .frame(height: EditorHeaderChipMetrics.height)
                     // Never squeezed; the name gives way (``EditorHeaderChipLabel``).
                     .fixedSize()
                 } else {
-                    Image(systemName: Self.expandSymbol(railIsHidden: railIsHidden))
-                        .scaledFont(.system(size: 11, weight: .semibold))
-                        .frame(width: 18, height: 18)
+                    // A subview, so it reads the row's compact rung from the environment.
+                    EditorHeaderChipLabel(symbol: Self.expandSymbol(railIsHidden: railIsHidden))
                 }
             }
             // Label colour lit or not: the soft accent wash is the lit state, and accent words on it
@@ -1264,7 +1271,7 @@ public struct EditorWorkspaceView: View {
             .background(Capsule().fill(railIsHidden ? accent.opacity(0.18) : .clear))
             .contentShape(Capsule())
         }
-        .chromeGlassGlyphButton(tint: accent, shape: .capsule, outset: ChromeGlass.smallGlyphOutset)
+        .chromeGlassGlyphButton(tint: accent, shape: .capsule)
         .accessibilityLabel(Self.expandTitle(railIsHidden: railIsHidden))
         .shortcutKeycap(AppChord.editorExpand.display)
         .help(ShortcutHint.tooltip(Self.expandHelp(railIsHidden: railIsHidden),

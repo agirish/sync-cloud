@@ -56,23 +56,25 @@ public enum EditorMode: String, CaseIterable, Sendable {
 /// Hand-drawn segments in a container capsule, like the workspace bar, because the native
 /// segmented control renders neutral inside this window's glass and ignores `.tint`.
 ///
-/// It sheds its words when the column is narrow: labelled, it is about 200–250pt across the text
-/// sizes, against a 260pt minimum column that must also hold the file name; glyph-only, about
-/// 80–100pt. The names stay in the tooltip and accessibility label. At the 760pt window floor the
-/// words shed only at the top of the text range, which
-/// `EditorLayoutTests.theWordsShedAtTheNarrowestWindowOnlyAtTheTopOfTheTextRange` pins.
+/// It sheds its words when the column is narrow: labelled, it is 220–279pt across the text sizes
+/// (235 at 100%), against a 260pt minimum column that must also hold the file name; glyph-only, a
+/// fraction of that. The names stay in the tooltip and accessibility label. At the 760pt window
+/// floor the words shed from 115%, which
+/// `EditorLayoutTests.theWordsShedAtTheNarrowestWindowAbove110Percent` pins.
 ///
 /// Expand's word shares this budget and is spent first: `EditorHeaderDoorsTests` holds that the
 /// capsule keeps its words wherever Expand keeps its own, at every size, and that no word is drawn
-/// over a cut name. Under glass the × takes 2pt more beside Expand
-/// (`ChromeGlass.clearance(rowSpacing:outset:)`). Widths are `NSHostingView.fittingSize` on the
-/// forced rung, as `EditorLayoutTests` measures; re-measure rather than trust prose.
+/// over a cut name. Widths are `NSHostingView.fittingSize` on the forced rung, as
+/// `EditorLayoutTests` measures; re-measure rather than trust prose.
 ///
 /// `ViewThatFits`, not arithmetic as in `WorkspaceBarMetrics`: that one sits in a toolbar item,
 /// proposed its own ideal width, while this sits in an `HStack` handed a real width.
 struct EditorModeBar: View {
 
     @Binding var mode: EditorMode
+    /// The document header's narrowest rung (``EnvironmentValues/editorHeaderCompact``): the
+    /// glyph-only segments draw their glyphs compact, at the same height.
+    @Environment(\.editorHeaderCompact) private var compact
     /// The selected segment's fill, lens and hover: the deepened accent, so the white label on it
     /// clears AA (`LiquidGlassHue.accentFillColor`).
     let accentFill: Color
@@ -103,6 +105,14 @@ struct EditorModeBar: View {
     /// glyph: what the keycaps over them must fit.
     static let segmentGap: CGFloat = 3
     static let glyphSegmentPadding: CGFloat = 6
+    /// A labelled segment's padding either side.
+    static let labelledSegmentPadding: CGFloat = 9
+    /// A segment's padding above and below: with ``CapsuleGlyph``'s 17pt box and the track's 2pt,
+    /// the control is 24pt tall, the pane bar's height (RP, 2026-11-26).
+    static let segmentVerticalPadding: CGFloat = 1.5
+    /// A segment's word: 11pt, the word size of the header buttons beside it
+    /// (``EditorHeaderChipMetrics``). Storage's section bar uses it too.
+    static let labelFont = ScaledFont.system(size: 11, weight: .semibold)
 
     private func capsule(labelled: Bool) -> some View {
         HStack(spacing: Self.segmentGap) {
@@ -126,18 +136,18 @@ struct EditorModeBar: View {
             mode = candidate
         } label: {
             HStack(spacing: 4) {
-                CapsuleGlyph(symbol: candidate.symbol)
+                CapsuleGlyph(symbol: candidate.symbol, compact: compact && !labelled)
                 if labelled {
                     // Semibold whether or not selected: weight changes width, so bolding only
                     // the selected segment would shift the file name beside it on every click.
                     // The accent fill marks the selection.
                     Text(candidate.title)
-                        .scaledFont(.system(size: 10, weight: .semibold))
+                        .scaledFont(Self.labelFont)
                 }
             }
             .selectionLensLabelInk(isSelected: isSelected, onFill: onAccent, unselected: Color.secondary)
-            .padding(.horizontal, labelled ? 8 : Self.glyphSegmentPadding)
-            .padding(.vertical, 3)
+            .padding(.horizontal, labelled ? Self.labelledSegmentPadding : Self.glyphSegmentPadding)
+            .padding(.vertical, Self.segmentVerticalPadding)
             .background {
                 if isSelected { SelectionLensTodayMarker { Capsule().fill(accentFill) } }
             }
@@ -169,13 +179,23 @@ struct EditorModeBar: View {
 struct CapsuleGlyph: View {
 
     let symbol: String
+    /// A document header's narrowest rung: the glyph at its compact size in a box as narrow as it
+    /// needs, but as tall as the full box, so the row's height doesn't change between rungs.
+    var compact = false
 
     @Environment(\.appFontScale) private var scale
 
-    /// The glyph's own point size at the default text size.
-    static let pointSize: CGFloat = 10
-    /// The box drawn around it at the default text size, holding the widest symbol comfortably.
-    static let boxSize: CGFloat = 13
+    /// The compact glyph and the width of its box, at the default text size: the 10pt in 13pt the
+    /// glyphs were before RP.
+    static let compactPointSize: CGFloat = 10
+    static let compactBoxWidth: CGFloat = 13
+
+    /// The glyph's own point size at the default text size: 13, every segmented switch's glyph
+    /// (RP, 2026-11-26).
+    static let pointSize: CGFloat = 13
+    /// The box drawn around it at the default text size, holding the widest symbol comfortably:
+    /// the 1.3 ratio the box always had to its glyph.
+    static let boxSize: CGFloat = 17
 
     /// The box at `scale`, in the same proportion to the glyph as `boxSize` is to `pointSize`.
     /// The rule lives in ``Design/FontSize/scaledBox(_:basePoint:scale:)``, shared with `SetupSheet`
@@ -186,7 +206,9 @@ struct CapsuleGlyph: View {
 
     var body: some View {
         Image(systemName: symbol)
-            .scaledFont(.system(size: Self.pointSize, weight: .medium))
-            .frame(width: Self.box(at: scale), height: Self.box(at: scale))
+            .scaledFont(.system(size: compact ? Self.compactPointSize : Self.pointSize, weight: .medium))
+            .frame(width: compact ? FontSize.scaledBox(Self.compactBoxWidth, basePoint: Self.compactPointSize, scale: scale)
+                                  : Self.box(at: scale),
+                   height: Self.box(at: scale))
     }
 }

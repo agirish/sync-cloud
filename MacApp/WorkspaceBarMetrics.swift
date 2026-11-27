@@ -30,19 +30,22 @@ enum WorkspaceBarMetrics {
 
     /// The square every workspace glyph is drawn into, so the two constants below are exact.
     ///
-    /// The symbols differ in size at `.system(size: 12, weight: .medium)`:
+    /// The symbols differ in size at `.system(size: 13, weight: .medium)`, the 13pt every segmented
+    /// switch uses (RP, 2026-11-26). Measured with `NSImage(systemSymbolName:)`, which runs a
+    /// point or so wider than SwiftUI draws:
     ///
     /// | symbol | | glyph |
     /// |---|---|---|
-    /// | `folder` | Browse | 16 × 13 |
-    /// | `arrow.left.arrow.right` | Compare | 14 × 17 |
-    /// | `folder.badge.gearshape` | Organize | 16 × 14 |
-    /// | `square.and.pencil` | Editor | 15 × 15 |
+    /// | `folder` | Browse | 18 × 14 |
+    /// | `arrow.left.arrow.right` | Compare | 16 × 18 |
+    /// | `folder.badge.gearshape` | Organize | 20 × 15 |
+    /// | `square.and.pencil` | Editor | 17 × 16 |
     ///
     /// Unframed, the selected pill (a `Capsule` in a `matchedGeometryEffect`) would change height as
     /// it slides, nest concentrically for only some segments, and the width sum would under-measure
-    /// the bar, the dangerous direction. 17 is the tallest glyph and a point clear of the widest, so
-    /// it clips nothing and over-reserves slightly, the safe side.
+    /// the bar, the dangerous direction. 19 clears the tallest glyph, so it clips nothing and
+    /// over-reserves slightly, the safe side; `theBarDrawsEverySegmentAtOneHeight` checks every
+    /// glyph against it as SwiftUI draws it, at every text size.
     ///
     /// A symbol wider than this frame is clipped, not scaled, and nothing else would say so:
     /// measure a new workspace's glyph before choosing it. `theBarDrawsEverySegmentAtOneHeight`
@@ -50,9 +53,9 @@ enum WorkspaceBarMetrics {
     ///
     /// This is the side at 100%. The glyph follows Settings ▸ Text size like its label, so the
     /// frame does too: ``glyphSide(scale:)``.
-    static let glyphSide: CGFloat = 17
+    static let glyphSide: CGFloat = 19
     /// The glyph's point size at 100%, the base `glyphSide(scale:)` grows from.
-    static let glyphPoint: CGFloat = 12
+    static let glyphPoint: CGFloat = 13
 
     /// The glyph's square at a text scale, held in the same proportion to the scaled glyph as at
     /// 100% (`FontSize.scaledBox`), so a larger glyph is never clipped by a 100% frame.
@@ -67,6 +70,9 @@ enum WorkspaceBarMetrics {
     /// What a segment adds around its label: the glyph, the 6pt gap after it, and 2×12pt of
     /// horizontal padding.
     static func segmentChrome(scale: CGFloat) -> CGFloat { glyphSide(scale: scale) + 6 + 24 }
+    /// A segment's padding above and below: 19 + 2×2.5 makes the segment 24pt, the pane bar's
+    /// height.
+    static let segmentVerticalPadding: CGFloat = 2.5
     /// A segment with no label — glyph plus 2×10pt padding, which is tighter than the labelled
     /// form because there is nothing for the padding to separate the glyph from.
     static func iconOnlySegmentWidth(scale: CGFloat) -> CGFloat { glyphSide(scale: scale) + 20 }

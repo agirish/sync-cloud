@@ -215,7 +215,7 @@ import FileExplorerTestSupport
         let document = try document()
         // Long enough that the meta row, which carries the door's padding, is the header's wider
         // row; with short words the first row (name, Find, Expand) sets the width and hides it.
-        let words = "not saving — the file changed on disk underneath the buffer, and the words are long"
+        let words = "not saving — the file changed on disk underneath the buffer, and the words are long, longer than the name row's 24pt buttons and capsule beside it"
         // No width frame: at a pinned width the row's `Spacer` absorbs the padding and both
         // headers measure exactly the pin.
         let plain = size(workspace(document, stopped: words, door: nil).headerContent, width: nil)

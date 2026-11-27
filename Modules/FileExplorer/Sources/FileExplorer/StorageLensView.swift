@@ -440,12 +440,12 @@ struct StorageSectionBar: View {
                 CapsuleGlyph(symbol: symbol(candidate))
                 if labelled {
                     Text(title(candidate))
-                        .scaledFont(.system(size: 10, weight: .semibold))
+                        .scaledFont(EditorModeBar.labelFont)
                 }
             }
             .selectionLensLabelInk(isSelected: isSelected, onFill: onAccent, unselected: Color.secondary)
-            .padding(.horizontal, labelled ? 8 : 6)
-            .padding(.vertical, 3)
+            .padding(.horizontal, labelled ? EditorModeBar.labelledSegmentPadding : EditorModeBar.glyphSegmentPadding)
+            .padding(.vertical, EditorModeBar.segmentVerticalPadding)
             .background {
                 if isSelected { SelectionLensTodayMarker { Capsule().fill(accentFill) } }
             }

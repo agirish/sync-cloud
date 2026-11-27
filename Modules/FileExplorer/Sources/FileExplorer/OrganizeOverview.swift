@@ -109,11 +109,13 @@ struct RailItemLabel: View {
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: systemImage)
-                .scaledFont(.system(size: 10.5, weight: .semibold))
+                .scaledFont(.system(size: OrganizeRailMetrics.glyphPoint, weight: .semibold))
                 .foregroundStyle(isSelected || isReporting ? accent : Color.secondary)
             if style == .full {
+                // Semibold whether or not selected, as on every segmented switch: weight changes
+                // width, so bolding only the current item would shift the rail on every click.
                 Text(title)
-                    .scaledFont(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
+                    .scaledFont(.system(size: 11.5, weight: .semibold))
                     .fixedSize()
             }
             switch state {
@@ -142,7 +144,7 @@ struct RailItemLabel: View {
             }
         }
         .padding(.horizontal, 9)
-        .padding(.vertical, 3)
+        .frame(height: OrganizeRailMetrics.itemHeight)
         // The state has to be spoken, because it is carried in colour: a reporting item differs
         // from a quiet one by its tint, and an unscanned one from a clean one by a 4pt dot, neither
         // of which reaches VoiceOver. Colour must never be a state's only carrier (as with the

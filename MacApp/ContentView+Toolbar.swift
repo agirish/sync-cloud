@@ -230,14 +230,16 @@ extension ContentView {
                     .frame(width: WorkspaceBarMetrics.glyphSide(scale: appFontScale),
                            height: WorkspaceBarMetrics.glyphSide(scale: appFontScale))
                 if style == .full {
+                    // Semibold whether or not selected, as on every segmented switch: the widths
+                    // are measured at semibold, and a weight change would move the bar on a click.
                     Text(workspace.title)
-                        .scaledFont(.system(size: 12, weight: isSelected ? .semibold : .medium))
+                        .scaledFont(.system(size: 12, weight: .semibold))
                 }
             }
             // White on Solid's fill and on dark glass; black on light glass (`selectionLensLabelInk`).
             .selectionLensLabelInk(isSelected: isSelected, onFill: onAccent, unselected: Color.secondary)
             .padding(.horizontal, style == .full ? 12 : 10)
-            .padding(.vertical, 4)
+            .padding(.vertical, WorkspaceBarMetrics.segmentVerticalPadding)
             // One capsule that moves, not one per segment that blinks. Drawn only under the
             // selected segment and tagged into `workspaceMarker`, so SwiftUI treats the outgoing
             // and incoming fills as the same view and the pill slides along the bar. A conditional

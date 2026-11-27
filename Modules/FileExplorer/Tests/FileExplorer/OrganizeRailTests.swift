@@ -456,8 +456,9 @@ import Design
 
         // A band wide enough for the whole rail. `railZone` stops at x 588 to keep the trailing
         // controls out, and a third badge pushes the rail past that edge, so the crop would lose
-        // more of "Rules" than the badge adds and invert the ink comparison.
-        let whole = CGRect(x: 8, y: 12, width: 700, height: 30)
+        // more of "Rules" than the badge adds and invert the ink comparison. 1,000, since the
+        // rail's 13pt glyphs (RP) took it past the 700 this once was.
+        let whole = CGRect(x: 8, y: 12, width: 1000, height: 30)
         let a = try #require(PixelProbe.render(mount(withFindings, lens: .toFile), whole))
         let b = try #require(PixelProbe.render(mount(none, lens: .toFile), whole))
         #expect(differingPixels(a, b) > 50,
@@ -788,7 +789,7 @@ import Design
 // ``OrganizeRailMetrics/glyphWidth(_:scale:)`` is tabulated because measuring is too slow per
 // `body`; this stops the table rotting. A glyph is not its point size.
         for lens in OrganizeLens.allCases {
-            let configuration = NSImage.SymbolConfiguration(pointSize: 10.5, weight: .semibold)
+            let configuration = NSImage.SymbolConfiguration(pointSize: OrganizeRailMetrics.glyphPoint, weight: .semibold)
             let live = try #require(
                 NSImage(systemSymbolName: lens.symbol, accessibilityDescription: nil)?
                     .withSymbolConfiguration(configuration)?.size.width,

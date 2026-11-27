@@ -37,6 +37,9 @@ struct EditorPDFHeaderControls: View {
     enum Rung: CaseIterable {
         case worded
         case glyphs
+        /// Glyphs at the compact size (``EditorHeaderChipMetrics/compactHeight``), for the
+        /// narrowest column, as the text header's last rung.
+        case compact
 
         var isWorded: Bool { self == .worded }
     }
@@ -46,11 +49,9 @@ struct EditorPDFHeaderControls: View {
             if showsReaderActions {
                 EditorPDFFindButton(find: find, accent: accent, accentFill: accentFill, onAccent: onAccent, worded: rung.isWorded)
                 EditorPDFFillSignButton(fill: fill, tools: tools, accent: accent, accentFill: accentFill, onAccent: onAccent, worded: rung.isWorded)
-                    .chromeGlassClearance(.leading, rowSpacing: 6)
             }
             if showsTools {
                 EditorPDFToolsMenu(tools: tools, accent: accent, accentFill: accentFill, onAccent: onAccent, worded: rung.isWorded)
-                    .chromeGlassClearance(showsReaderActions ? .leading : [], rowSpacing: 6)
             }
         }
         // Never squeezed: a row short of its ideal width would shrink the bezels under words that
@@ -68,26 +69,30 @@ struct EditorPDFActionLabel: View {
     var isOn = false
     let accentFill: Color
     let onAccent: Color
+    @Environment(\.editorHeaderCompact) private var compact
 
     var body: some View {
-        HStack(spacing: 4) {
+        // Compact only bare: the compact rung has no words.
+        let small = compact && word == nil
+        let height = small ? EditorHeaderChipMetrics.compactHeight : EditorHeaderChipMetrics.height
+        HStack(spacing: EditorHeaderChipMetrics.glyphGap) {
             Image(systemName: symbol)
-                .scaledFont(.system(size: 11, weight: .semibold))
+                .scaledFont(small ? EditorHeaderChipMetrics.compactGlyph : EditorHeaderChipMetrics.glyph)
             if let word {
                 Text(word)
-                    .scaledFont(.system(size: 10, weight: .medium))
+                    .scaledFont(EditorHeaderChipMetrics.word)
                     .lineLimit(1)
                     .fixedSize()
             }
             if chevron {
                 Image(systemName: "chevron.down")
-                    .scaledFont(.system(size: 7, weight: .bold))
+                    .scaledFont(.system(size: 8, weight: .bold))
                     .opacity(0.7)
             }
         }
-        .padding(.horizontal, word == nil ? 4 : 6)
-        .frame(minWidth: 18)
-        .frame(height: 18)
+        .padding(.horizontal, word == nil ? (small ? 4 : 5) : EditorHeaderChipMetrics.wordedPadding)
+        .frame(minWidth: height)
+        .frame(height: height)
         .foregroundStyle(isOn ? AnyShapeStyle(onAccent) : AnyShapeStyle(.primary))
         .background(isOn ? accentFill : .clear, in: RoundedRectangle(cornerRadius: Radius.chip))
         .contentShape(RoundedRectangle(cornerRadius: Radius.chip))
@@ -111,7 +116,7 @@ struct EditorPDFActionStyle: ViewModifier {
                             .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5))
                 }
             }
-            .chromeGlassGround(.roundedRect(Radius.chip), outset: ChromeGlass.smallGlyphOutset)
+            .chromeGlassGround(.roundedRect(Radius.chip))
     }
 }
 
@@ -547,8 +552,9 @@ struct EditorPDFHeader<Trailing: View>: View {
                 // "× Close" with the actions' words, × without them: the text header's Close.
                 EditorCloseChip(name: pdf.name, worded: rung.isWorded, accent: accent, action: onClose)
             }
-            .chromeGlassClearance(.leading, rowSpacing: 6)
         }
+        .frame(minHeight: EditorHeaderChipMetrics.height)
+        .environment(\.editorHeaderCompact, rung == .compact)
     }
 
     /// Row 2: the file's facts, and the reservation that gives it a text file's row-2 height: the

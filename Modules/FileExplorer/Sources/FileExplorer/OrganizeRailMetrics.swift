@@ -27,6 +27,11 @@ enum OrganizeRailStyle: Equatable, Sendable {
 /// drifts with the badge counts, and then no fixed trailing reserve can be right.
 enum OrganizeRailMetrics {
 
+    /// An item's glyph size, the 13pt every segmented switch uses (RP, 2026-11-26).
+    static let glyphPoint: CGFloat = 13
+    /// An item's height: the pane bar's 24pt, inside row 1's 27pt (`LensHeaderMetrics.tabRow`).
+    /// Fixed, like the pane bar's pills; the glyph and word inside it still follow the text size.
+    static let itemHeight: CGFloat = 24
     /// Between an item's glyph and its label.
     static let glyphGap: CGFloat = 5
     /// An item's own horizontal padding, 2×9pt.
@@ -39,13 +44,12 @@ enum OrganizeRailMetrics {
     /// `allCases` walk can't find it; without these the model would leave it uncounted.
     static let overviewTitle = "All"
     static let overviewSymbol = "square.grid.2x2"
-    /// `square.grid.2x2` at 10.5pt semibold, measured as ``glyphWidth(_:scale:)``'s table was: a
+    /// `square.grid.2x2` at 13pt semibold, measured as ``glyphWidth(_:scale:)``'s table was: a
     /// glyph is not its point size.
-    static let overviewGlyphWidth: CGFloat = 13
-    /// Margin on the overview item, whose label changes weight with selection (`RailItemLabel`
-    /// draws the current item `.semibold`, the rest `.medium`). Over, never under: a model short of
-    /// the row lets it overrun before it sheds. 6 keeps the model over the render at all four text
-    /// sizes and inside the 12pt slack `theLeadingModelMatchesWhatTheRowDraws` allows.
+    static let overviewGlyphWidth: CGFloat = 15
+    /// Margin on the overview item. Over, never under: a model short of the row lets it overrun
+    /// before it sheds. 6 keeps the model over the render at all four text sizes and inside the
+    /// 12pt slack `theLeadingModelMatchesWhatTheRowDraws` allows.
     static let overviewMargin: CGFloat = 6
     /// A group separator: the 1pt rule plus one `itemGap`. Only one, because in an
     /// `HStack(spacing: itemGap)` each added element contributes exactly one gap; charging both
@@ -67,29 +71,31 @@ enum OrganizeRailMetrics {
     /// A rail glyph's rendered width at the ambient text size.
     ///
     /// Tabulated for speed: `NSImage(systemSymbolName:)` costs ~135µs a symbol, too much for every
-    /// `body`. These are its answers at 10.5pt, and `theGlyphTableMatchesTheRenderer` fails if the
+    /// `body`. These are its answers at ``glyphPoint`` (13pt), and `theGlyphTableMatchesTheRenderer` fails if the
     /// renderer disagrees. A `switch`, so a new lens is a compile error, not a silent zero.
     ///
-    /// Scaled linearly, which slightly over-estimates at large text: the safe direction, shedding
-    /// a shade early. No default for `scale`, so no call site silently takes the 1× answer.
+    /// Scaled through the text-size ramp (`FontSize.scaledBox`), as the glyph is. No default for
+    /// `scale`, so no call site silently takes the 1× answer.
     static func glyphWidth(_ item: OrganizeLens, scale: CGFloat) -> CGFloat {
         let base: CGFloat
         switch item {
-        case .toFile:      base = 12
-        case .duplicates:  base = 14
-        case .renames:     base = 17
-        case .restructure: base = 14
-        case .missing:     base = 15
-        case .rules:       base = 14
-        case .storage:     base = 13
+        case .toFile:      base = 15
+        case .duplicates:  base = 17
+        case .renames:     base = 20
+        case .restructure: base = 17
+        case .missing:     base = 19
+        case .rules:       base = 17
+        case .storage:     base = 16
         }
-        return base * scale
+        // Through the ramp, as the glyph itself scales: above the 11pt knee a 13pt glyph grows by
+        // less than `scale`, and a linear model over-reserved past the 2pt-an-item slack.
+        return FontSize.scaledBox(base, basePoint: glyphPoint, scale: scale)
     }
 
     /// An item's label at the real weight and the ambient text size.
     ///
-    /// `.semibold`, the selected item's weight and the widest; sizing on `.medium` would
-    /// under-measure the bold item, the direction that truncates.
+    /// `.semibold`, the weight every item draws in, selected or not, so a click never changes an
+    /// item's width.
     ///
     /// The font goes through the text-size ramp's own curve, not `11.5 * scale`: above the 11pt
     /// knee each extra point scales by less, so a linear model over-measures at large text. Asking
@@ -166,7 +172,7 @@ enum OrganizeRailMetrics {
         // over-measures at large text and sheds early there.
         return LabelMetrics.width(of: overviewTitle, font: .system(size: 11.5, weight: .semibold),
                                   scale: scale)
-            + overviewGlyphWidth * scale + glyphGap + itemPadding + itemGap + margin
+            + FontSize.scaledBox(overviewGlyphWidth, basePoint: glyphPoint, scale: scale) + glyphGap + itemPadding + itemGap + margin
     }
 
     /// Everything row 1's leading half must seat.

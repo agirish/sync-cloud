@@ -94,8 +94,8 @@ enum Workspace: String, CaseIterable, Identifiable {
         case .browse: return "folder"
         case .compare: return "arrow.left.arrow.right"
         case .filing: return "folder.badge.gearshape"
-        // A sheet with a pencil, the one glyph about a file's contents. 15×15 at 12pt medium, inside
-        // `glyphSide` (17 at 100%): a symbol wider than the frame is clipped, not scaled, and only
+        // A sheet with a pencil, the one glyph about a file's contents. 17×16 at 13pt medium, inside
+        // `glyphSide` (19 at 100%): a symbol wider than the frame is clipped, not scaled, and only
         // `theBarDrawsEverySegmentAtOneHeight` would notice.
         case .editor: return "square.and.pencil"
         }

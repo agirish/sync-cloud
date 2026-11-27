@@ -210,7 +210,7 @@ import FileExplorer
                 if full { Text(workspace.title).font(labelFont) }
             }
             .padding(.horizontal, full ? 12 : 10)
-            .padding(.vertical, 4)
+            .padding(.vertical, WorkspaceBarMetrics.segmentVerticalPadding)
             return NSHostingView(rootView: AnyView(row)).fittingSize
         }
 

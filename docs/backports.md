@@ -16525,3 +16525,17 @@ font outside four documented exceptions.
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` | The workspace bar's fixed 12pt glyph (its one raw font); none of the filing views | RECORDED — not owed |
 | `v2.x` | No workspace bar | CLOSED — does not apply |
+
+## Edit's header buttons and the segmented switches at 24pt — main only, recorded, not owed
+
+2026-11-26, for v7.2. Edit's header buttons, text and PDF (New Text File, Find, Expand/Files,
+Close; Find, Fill & Sign, Tools), go from 18pt to the pane bar's 24pt with a 13pt glyph and an 11pt
+word (`EditorHeaderChipMetrics`), with no glass outset; the narrowest column gets a compact rung at
+the old 18pt. Every segmented switch takes a 13pt glyph and a 24pt height with labels semibold
+whether selected or not: the workspace bar, Edit's Source · Preview · Split, Storage's sections and
+Organize's rail. At the 760pt window floor Edit's mode switch now drops its words from 115% text,
+not 135%.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The smaller header buttons and switches | RECORDED — not owed (UI polish) |

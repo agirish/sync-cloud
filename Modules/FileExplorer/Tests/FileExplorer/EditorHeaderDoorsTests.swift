@@ -242,8 +242,7 @@ import FileExplorerTestSupport
             (Self.floorWindowDocumentColumn, Self.minimumNameInkAtTheFloorWindow),
         ]
         var report: [String] = []
-        // Solid and glass: glass draws Expand's clearance beside the ×, 2pt the name pays for, and
-        // Frosted is the default, so Solid alone isn't the fit users get.
+        // Solid and glass: Frosted is the default, so Solid alone isn't the fit users get.
         for glass in [false, true] {
         for (column, minimumInk) in cases {
             let width = column - padding
@@ -387,9 +386,11 @@ import FileExplorerTestSupport
             #expect(first != nil, "at \(scale) the buttons' words never come back over the long name by \(Self.chipColumns.last ?? 0)pt")
             #expect(capsuleWordedAlone,
                     "at \(scale) no column keeps the capsule's words without the buttons' — theirs are not shed first")
-            let control = try measure(short, column: 760, scale: scale)
+            // 800, not the 760 this was: at 135% the whole worded row (24pt buttons, RO) is about
+            // 750pt beside a four-character name, past a 760pt column's 732 of content.
+            let control = try measure(short, column: 800, scale: scale)
             #expect(control.chipsWorded && control.capsuleWorded,
-                    "at 760pt, \(scale), a four-character name loses a word — they are shed for nothing")
+                    "at 800pt, \(scale), a four-character name loses a word — they are shed for nothing")
         }
         print("[button-words] first worded column: \(firstWorded.joined(separator: " · "))")
         print("[button-words] \(report.joined(separator: " "))")
@@ -489,8 +490,8 @@ import FileExplorerTestSupport
                     #expect(gap >= ChromeGlass.minimumCapsuleGap - 0.5,
                             "\(doc.name.isEmpty ? "empty page" : doc.name), lit \(railIsHidden): two glass capsules \(gap)pt apart — \(gaps)")
                 }
-                // The room is taken only where glass is drawn: between the two buttons' own frames
-                // the row's 6pt under Solid, and 6 + the outset under glass.
+                // The buttons' glass has no outset (24pt, level with the mode track), so glass takes
+                // no room of its own: the row's 6pt under Solid and under glass alike.
                 let solid = try #require(Rendered(view, size: size)).nameRowRings
                 let glassRings = FocusRings.frames(in: rig.host).sorted { $0.minX < $1.minX }
                     .filter { abs($0.midY - (solid.first?.midY ?? 0)) < 5 }
@@ -500,7 +501,7 @@ import FileExplorerTestSupport
                     let glassGap = glassRings[i + 1].minX - glassRings[i].maxX
                     pairs += 1
                     #expect(abs(solidGap - 6) < 0.5, "under Solid the pair sits \(solidGap)pt apart — Solid moved")
-                    #expect(abs(glassGap - (6 + ChromeGlass.clearance(rowSpacing: 6))) < 0.5,
+                    #expect(abs(glassGap - 6) < 0.5,
                             "under glass the pair sits \(glassGap)pt apart")
                 }
             }

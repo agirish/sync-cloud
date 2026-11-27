@@ -71,8 +71,9 @@ public enum ChromeGlass {
         SelectionLensRule.material(for: appearance, reduceTransparency: reduceTransparency)
     }
 
-    /// How far a small bar's glass grows past an 18pt glyph button (Edit's header and rail): to
-    /// 22pt, level with the 23pt mode track beside it, leaving 4pt between capsules at 6pt spacing.
+    /// How far a small bar's glass grows past an 18pt glyph button (Edit's file rail): to 22pt,
+    /// leaving 4pt between capsules at 6pt spacing. Edit's headers no longer use it: their buttons
+    /// are 24pt (`EditorHeaderChipMetrics`), level with the mode track without an outset.
     public static let smallGlyphOutset: CGFloat = 2
 
     /// The least room between two glass capsules side by side on a bar — what ``smallGlyphOutset``

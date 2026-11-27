@@ -321,10 +321,14 @@ import Testing
     /// before the capsule's. The drawn sweep is `EditorHeaderDoorsTests`' (pixel-pinned, so it runs
     /// on this Mac only); this holds the wiring everywhere.
     @Test func theTextHeadersButtonsShareOneRung() throws {
-        #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: true).map(\.chipsWorded) == [true, false, false])
-        #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: true).map(\.capsule) == [.labelled, .labelled, .glyphOnly])
+        #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: true).map(\.chipsWorded) == [true, false, false, false])
+        #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: true).map(\.capsule) == [.labelled, .labelled, .glyphOnly, .glyphOnly])
+        // The last rung is the narrowest column's: the same bare buttons, compact
+        // (`EditorHeaderChipMetrics.compactHeight`), and only that one.
+        #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: true).map(\.compact) == [false, false, false, true])
         #expect(EditorWorkspaceView.nameRowRungs(isMarkdown: false)
-                == [.init(capsule: nil, chipsWorded: true), .init(capsule: nil, chipsWorded: false)])
+                == [.init(capsule: nil, chipsWorded: true), .init(capsule: nil, chipsWorded: false),
+                    .init(capsule: nil, chipsWorded: false, compact: true)])
         let header = Self.squashed(try Self.source("EditorWorkspaceView.swift"))
         for wiring in ["newTextFileButton(worded: reading.chipsWorded)",
                        "EditorHeaderChipLabel(symbol: \"magnifyingglass\", word: reading.chipsWorded ? Self.findWord : nil)",
