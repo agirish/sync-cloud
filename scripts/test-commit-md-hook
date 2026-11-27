@@ -1,0 +1,91 @@
+#!/bin/bash
+# Tests for scripts/commit-md-hook: feeds it Bash tool calls as Claude Code does, against a private
+# memory and a fixture repository, and checks when it asks for COMMIT.md to be read again. Takes a
+# few seconds; prints one line per check and exits non-zero if any check fails.
+set -u
+HERE="$(cd "$(dirname "$0")" && pwd)"
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/commit-md-hook-test.XXXXXX")
+WORK=$(cd "$WORK" && pwd -P)
+trap 'rm -rf "$WORK"' EXIT
+export COMMIT_MD_HOOK_DIR="$WORK/memory"
+mkdir -p "$WORK/bin"
+cp "${COMMIT_MD_HOOK:-$HERE/commit-md-hook}" "$WORK/bin/commit-md-hook"  # override to test a copy
+cp "$HERE/gate-board-hook" "$WORK/bin/gate-board-hook"
+HOOK="$WORK/bin/commit-md-hook"
+failures=0
+
+check() {  # check <description> <command…>
+  local what=$1; shift
+  if "$@"; then echo "ok   - $what"; else echo "FAIL - $what"; failures=$((failures + 1)); fi
+}
+call() {  # call <cwd> <command> [session]: the hook's stdout goes to $WORK/out, status to $status
+  /usr/bin/python3 -c 'import json, sys
+print(json.dumps({"tool_name": "Bash", "tool_input": {"command": sys.argv[2]}, "cwd": sys.argv[1],
+                  "session_id": sys.argv[3], "hook_event_name": "PreToolUse"}))' \
+    "$1" "$2" "${3:-s1}" | "$HOOK" > "$WORK/out" 2> "$WORK/err"
+  status=$?
+  /usr/bin/python3 -c 'import json, sys
+try:
+    print(json.load(open(sys.argv[1]))["hookSpecificOutput"]["additionalContext"])
+except Exception:
+    pass' "$WORK/out" > "$WORK/said"
+}
+has() { grep -qF -- "$1" "$WORK/said"; }
+silent() { [ ! -s "$WORK/out" ] && [ "$status" = 0 ]; }
+valid() { /usr/bin/python3 -c 'import json, sys
+out = json.load(open(sys.argv[1]))["hookSpecificOutput"]
+assert out["hookEventName"] == "PreToolUse" and out["additionalContext"]
+assert "permissionDecision" not in out' "$WORK/out"; }
+
+REPO="$WORK/repo"
+git init -q -b main "$REPO"
+cd "$REPO" || exit 1
+git config user.email t@t && git config user.name t && git config commit.gpgsign false
+echo rules > COMMIT.md && git add -A && git commit -qm "The rules"
+commit() { echo "$1" >> file && git add -A && git commit -qm "$1"; }
+
+# What it speaks before.
+call "$REPO" "scripts/build-slot swift test --package-path Modules/Settings"
+check "a whole-suite run asks for COMMIT.md" has "read $REPO/COMMIT.md again, in full"
+check "  …as context, never a decision" valid
+check "  …naming the gates' sections" has "§4 (the gates)"
+check "  …and when the file last changed" has "The rules"
+call "$REPO" "scripts/build-slot swift test --package-path Modules/Settings"
+check "  …once per HEAD" silent
+call "$REPO" "scripts/build-slot swift test --package-path Modules/Settings" s2
+check "  …per session" has "COMMIT.md again"
+call "$REPO" "git commit -F /tmp/message"
+check "a commit asks" has "Before this commit"
+call "$REPO" "git -C /somewhere push origin x-themed:main"
+check "a push asks, past git's -C" has "Before this push"
+call "$REPO" "scripts/build-slot xcodebuild -scheme S -configuration Release -derivedDataPath .dd build" s3
+check "an install's Release build counts as a landing run" has "this landing test run"
+call "$REPO" "git add -A && git commit -q -m 'Land it' && git push" s4
+check "one command with both names both" has "this commit and this push"
+commit second
+call "$REPO" "git commit -F /tmp/message"
+check "a new HEAD asks again" has "Before this commit"
+
+# What it does not.
+call "$REPO" "scripts/build-slot swift test --package-path Modules/Settings --filter Foo" s5
+check "a narrowed run passes silently" silent
+call "$REPO" "git commit --allow-empty -m WIP" s5
+check "an empty WIP commit passes silently" silent
+call "$REPO" "git add -A && git commit -qm \"checkpoint before mutation testing\"" s5
+check "a checkpoint commit passes silently" silent
+call "$REPO" "git status && git log --oneline -3" s5
+check "other git commands pass silently" silent
+call "$REPO" "echo git commit" s5
+check "a command that only mentions a commit passes silently" silent
+mkdir -p "$WORK/other" && (cd "$WORK/other" && git init -q && git commit -q --allow-empty -m x)
+call "$WORK/other" "git commit -F m" s6
+check "outside a SyncCloud checkout it hears nothing" silent
+printf 'not json' | "$HOOK" > "$WORK/out"; status=$?
+check "unreadable input passes silently" silent
+mv "$WORK/bin/gate-board-hook" "$WORK/bin/gone"
+call "$REPO" "scripts/build-slot swift test --package-path Modules/Design" s7
+check "a missing gate-board-hook passes silently" silent
+
+echo
+if [ "$failures" -eq 0 ]; then echo "all passed"; else echo "$failures failed"; fi
+[ "$failures" -eq 0 ]

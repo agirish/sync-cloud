@@ -1,0 +1,161 @@
+#!/usr/bin/python3
+"""Claude Code PreToolUse hook: before a landing test run, a commit or a push, read COMMIT.md again.
+
+COMMIT.md is loaded once, when a session starts, and a long session works from that copy, or from
+a summary of it after its context is compacted, while other sessions change the file under it. So
+at the three moments its rules decide, the session is told to read the file afresh:
+  - a landing test run: the shape `gate-board-hook` calls a landing step (a whole suite, or an
+    install's Release build), not the narrow runs of iterating;
+  - `git commit`, except a scaffolding commit (`-m` subject `WIP`, `checkpoint`, `fixup!`,
+    `squash!`, `amend!`), which COMMIT.md §2 says never ships;
+  - `git push`.
+Once per session, kind and HEAD, so iterating on a red does not repeat it, and each new commit
+asks again. Context only, never a refusal, and any error in the hook passes silently: a reminder
+must never stop a session's work. Quiet outside a SyncCloud checkout (no COMMIT.md at its top).
+
+Registered beside gate-board-hook in .claude/settings.json; a session reads its hooks when it
+starts. What it has said to which session is kept in $COMMIT_MD_HOOK_DIR (default
+~/Library/Caches/SyncCloud-build-slots/commit-md/). Tests: scripts/test-commit-md-hook.
+"""
+
+import importlib.machinery
+import importlib.util
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+MEMORY_DIR = os.environ.get("COMMIT_MD_HOOK_DIR") or os.path.expanduser(
+    "~/Library/Caches/SyncCloud-build-slots/commit-md")
+FORGET_SECONDS = 7 * 86400
+SEPARATORS = re.compile(r"&&|\|\||[;|\n]")
+SCAFFOLDING = re.compile(r"^(WIP|checkpoint|fixup!|squash!|amend!)", re.IGNORECASE)
+
+# What each moment should look at first. The whole file is the instruction; these only say where
+# its rules for this step live.
+WHERE = {
+    "test": "§4 (the gates) and §8 (sharing a gate)",
+    "commit": "§2–§4 (working commits, the squash, the gates)",
+    "push": "§4–§6 (the gates, landing, never force-push)",
+}
+
+
+def landing_step(command):
+    """gate-board-hook's own test, so the two hooks agree on what a landing run is."""
+    loader = importlib.machinery.SourceFileLoader(
+        "gate_board_hook", os.path.join(HERE, "gate-board-hook"))
+    spec = importlib.util.spec_from_loader("gate_board_hook", loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module.gate_run(command)
+
+
+def git_verb(words):
+    """The git subcommand in `words`, skipping global options such as `-C <dir>`."""
+    if not words or os.path.basename(words[0]) != "git":
+        return None, []
+    i = 1
+    while i < len(words) and words[i].startswith("-"):
+        i += 2 if words[i] in ("-C", "-c", "--git-dir", "--work-tree") else 1
+    return (words[i], words[i + 1:]) if i < len(words) else (None, [])
+
+
+def scaffolding(args):
+    """True for a commit whose `-m` subject marks it as a working commit that never ships."""
+    for i, word in enumerate(args):
+        if word in ("-m", "--message") and i + 1 < len(args):
+            return bool(SCAFFOLDING.match(args[i + 1]))
+        for flag in ("-m", "--message="):
+            if word.startswith(flag) and len(word) > len(flag):
+                return bool(SCAFFOLDING.match(word[len(flag):]))
+        if re.fullmatch(r"-[a-zA-Z]*m", word) and i + 1 < len(args):  # -qm "WIP", -am "…"
+            return bool(SCAFFOLDING.match(args[i + 1]))
+    return False
+
+
+def kinds(command):
+    """Which of test, commit and push this command is, in the order they appear."""
+    found = []
+    if landing_step(command):
+        found.append("test")
+    for part in SEPARATORS.split(command):
+        try:
+            words = shlex.split(part)
+        except ValueError:
+            words = part.split()
+        verb, args = git_verb(words)
+        if verb == "commit" and not scaffolding(args) and "commit" not in found:
+            found.append("commit")
+        elif verb == "push" and "push" not in found:
+            found.append("push")
+    return found
+
+
+def git(*args, cwd):
+    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def remind(event):
+    command = (event.get("tool_input") or {}).get("command") or ""
+    found = kinds(command)
+    if not found:
+        return None
+    cwd = event.get("cwd") or os.getcwd()
+    top = git("rev-parse", "--show-toplevel", cwd=cwd)
+    path = os.path.join(top, "COMMIT.md") if top else ""
+    if not path or not os.path.isfile(path):
+        return None  # not a SyncCloud checkout
+    head = git("rev-parse", "HEAD", cwd=top) or "none"
+    last = git("log", "-1", "--format=%h %cs %s", "--", "COMMIT.md", cwd=top)
+
+    session = event.get("session_id") or "unknown"
+    memory_path = os.path.join(MEMORY_DIR, re.sub(r"[^A-Za-z0-9_.-]", "_", session) + ".json")
+    try:
+        with open(memory_path) as handle:
+            memory = json.load(handle)
+    except (OSError, ValueError):
+        memory = {}
+    fresh = [kind for kind in found if memory.get(kind) != head]
+    if not fresh:
+        return None
+    for kind in fresh:
+        memory[kind] = head
+
+    steps = {"test": "this landing test run", "commit": "this commit", "push": "this push"}
+    lines = ["Before %s, read %s again, in full, with the Read tool: its rules change between "
+             "sessions, and the copy or summary in your context may be stale%s. Then follow "
+             "what it says now; for this step see %s." % (
+                 " and ".join(steps[k] for k in fresh), path,
+                 " (last changed %s)" % last if last else "",
+                 "; ".join(WHERE[k] for k in fresh))]
+
+    os.makedirs(MEMORY_DIR, exist_ok=True)
+    for name in os.listdir(MEMORY_DIR):  # sessions long gone
+        old = os.path.join(MEMORY_DIR, name)
+        if time.time() - os.path.getmtime(old) > FORGET_SECONDS:
+            os.remove(old)
+    temporary = "%s.%d.tmp" % (memory_path, os.getpid())
+    with open(temporary, "w") as handle:
+        json.dump(memory, handle)
+    os.rename(temporary, memory_path)
+    return "\n".join(lines)
+
+
+def main():
+    try:
+        text = remind(json.load(sys.stdin))
+    except Exception:  # never let a reminder stop a session's work
+        return 0
+    if text:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                                 "additionalContext": text}}))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

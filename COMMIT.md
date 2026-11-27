@@ -1,7 +1,12 @@
 # SyncCloud — committing and pushing
 
-Imported by [`CLAUDE.md`](CLAUDE.md), so every session loads it. A bare § number means this file's
-section; `CLAUDE.md` §n means that file's.
+Imported by [`CLAUDE.md`](CLAUDE.md), so every session loads it, once, when it starts. A bare §
+number means this file's section; `CLAUDE.md` §n means that file's.
+
+**Read it again before a landing test run, a commit and a push.** It changes under long sessions,
+and a session works from the copy it started with, or from a summary of it once its context is
+compacted. `scripts/commit-md-hook` asks at each of the three (once per HEAD; not for the
+narrow runs of iterating, nor for a `WIP` or `checkpoint` commit), and the ask is not optional.
 
 `main` is linear: each finished change lands as the fewest commits a reader can follow — usually
 one. No PRs, no merge commits, no long-lived feature branches. Never share a working tree with
