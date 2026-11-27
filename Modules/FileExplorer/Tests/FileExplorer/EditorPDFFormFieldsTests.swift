@@ -110,19 +110,20 @@ extension PDFFixtures {
 
     // MARK: The engine
 
-    /// pdf-toolkit is pinned at 0.6.1 (it keeps a flat file's comments and a copy's page labels,
-    /// viewer settings, language and attached files), and every tracked `Package.resolved` that
-    /// resolves it names that tag's commit, as a resolve writes it, not a hand-edited version.
-    @Test func theEngineIsPinnedAt061Everywhere() throws {
+    /// pdf-toolkit is pinned at 0.7.0 (it keeps a flat file's comments and a copy's page labels,
+    /// viewer settings, language and attached files, and reads and lays Save as PDF's picture text),
+    /// and every tracked `Package.resolved` that resolves it names that tag's commit, as a resolve
+    /// writes it, not a hand-edited version.
+    @Test func theEngineIsPinnedAt070Everywhere() throws {
         let modules = SourceText.modules
         let manifest = try String(contentsOf: modules.appendingPathComponent("FileExplorer/Package.swift"), encoding: .utf8)
-        #expect(manifest.contains(#".package(url: "https://github.com/agirish/pdf-toolkit", exact: "0.6.1")"#))
+        #expect(manifest.contains(#".package(url: "https://github.com/agirish/pdf-toolkit", exact: "0.7.0")"#))
         for package in ["FileExplorer", "Dashboard"] {
             let resolved = try String(contentsOf: modules.appendingPathComponent("\(package)/Package.resolved"), encoding: .utf8)
             let pin = try #require(resolved.range(of: "\"identity\" : \"pdf-toolkit\""), "\(package) does not resolve pdf-toolkit")
             let entry = resolved[pin.lowerBound...].prefix(400)
-            #expect(entry.contains("\"version\" : \"0.6.1\""), "\(package) resolves \(entry)")
-            #expect(entry.contains("158dca9dd75d35ae18aa00c9e5c293ad8aca997e"), "\(package) is not at 0.6.1's commit")
+            #expect(entry.contains("\"version\" : \"0.7.0\""), "\(package) resolves \(entry)")
+            #expect(entry.contains("8865347facf055a72706765aad571c781b78684c"), "\(package) is not at 0.7.0's commit")
         }
     }
 

@@ -3,6 +3,7 @@ import AppKit
 import PDFKit
 @testable import FileExplorer
 import EventsTestSupport
+import PDFToolkitCore
 
 /// Save as PDF's engines, read back with PDFKit as `DocumentPDFTests` does: the words are on the
 /// pages as text, on the right page, the right number of times. The Office fixtures pin Quick
@@ -417,12 +418,12 @@ import EventsTestSupport
                                                         settings: SaveAsPDFRender.Settings())
         let page = try #require(PDFComposer.document(plain)?.page(at: 1))
         struct Refused: LocalizedError { var errorDescription: String? { "the Neural Engine refused this request" } }
-        var asked: [PictureText.Processor] = []
+        var asked: [OCRProcessor] = []
         let log = LogCapture()
         let lines = PictureText.recognise(page) { image, processor in
             asked.append(processor)
             guard processor == .cpu else { throw Refused() }
-            return try PictureText.read(image, on: .cpu)
+            return try PDFToolkit.recognizeTextLines(in: image, languages: PictureText.saveAsPDFLanguages, on: .cpu)
         }.map(\.text)
         #expect(asked == [.any, .cpu])
         #expect(lines.contains("Harvest moon festival"), "the CPU read: \(lines)")

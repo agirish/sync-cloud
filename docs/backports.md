@@ -16623,3 +16623,28 @@ card's action size; an Organize rail item's 24pt frame is a floor, not a height.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | None of the 2026-11-26 size changes these follow | CLOSED — does not apply |
+
+## Save as PDF's picture text: read and laid by pdf-toolkit 0.7.0 — main only, recorded, not owed
+
+2026-11-27. `PictureText` carried its own Vision read, CPU retry and invisible-line drawing, a copy
+of pdf-toolkit's OCR. pdf-toolkit 0.7.0 makes those steps public (`recognizeTextLines`,
+`drawInvisibleTextLine`, in Helvetica as `PictureText` drew), and `PictureText` calls them from its
+CoreGraphics page loop, so Vision stays off the PDFKit lane. A refactor: on the four deck fixtures
+the text, every line's and word's highlight box and the rendered pixels are identical before and
+after. `v6.x` carries the old copy and is not missing any behaviour.
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s pictureText=%s ownRead=%s toolkit=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer 2>/dev/null | grep -c 'SaveAsPDFPictureText.swift')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/SaveAsPDFPictureText.swift 2>/dev/null | grep -c 'VNRecognizeTextRequest()')" \
+  "$(git show origin/$l:Modules/FileExplorer/Package.swift 2>/dev/null | grep -o 'exact: "[0-9.]*"' | head -1)"; done
+# measured 2026-11-27, before this landed (main reads ownRead=0 exact: "0.7.0" after):
+# main  pictureText=1 ownRead=1 toolkit=exact: "0.6.1"
+# v6.x  pictureText=1 ownRead=1 toolkit=exact: "0.6.1"
+# v5.x / v4.x / v3.x / v2.x  pictureText=0 ownRead=0 toolkit=
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` | Its own copy of the read and the drawing, behaving the same | RECORDED — not owed (refactor) |
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Save as PDF picture text | CLOSED — does not apply |

@@ -6,8 +6,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/agirish/pdf-toolkit",
       "state" : {
-        "revision" : "158dca9dd75d35ae18aa00c9e5c293ad8aca997e",
-        "version" : "0.6.1"
+        "revision" : "8865347facf055a72706765aad571c781b78684c",
+        "version" : "0.7.0"
       }
     },
     {

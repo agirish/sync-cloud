@@ -4606,7 +4606,8 @@ then 0.09–0.29 s; on the CPU it took 0.10–0.37 s.
 
 **Fix.** `PictureText.recognise` reads a page on Vision's own choice and, when that throws, reads
 it again on the CPU (`setComputeDevice` to the request's `MLCPUComputeDevice`), saying so in a
-warning. This is a product fix as much as a test one: a reader's Save as PDF in the same window
+warning. Since pdf-toolkit 0.7.0 the retry is that package's `recognizeTextLines`, which
+`PictureText` calls. This is a product fix as much as a test one: a reader's Save as PDF in the same window
 came out unsearchable in exactly the same way. Test: `aRefusedRecognitionIsReadAgainOnTheCPU`, which
 refuses the first read and expects the CPU's to find the fixture's words. **Mutation-checked:**
 with the CPU read removed it fails.

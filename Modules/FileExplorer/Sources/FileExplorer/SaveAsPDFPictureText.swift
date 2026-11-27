@@ -1,34 +1,31 @@
 import CoreGraphics
-import CoreML
-import CoreText
 import Events
 import Foundation
-import Vision
+import PDFToolkitCore
 
 /// The words in a deck's slide pictures, read by Vision and laid invisibly over each page, so a
 /// deck whose slides are pictures can still be searched and selected.
 ///
-/// Each page is drawn to a bitmap and read with `VNRecognizeTextRequest`, then drawn again into a
-/// new PDF with each recognised line over it in invisible text (render mode 3) at the line's box,
-/// stretched to the box's width so a selection covers its words. The page looks as it did.
+/// Each page is drawn to a bitmap and read by pdf-toolkit's `recognizeTextLines`, then drawn again
+/// into a new PDF with each recognised line over it by pdf-toolkit's `drawInvisibleTextLine`: in
+/// invisible text (render mode 3) at the line's box, stretched to the box's width. The page looks as
+/// it did. pdf-toolkit's own `ocrData` is built from the same two pieces, but opens the PDF with
+/// PDFKit and reads inside that section; this loop is CoreGraphics, so Vision stays off
+/// `PDFKitSerialAccess`'s lane, as that lane's rule asks.
 ///
-/// About 0.1–0.2 s a slide at 1920 px once Vision's model is loaded (the first request can take
-/// ~30 s). Titles, sentences and table figures read well; logos and small print in screenshots
-/// don't, hence the banner's "may have mistakes". `.fast` drops many lines on tables.
+/// About 0.1–0.2 s a slide at 1920 px once Vision's model is loaded. Titles, sentences and table
+/// figures read well; logos and small print in screenshots don't, hence the banner's "may have
+/// mistakes". `.fast` drops many lines on tables.
 ///
-/// CoreGraphics and Vision only, no PDFKit, so nothing here is in `PDFKitSerialAccess`'s lane. It
-/// blocks for the whole deck: call it off the main actor. Ask Claude's `read_text` reads scanned
-/// PDF pages with ``text(in:reader:)``.
+/// It blocks for the whole deck: call it off the main actor. Ask Claude's `read_text` and Filing
+/// read scanned pages with ``text(in:reader:)``.
 public enum PictureText {
     /// The bitmap Vision reads, by its longer side.
     public static let readSize: CGFloat = 1920
 
-    /// One recognised line: its words, and its box as a fraction of the page, origin bottom-left —
-    /// Vision's own coordinates, which are the page's turned to fractions.
-    struct Line {
-        var text: String
-        var box: CGRect
-    }
+    /// What Save as PDF reads in: Vision's default English, the language its decks were read in
+    /// before the read moved to pdf-toolkit, which detects the language when given none.
+    static let saveAsPDFLanguages = ["en-US"]
 
     /// `pdf` with the recognised words of the pages in `reading` — counted from 0, every page when
     /// `nil` — laid over them, or `nil` when none had any: nothing to add, and the caller keeps the
@@ -51,38 +48,24 @@ public enum PictureText {
         return found ? composer.finish() : nil
     }
 
-    /// Which processor Vision may read on: its own choice, the Neural Engine when it has one, or
-    /// the CPU alone.
-    enum Processor: Sendable { case any, cpu }
-
     /// The page's lines, read on Vision's choice of processor and, **when that fails, again on the
-    /// CPU**. The Neural Engine can refuse every request for hours while macOS recompiles its
-    /// models (`e5rt_…_create_precompiled_compute_operation_with_options call failed (Code: 13)`),
-    /// while the CPU still reads a page in well under a second. `read` is injectable so a test can
-    /// be the refusal.
+    /// CPU** (pdf-toolkit's retry: the Neural Engine can refuse every request for hours while macOS
+    /// recompiles its models). `read` is injectable so a test can be the refusal.
     static func recognise(_ page: CGPDFPage,
-                          read: (CGImage, Processor) throws -> [Line] = { try PictureText.read($0, on: $1) }) -> [Line] {
+                          read: ((CGImage, OCRProcessor) throws -> [RecognizedTextLine])? = nil) -> [RecognizedTextLine] {
         guard let image = bitmap(of: page) else { return [] }
-        return recognise(image, read: read)
+        let read = read ?? { try PDFToolkit.recognizeTextLines(in: $0, languages: saveAsPDFLanguages, on: $1) }
+        return (try? lines(in: image, reader: "Save as PDF", read: read)) ?? []
     }
 
-    /// `image`'s lines, read as ``recognise(_:read:)`` reads a page's; none when Vision fails on
-    /// both processors.
-    static func recognise(_ image: CGImage, read: (CGImage, Processor) throws -> [Line] = { try PictureText.read($0, on: $1) }) -> [Line] {
-        (try? lines(in: image, reader: "Save as PDF", read: read)) ?? []
-    }
-
-    /// `image`'s lines, or the CPU's error when Vision fails on both processors.
+    /// `image`'s lines, or the CPU's error when Vision fails on both processors; each failure said,
+    /// because a Vision that fails reads exactly like slides with no words.
     private static func lines(in image: CGImage, reader: String,
-                              read: (CGImage, Processor) throws -> [Line]) throws -> [Line] {
+                              read: (CGImage, OCRProcessor) throws -> [RecognizedTextLine]) throws -> [RecognizedTextLine] {
         do {
-            return try read(image, .any)
-        } catch {
-            // Said, because a Vision that fails reads exactly like slides with no words.
-            Logger.shared.warning("\(reader): text recognition failed: \(error.localizedDescription); reading on the CPU")
-        }
-        do {
-            return try read(image, .cpu)
+            return try PDFToolkit.recognizeTextLines(in: image, onRetry: { error in
+                Logger.shared.warning("\(reader): text recognition failed: \(error.localizedDescription); reading on the CPU")
+            }, read: read)
         } catch {
             Logger.shared.warning("\(reader): text recognition failed on the CPU too: \(error.localizedDescription)")
             throw error
@@ -93,32 +76,13 @@ public enum PictureText {
     /// both processors, so a failure isn't taken for a blank page. For a caller that draws the page
     /// itself, as Ask Claude does on the PDFKit lane.
     ///
-    /// The language is detected, where Save as PDF reads Vision's default English only: without it
-    /// a Chinese, Japanese or Hindi scan reads as nothing, and English reads the same either way.
-    /// Vision's languages are its own list (33 on macOS 27, including CJK, Russian, Arabic, Thai and
-    /// Hindi, but not Greek, Hebrew, Bengali or Tamil).
+    /// The language is detected, where Save as PDF reads English only: without it a Chinese,
+    /// Japanese or Hindi scan reads as nothing, and English reads the same either way. Vision's
+    /// languages are its own list (33 on macOS 27, including CJK, Russian, Arabic, Thai and Hindi,
+    /// but not Greek, Hebrew, Bengali or Tamil).
     public static func text(in image: CGImage, reader: String) -> String? {
-        let found = try? lines(in: image, reader: reader) { try read($0, on: $1, detectingLanguage: true) }
+        let found = try? lines(in: image, reader: reader) { try PDFToolkit.recognizeTextLines(in: $0, on: $1) }
         return found.map { $0.map(\.text).joined(separator: "\n") }
-    }
-
-    static func read(_ image: CGImage, on processor: Processor, detectingLanguage: Bool = false) throws -> [Line] {
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        request.automaticallyDetectsLanguage = detectingLanguage
-        if processor == .cpu {
-            for (stage, devices) in try request.supportedComputeStageDevices {
-                guard let cpu = devices.first(where: { if case .cpu = $0 { true } else { false } }) else { continue }
-                request.setComputeDevice(cpu, for: stage)
-            }
-        }
-        try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
-        return (request.results ?? []).compactMap { observation in
-            guard let best = observation.topCandidates(1).first,
-                  !best.string.allSatisfy(\.isWhitespace) else { return nil }
-            return Line(text: best.string, box: observation.boundingBox)
-        }
     }
 
     /// The page on white, its longer side ``readSize`` pixels — never below its own size in points,
@@ -157,29 +121,13 @@ public enum PictureText {
         return context.makeImage()
     }
 
-    /// Each line in Helvetica, invisible, sized so its ascent and descent fill the box's height and
-    /// stretched so its width fills the box's width. Characters Helvetica lacks fall back as Core
-    /// Text picks.
-    static func draw(_ lines: [Line], in context: CGContext, paper: CGSize) {
-        guard !lines.isEmpty else { return }
-        context.saveGState()
-        context.setTextDrawingMode(.invisible)
+    /// Each line over its box, turned from a fraction of the page to points, by pdf-toolkit's
+    /// `drawInvisibleTextLine`: invisible Helvetica, its height the box's, stretched to its width.
+    static func draw(_ lines: [RecognizedTextLine], in context: CGContext, paper: CGSize) {
         for line in lines {
             let box = CGRect(x: line.box.minX * paper.width, y: line.box.minY * paper.height,
                              width: line.box.width * paper.width, height: line.box.height * paper.height)
-            guard box.width > 0, box.height > 0 else { continue }
-            let probe = CTFontCreateWithName("Helvetica" as CFString, box.height, nil)
-            let font = CTFontCreateCopyWithAttributes(
-                probe, box.height * box.height / (CTFontGetAscent(probe) + CTFontGetDescent(probe)), nil, nil)
-            let text = NSAttributedString(string: line.text,
-                                          attributes: [NSAttributedString.Key(kCTFontAttributeName as String): font])
-            let typeset = CTLineCreateWithAttributedString(text)
-            let width = CTLineGetTypographicBounds(typeset, nil, nil, nil)
-            guard width > 0 else { continue }
-            context.textMatrix = CGAffineTransform(scaleX: box.width / width, y: 1)
-            context.textPosition = CGPoint(x: box.minX, y: box.minY + CTFontGetDescent(font))
-            CTLineDraw(typeset, context)
+            PDFToolkit.drawInvisibleTextLine(line.text, in: box, context: context)
         }
-        context.restoreGState()
     }
 }

@@ -35,7 +35,7 @@ let package = Package(
         // Pinned `exact`, and it has no dependencies of its own. This code rewrites people's
         // documents, and a new engine version changes what a tool writes (keeping or dropping
         // bookmarks, say), so it should arrive in a reviewed commit. pdf-utils pins the same tag.
-        .package(url: "https://github.com/agirish/pdf-toolkit", exact: "0.6.1")
+        .package(url: "https://github.com/agirish/pdf-toolkit", exact: "0.7.0")
     ],
     targets: [
         .target(
