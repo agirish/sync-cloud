@@ -2573,6 +2573,13 @@ A change to the palette's anchor path is the one case where this deserves a real
 drives `refreshAnchor` through a nil anchor, so a genuine regression there fails it every time
 rather than under load.
 
+**The wait is 30 s, since 2026-11-26.** After the fix to "A Setup folder walk finishes only near
+the end of the app suite, past a one-minute limit", the full app run took 77 s instead of about
+130 s, and this test failed 2 of 4 runs of the faster suite. Each time the wait had made only its
+50-poll floor in 9.5 s, so a 10 ms sleep took about 190 ms to get back onto the main actor, and so
+would each of the 36 hops. Alone it passed 3 of 3. A genuine regression in the anchor path still
+fails it, at 30 s.
+
 
 ### 15. A readiness window the fixture starts before the code it is timing — FIXED
 

@@ -602,7 +602,10 @@ import Sync
         // The item folds into the overflow menu.
         field = nil
         NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: host)
-        await waitUntil("the list came off the screen once its field was unmeasurable") {
+        // The hide comes after `anchorAttempts` main-queue hops, each a turn of a main actor the
+        // whole app suite shares: in a full run a hop can take 0.2 s, so the 36 outlast 5 s
+        // ("A palette wait that has to outlast a 36-hop retry budget").
+        await waitUntil("the list came off the screen once its field was unmeasurable", timeout: 30) {
             panel.alphaValue == 0
         }
         #expect(panel.ignoresMouseEvents,
