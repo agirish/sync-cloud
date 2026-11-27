@@ -30,9 +30,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>7.2</string>
+	<string>7.3-dev</string>
 	<key>CFBundleVersion</key>
-	<string>702</string>
+	<string>703</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2024. All rights reserved.</string>
 	<key>NSMicrophoneUsageDescription</key>

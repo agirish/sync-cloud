@@ -74,7 +74,7 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
 
     /// Mirrors `project.yml`'s `CFBundleShortVersionString` (`RELEASE.md` updates it per release). A
     /// literal because under `swift test` `Bundle.main` is the test host and has no version.
-    private static let versionMarker = "7.2"
+    private static let versionMarker = "7.3-dev"
 
     /// The margin Appearance has left at one text size with a chosen accent hue, set through the
     /// tab's `@AppStorage` via `.defaultAppStorage`, so nothing is inherited from
