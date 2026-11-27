@@ -9,6 +9,9 @@ import Testing
     /// A named hue fills with its deepened accent, the colour its checkbox and radio marks are white
     /// on, and `.none` sets nothing, leaving the Mac's own.
     @Test func eachHueFillsWithItsDeepenedAccentAndNoneLeavesTheMacs() throws {
+        // No appearance named: every hue compared is fixed sRGB and deepens to the same value in
+        // Aqua and Dark Aqua (`docs/flaky-tests.md`, "A dynamic colour resolved in whatever
+        // appearance the app had that moment").
         func srgb(_ c: Color?) -> [CGFloat]? {
             c.flatMap { NSColor($0).usingColorSpace(.sRGB) }.map { [$0.redComponent, $0.greenComponent, $0.blueComponent] }
         }

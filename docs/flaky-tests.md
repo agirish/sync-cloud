@@ -5760,10 +5760,25 @@ hue tests beside it, caught that only under the Dark hold. The fill's provider r
 even for a fixed hue, so the old suite's verdict on a dark-only bug depended on what `NSApp` had.
 The other four suites' helpers say in a comment why they name no appearance.
 
+**The rest of Design, 2026-11-26.** Six more suites convert colours to sRGB without naming an
+appearance: `ActionBarFocusIndependenceTests`, `HoverTintRenderTests`,
+`NoneHueWhitenessRenderTests`, `ShortcutKeycapTests`, `NativeControlAccentTests` and
+`PillLabelInkTests`. None can flip, and none changed. The first four, and the render halves of the
+last two, are `@MainActor`. The pin test holds the main actor from Dark to unset without suspending,
+so they cannot run inside it, and their bare conversions mostly act on bitmap pixels, which have one
+value already. `PillLabelInkTests` already resolves through a named appearance.
+`NativeControlAccentTests` compares fixed hues' deepened fills, measured identical in both
+appearances, and now says so beside its helper. All eleven suites passed under a 20 s Dark hold.
+The two pool suites and a control (dark systemRed read inside the hold) finished inside it, and the
+main-actor suites ran only after it ended. No other package's tests write `NSApp.appearance`, and
+each package tests in its own process, so the bare resolves in Dashboard, FileExplorer and Settings
+tests are outside this mechanism.
+
 **Tell.** A colour test that reads `NSColor(someDynamicColor)` with no appearance around it, in a
 package where any suite writes `NSApp.appearance`. Name the appearance: what a colour test means
 depends on it. A bare resolve is safe only when every colour it reads has one value in both
-appearances; measure that, and say so beside the helper.
+appearances, or when the test runs on the main actor, as the pin does; measure that, and say so
+beside the helper.
 
 **See.** `SemanticInkContrastTests.srgb(_:in:)` in
 `Modules/Design/Tests/DesignTests/SemanticInkContrastTests.swift`, and
