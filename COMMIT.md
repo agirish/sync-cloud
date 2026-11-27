@@ -109,8 +109,12 @@ git -C /Users/abhishek/Projects/SyncCloud push origin <task>-themed:main &&
   both here and on `origin`.
 - The push runs `scripts/pre-push-guard` as git's pre-push hook. It refuses an empty commit, a merge
   commit, or a subject starting `WIP`, `checkpoint`, `fixup!`, `squash!` or `amend!`, bound for
-  `main` or a maintenance line. If it refuses, build `<task>-themed` again (§3) and retry. Never
-  `--no-verify`. A new clone installs it once: `scripts/pre-push-guard --install`.
+  `main` or a maintenance line. It also refuses, on any ref, a commit that adds a private name from
+  `~/.config/synccloud/scrub-names.txt` (the repository is public), and refuses every push while
+  that list is missing or empty. It reports "name #N", the list's line, never the name: replace it
+  with an invented value. `scripts/pre-push-guard --scan [<rev>]` checks a whole tree. If it
+  refuses, build `<task>-themed` again (§3) and retry. Never `--no-verify`. A new clone installs
+  it once: `scripts/pre-push-guard --install`.
 - Confirm with `git rev-parse --short origin/main`, then report what landed, with SHAs.
 - If `--ff-only` refuses or the push is rejected, fetch, return to §3, re-squash, re-run the gates,
   and retry.

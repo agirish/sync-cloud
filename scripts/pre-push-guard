@@ -1,13 +1,31 @@
 #!/bin/bash
-# Git pre-push hook: refuse to push a working commit to main or a maintenance line.
+# Git pre-push hook with two checks.
 #
-# Refused, on refs/heads/main and refs/heads/v<N>.x: an empty commit, a merge commit, and a commit
-# whose subject starts with WIP, checkpoint, fixup!, squash! or amend! (any case). Other branches
-# and tags pass, and so does a branch deletion.
+# 1. Working commits. On refs/heads/main and refs/heads/v<N>.x it refuses an empty commit, a merge
+#    commit, and a commit whose subject starts with WIP, checkpoint, fixup!, squash! or amend! (any
+#    case). Other branches and tags pass this check, and so does a branch deletion.
+#    Why: a working branch opens with an empty WIP commit (COMMIT.md §2), so fast-forwarding main
+#    to it instead of to `<task>-themed` (COMMIT.md §3, §5) lands that WIP on main. COMMIT.md §4's
+#    gate 2 catches it only when someone remembers to run it; this runs it on every push.
 #
-# Why: a working branch opens with an empty WIP commit (COMMIT.md §2), so fast-forwarding main to
-# it instead of to `<task>-themed` (COMMIT.md §3, §5) lands that WIP on main. COMMIT.md §4's gate 2
-# catches it only when someone remembers to run it; this runs it on every push.
+# 2. Private names. On every ref pushed (branches and tags alike) it refuses a commit that would
+#    publish a name from the list kept outside the repository, ~/.config/synccloud/scrub-names.txt
+#    (one name per line; SYNCCLOUD_SCRUB_NAMES points elsewhere). It reads what each commit adds:
+#    added lines, file paths, the commit's message, a tag's message, and the bytes of an added or
+#    changed binary file (for names of 5 or more characters, so a short one doesn't match noise).
+#    Why: the repository is public, and real names, an employer and an ID number came back after
+#    each scrub (docs/backports.md). Removed lines pass, so a scrub itself is never refused.
+#    - A name counts as a whole word, case-insensitively, and also at a camelCase hump: it catches
+#      `Name`, `NAME`, `toName` and `nameKeys`, not `Surname` or `Names`.
+#    - The owner's own identifiers carry his name by design (docs/backports.md, "Not touched"):
+#      `com.abhishekgirish`, `/Users/abhishek`, `-Users-abhishek-`, `github.com/agirish` and
+#      `repos/agirish` are taken out of a line before it is read.
+#    - A hit names the list's line number ("name #3"), never the name, so a refusal can't leak it
+#      into a log or a transcript.
+#    - A missing or empty list refuses the push: an empty list would pass everything silently.
+#    - A remote named in `git config --add synccloud.privateRemote <name>` skips this check.
+#    Scan a tree without pushing: `scripts/pre-push-guard --scan [<rev>]` (default HEAD); it prints
+#    each hit and exits 1 if there is one.
 #
 # Install once per clone; every worktree shares the hook:
 #   scripts/pre-push-guard --install
@@ -15,6 +33,104 @@
 # Tests: scripts/test-pre-push-guard.
 
 set -u
+
+names_file=${SYNCCLOUD_SCRUB_NAMES:-$HOME/.config/synccloud/scrub-names.txt}
+empty_tree=$(git hash-object -t tree /dev/null)
+
+# The matcher. Modes:
+#   diff <names> <base> <rev>   read `git diff -U0 <base> <rev>` on stdin; print "path:line (name #N)"
+#   text <names> <label>        read text on stdin; print "<label>:line (name #N)"
+# Binary files in a diff are read from <rev> and compared with <base>: only a name the new bytes
+# hold more often than the old ones counts.
+matcher='
+use strict; use warnings;
+my ($mode, $file, @args) = @ARGV;
+open my $fh, "<", $file or die "cannot read $file\n";
+my (%index, @terms); my $n = 0;
+while (my $t = <$fh>) {
+  $n++; $t =~ s/\r?\n\z//; $t =~ s/^\s+|\s+\z//g;
+  next if $t eq "" || exists $index{lc $t};
+  $index{lc $t} = $n; push @terms, $t;
+}
+@terms or exit 3;
+my $alt = join "|", map { quotemeta } sort { length $b <=> length $a } @terms;
+my $re = qr/($alt)/i;
+# The owner is spelled in halves so these lines do not themselves trip a list that holds his name.
+my ($o, $g) = ("abhi" . "shek", "gir" . "ish");
+my $allowed = qr/com\.$o$g|\/Users\/$o|-Users-$o-|github\.com\/a$g|repos\/a$g/i;
+sub hits {  # hits(text, min length) -> list of list line numbers, one per occurrence
+  my ($s, $min) = @_;
+  $s =~ s/$allowed/ /g;
+  my @found;
+  while ($s =~ /$re/g) {
+    my ($b, $e) = ($-[0], $+[0]);
+    my $m = $1;
+    pos($s) = $b + 1;
+    next if length($m) < $min;
+    my $before = $b > 0 ? substr($s, $b - 1, 1) : "";
+    my $after = $e < length($s) ? substr($s, $e, 1) : "";
+    my ($first, $last) = (substr($m, 0, 1), substr($m, -1));
+    my $ok_b = $before !~ /[A-Za-z]/ || ($before =~ /[a-z]/ && $first =~ /[A-Z]/);
+    my $ok_a = $after !~ /[A-Za-z]/ || ($after =~ /[A-Z]/ && $last =~ /[a-z]/);
+    push @found, $index{lc $m} if $ok_b && $ok_a;
+  }
+  return @found;
+}
+sub report { my ($where, @found) = @_; my %seen; print "$where (name #$_)\n" for grep { !$seen{$_}++ } @found; }
+sub blob {  # blob(rev, path) -> bytes, or undef when absent
+  my ($rev, $path) = @_;
+  # An absent old file is the ordinary case, so git is not let to say so on stderr.
+  open my $saved, ">&", \*STDERR or die; open STDERR, ">", "/dev/null" or die;
+  my $ok = open my $p, "-|", "git", "cat-file", "blob", "$rev:$path";
+  my $bytes; if ($ok) { local $/; $bytes = <$p>; $ok = close $p; }
+  open STDERR, ">&", $saved or die;
+  return $ok ? $bytes : undef;
+}
+if ($mode eq "text") {
+  my ($label) = @args; my $line = 0;
+  while (my $l = <STDIN>) { $line++; report("$label:$line", hits($l, 1)); }
+  exit 0;
+}
+my ($base, $rev) = @args;
+# A path git had to quote keeps its quotes and escapes here. Its lines are still read, and a binary
+# file whose bytes cannot be fetched by that name is reported rather than passed.
+my ($path, $line, $in_hunk) = ("(unknown path)", 0, 0);
+while (my $l = <STDIN>) {
+  $l =~ s/\n\z//;
+  if ($in_hunk && $l =~ /^\+/) { report("$path:$line", hits(substr($l, 1), 1)); $line++; next; }
+  if ($in_hunk && $l =~ /^[- \\]/) { next; }
+  if ($l =~ /^diff --git /) { ($path, $in_hunk) = ("(unknown path)", 0); next; }
+  if ($l =~ /^@@ -\S+ \+(\d+)/) { ($line, $in_hunk) = ($1, 1); next; }
+  if ($l =~ /^\+\+\+ "?b\/(.*?)"?$/) { $path = $1; report($path, hits($path, 1)); next; }
+  if ($l =~ /^rename to (.*)$/) { $path = $1; report($path, hits($path, 1)); next; }
+  if ($l =~ /^Binary files .* and "?b\/(.*?)"? differ$/) {
+    my $p = $1; report($p, hits($p, 1));
+    my $new = blob($rev, $p);
+    if (!defined $new) { print "$p (binary, unreadable by that name)\n"; next; }
+    my $old = blob($base, $p); my %was;
+    $was{$_}++ for defined $old ? hits($old, 5) : ();
+    my %now; $now{$_}++ for hits($new, 5);
+    report("$p (binary)", grep { $now{$_} > ($was{$_} || 0) } sort { $a <=> $b } keys %now);
+    next;
+  }
+}
+'
+
+names_ok() {  # names_ok: the list exists and holds a name, or say why not
+  if [ ! -s "$names_file" ] || ! grep -q '[^[:space:]]' "$names_file"; then
+    {
+      echo "pre-push-guard: refused — no private names to check against."
+      echo "  $names_file is missing or empty. Put the names one per line there (a file outside"
+      echo "  the repository, since it is public), or point SYNCCLOUD_SCRUB_NAMES at the list."
+    } >&2
+    return 1
+  fi
+}
+
+scan_diff() {  # scan_diff <base> <rev>: hits in what <rev> adds over <base>
+  git -c core.quotePath=false diff -U0 --no-color --no-ext-diff --no-textconv -M "$1" "$2" |
+    perl -e "$matcher" diff "$names_file" "$1" "$2"
+}
 
 if [ "${1:-}" = "--install" ]; then
   source_path=${PRE_PUSH_GUARD_SOURCE:-$HOME/Projects/SyncCloud/scripts/pre-push-guard}
@@ -38,15 +154,27 @@ if [ "${1:-}" = "--install" ]; then
   exit 0
 fi
 
+if [ "${1:-}" = "--scan" ]; then
+  names_ok || exit 2
+  rev=${2:-HEAD}
+  git rev-parse -q --verify "$rev^{tree}" > /dev/null || { echo "pre-push-guard: no tree at $rev" >&2; exit 2; }
+  found=$(scan_diff "$empty_tree" "$rev") || exit 2
+  [ -z "$found" ] && exit 0
+  printf '%s\n' "$found"
+  exit 1
+fi
+
 remote=${1:-origin}   # git passes the remote's name, then its URL; the loop reuses $1
+updates=$(cat)        # one line per ref: <local ref> <local sha> <remote ref> <remote sha>
+
 protected='^refs/heads/(main|v[0-9]+\.x)$'
 # A whole word, so a real subject such as "Wipe test defaults…" passes.
 working='^((wip|checkpoint)([^[:alnum:]]|$)|fixup!|squash!|amend!)'
 shopt -s nocasematch
 refused=()
 
-# git feeds one line per ref: <local ref> <local sha> <remote ref> <remote sha>
 while read -r _ local_sha remote_ref remote_sha; do
+  [ -n "${local_sha:-}" ] || continue
   [[ $remote_ref =~ $protected ]] || continue
   [[ $local_sha =~ ^0+$ ]] && continue
   if [[ $remote_sha =~ ^0+$ ]] || ! git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
@@ -70,7 +198,7 @@ while read -r _ local_sha remote_ref remote_sha; do
     fi
     [ -n "$why" ] && refused+=("  ${sha:0:9} $subject  ($why)")
   done < <(git log --format='%H%x09%P%x09%s' "${range[@]}")
-done
+done <<< "$updates"
 
 if [ ${#refused[@]} -gt 0 ]; then
   {
@@ -78,6 +206,46 @@ if [ ${#refused[@]} -gt 0 ]; then
     printf '%s\n' "${refused[@]}"
     echo "Rebuild the work on <task>-themed with git merge --squash (COMMIT.md §3), even for a"
     echo "single commit, and push that branch's fast-forward instead."
+  } >&2
+  exit 1
+fi
+
+shopt -u nocasematch
+if git config --get-all synccloud.privateRemote | grep -qxF -- "$remote"; then
+  exit 0
+fi
+names_ok || exit 1
+
+named=()
+while read -r _ local_sha remote_ref remote_sha; do
+  [ -n "${local_sha:-}" ] || continue
+  [[ $local_sha =~ ^0+$ ]] && continue
+  if [ "$(git cat-file -t "$local_sha")" = tag ]; then
+    while IFS= read -r hit; do named+=("  $remote_ref $hit"); done < <(
+      git cat-file tag "$local_sha" | sed '1,/^$/d' | perl -e "$matcher" text "$names_file" "tag message")
+  fi
+  tip=$(git rev-parse "$local_sha^{commit}" 2>/dev/null) || continue
+  held=""
+  if ! [[ $remote_sha =~ ^0+$ ]] && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    held="^$remote_sha"
+  fi
+  # Everything the remote doesn't already hold, as far as this clone knows. A commit that is only
+  # in the middle of the range still lands in the remote's history, so each one is read.
+  while read -r sha parent _; do
+    base=${parent:-$empty_tree}
+    while IFS= read -r hit; do named+=("  ${sha:0:9} $hit"); done < <(
+      scan_diff "$base" "$sha"
+      git cat-file commit "$sha" | sed '1,/^$/d' | perl -e "$matcher" text "$names_file" "message")
+  done < <(git rev-list --parents "$tip" $held --not --remotes="$remote" | awk '{print $1, $2}')
+done <<< "$updates"
+
+if [ ${#named[@]} -gt 0 ]; then
+  {
+    echo "pre-push-guard: refused — these would publish a private name from $names_file:"
+    printf '%s\n' "${named[@]:0:30}"
+    [ ${#named[@]} -gt 30 ] && echo "  … and $(( ${#named[@]} - 30 )) more"
+    echo "Replace each with an invented value, commit, and rebuild <task>-themed (COMMIT.md §3)."
+    echo "\"name #N\" is line N of the list."
   } >&2
   exit 1
 fi

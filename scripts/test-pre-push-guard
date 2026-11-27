@@ -13,6 +13,12 @@ check() {  # check <description> <command…>
   if "$@"; then echo "ok   - $what"; else echo "FAIL - $what"; failures=$((failures + 1)); fi
 }
 
+# Invented names only: this file is public. Line 3 is short, to check binary files skip it. Line 5
+# is the owner, whose identifiers are allowed; spelled in halves so the guard passes this file.
+owner=$(printf '%s%s' abhi shek); Owner=$(printf '%s%s' Abhi shek)
+printf '%s\n' Zorblax Quintessa Vex '' "$owner" > "$WORK/names.txt"
+export SYNCCLOUD_SCRUB_NAMES="$WORK/names.txt"
+
 git init -q --bare "$WORK/remote.git"
 git init -q -b main "$WORK/clone"
 cd "$WORK/clone" || exit 1
@@ -74,6 +80,81 @@ git checkout -q main
 git commit -q --allow-empty -m "WIP: an old one" && git push -q --no-verify origin main
 edit "A new real commit"
 check "a new line cut from main, beside a main push, is accepted" pushes main main:v7.x
+
+# Private names.
+git push -q origin main 2> /dev/null
+fresh() { git checkout -q -B main origin/main; }
+says() { echo "$1" >> notes && git add notes && git commit -qm "${2:-Add notes}"; }
+
+for line in "met Zorblax today" "ZORBLAX" "zorblax" "say hi toZorblax" "zorblaxKeys" "Vex" \
+            "x_Zorblax_y" "SurZorblax" "seen at /Users/abhishek and by Zorblax" "$Owner wrote this"; do
+  fresh; says "$line"
+  check "an added line '$line' is refused" refused main
+done
+fresh
+for line in "Zorblaxes" "Quintessential" "Surzorblax" "VEXED" "see /Users/abhishek/Projects" \
+            "com.abhishekgirish.SyncCloud" "github.com/agirish/sync-cloud" "-Users-abhishek-Projects"; do
+  says "$line"
+  check "an added line '$line' is accepted" pushes main
+done
+
+before=$(remote_main)
+fresh; says "Zorblax"
+check "the refused name push left main where it was" refused main
+check "…and main is unchanged" test "$(remote_main)" = "$before"
+out=$(git push origin main 2>&1)
+check "a refusal names the list's line, not the name" \
+  bash -c 'echo "$1" | grep -q "notes:[0-9]* (name #1)" && ! echo "$1" | grep -qi zorblax' _ "$out"
+
+fresh; says "nothing private" "Thank Quintessa for the review"
+check "a name in a commit message is refused" refused main
+fresh; mkdir -p d && echo ok > d/Quintessa.txt && git add d && git commit -qm "Add a file"
+check "a name in a file path is refused" refused main
+fresh; echo ok > 'odd"Zorblax.txt' && git add . && git commit -qm "Add an oddly named file"
+check "a name in a path git quotes is refused" refused main
+fresh; echo Zorblax > 'odd"plain.txt' && git add . && git commit -qm "Add an oddly named file"
+check "a name inside a file git quotes the path of is refused" refused main
+fresh; git checkout -q -b named && says "Zorblax"
+check "a name on a branch other than main is refused" refused named
+fresh; says "Zorblax" && says "nobody" && sed -i '' '/Zorblax/d' notes && git commit -qam "Drop it"
+check "a name added and removed within the push is refused" refused main
+fresh; says "Zorblax" && git push -q --no-verify origin main && sed -i '' '/Zorblax/d' notes &&
+  git commit -qam "Scrub a name"
+check "removing a name is accepted" pushes main
+fresh; git tag -a t2 -m "Cut for Quintessa"
+check "a name in a tag's message is refused" refused refs/tags/t2
+git tag -d t2 > /dev/null
+
+fresh; printf 'x\000Quintessa\000' > b.bin && git add b.bin && git commit -qm "Add a binary"
+check "a long name inside a binary file is refused" refused main
+fresh; printf 'x\000Vex\000' > c.bin && git add c.bin && git commit -qm "Add a binary"
+check "a short name inside a binary file is accepted" pushes main
+fresh; printf 'y\000Quintessa\000' > e.bin && git add e.bin && git commit -qm "Add a binary" &&
+  git push -q --no-verify origin main && printf 'more' >> e.bin && git commit -qam "Grow it"
+check "a binary file that already held the name is accepted when it changes" pushes main
+
+fresh; git checkout -q -b side2 && echo Zorblax > side.txt && git add side.txt && git commit -qm "Side" && git checkout -q main && says "other" &&
+  git merge -q --no-edit side2 2> /dev/null && git branch -q -m main merged && git checkout -q -b main2
+check "a merge bringing in a name is refused on a side branch" refused main2:topic
+fresh
+
+says "plain"
+check "a missing list refuses the push" bash -c "! SYNCCLOUD_SCRUB_NAMES='$WORK/none' git push -q origin main 2> /dev/null"
+: > "$WORK/empty.txt"
+check "an empty list refuses the push" bash -c "! SYNCCLOUD_SCRUB_NAMES='$WORK/empty.txt' git push -q origin main 2> /dev/null"
+check "…and a list that holds names lets it through" pushes main
+
+fresh; says "Zorblax"
+git config --add synccloud.privateRemote origin
+check "a private remote skips the name check" pushes main
+git config --unset-all synccloud.privateRemote
+fresh
+
+check "--scan finds a name already on the remote" bash -c "'$GUARD' --scan HEAD | grep -q 'notes:'"
+check "--scan exits 1 on a hit" bash -c "'$GUARD' --scan HEAD > /dev/null; [ \$? -eq 1 ]"
+git checkout -q --orphan clean2 && git rm -rqf . && echo fine > f && git add f && git commit -qm "Clean"
+check "--scan exits 0 on a clean tree" "$GUARD" --scan HEAD
+git checkout -q main
 
 check "--install again says it is already installed" \
   bash -c "PRE_PUSH_GUARD_SOURCE='$GUARD' '$GUARD' --install | grep -q 'already installed'"

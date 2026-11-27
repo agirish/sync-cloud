@@ -3803,6 +3803,9 @@ git grep -nwiI -f ~/.config/synccloud/scrub-names.txt origin/<line> \
  | grep -vE 'com\.abhishekgirish|/Users/abhishek|github\.com/agirish|repos/agirish'
 ```
 
+Since 2026-11-27 `scripts/pre-push-guard --scan origin/<line>` runs the same check more
+strictly (camelCase names, binary files) and every push runs it on what it adds (`COMMIT.md` §5).
+
 - **What each line got differs, because each line carries a different surface.** `main` got the
   names, the emails and the fixture rewrite; `v4.x` the names, an email and the employer vocabulary
   (33 files of it); `v3.x` and `v2.x` names only — they carry no employer vocabulary and none of
@@ -3814,7 +3817,7 @@ git grep -nwiI -f ~/.config/synccloud/scrub-names.txt origin/<line> \
 - **Four probes were preserved in kind rather than in text**, and a future re-scrub must keep them
   that way: `Sonations` keeps `Son` a strict prefix; `NAPR` keeps an all-caps run ending `APR`;
   `EMP` stays a three-letter all-caps token so `JurisdictionCandidates` still reads it as an
-  acronym; the `HewlettPackardEnterprise` replacement is the same 24 characters, so `SetupSheet`'s
+  acronym; the employer-name replacement is the same 24 characters as the name, so `SetupSheet`'s
   truncation example stays true of its own subject.
 - **The fixture was renamed, not trimmed, and the reason is measurable.** Deleting the 694-folder
   `Work/` subtree moved six pinned counts — backlog 11→7, looseBesideContainer 2→1, dead weight
