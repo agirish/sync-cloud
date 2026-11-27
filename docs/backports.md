@@ -16588,3 +16588,24 @@ into ⋯ below 572pt (was 520). At about 800pt To File's readout is cut about 50
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The small lens buttons, where those lenses exist | RECORDED — not owed (UI polish) |
+
+## The login keychain store keeps off the Touch ID keychain — main only, checked, not owed
+
+2026-11-26, for v7.2. `SecItemKeychainStore` sent its four SecItem calls unpinned. In the installed
+copy, which carries the keychain permission since VT31, a delete then reached the data-protection
+keychain too, and the Vault's move behind Touch ID deleted the key it had just moved. Every call
+now carries `kSecUseDataProtectionKeychain = false` unless the caller chose a keychain.
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s store=%s dataProtection=%s entitlementsFile=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/KeychainStore.swift 2>/dev/null | grep -c 'SecItemDelete(')" \
+  "$(git grep -c 'kSecUseDataProtectionKeychain as String\] = true' origin/$l -- Modules 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')" \
+  "$(git ls-tree -r --name-only origin/$l -- Signing 2>/dev/null | grep -c entitlements)"; done
+# measured 2026-11-26, before this landed:
+# main  store=1 dataProtection=1 entitlementsFile=1
+# v6.x / v5.x / v4.x / v3.x / v2.x  store=1 dataProtection=0 entitlementsFile=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The unpinned store, but no keychain permission and nothing in the data-protection keychain, so a call can reach only the login keychain | CLOSED — checked, does not apply |
