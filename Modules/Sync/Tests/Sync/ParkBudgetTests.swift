@@ -26,15 +26,15 @@ import Testing
 
     // MARK: - The park's two halves
 
-    /// The park engages, is released, and records no timeout. Driven from `DispatchQueue.global()`,
-    /// GCD's pool rather than the cooperative one, so it takes no thread from the pool it protects and
-    /// needs no `.parksAThread`. That pool does not overcommit: a package run can keep it from
-    /// starting the park for seconds (`docs/flaky-tests.md`, "A file presenter whose answer waited
-    /// for a GCD thread past the writer's deadline"). `awaitSignal`'s block queues behind it on the
-    /// same queue, so it starts no earlier, and finds `entered` already signalled.
+    /// The park engages, is released, and records no timeout. Driven from a serial queue of its own,
+    /// not the cooperative pool, so it takes no thread from the pool it protects and needs no
+    /// `.parksAThread`. Nor `DispatchQueue.global()`: that pool does not overcommit, and a package
+    /// run can keep it from starting the park for seconds (`docs/flaky-tests.md`, "A file presenter
+    /// whose answer waited for a GCD thread past the writer's deadline"), past `awaitSignal`'s 5 s,
+    /// which starts at once on a queue of its own.
     @Test func aParkThatIsReleasedRecordsNoTimeout() async {
         let gate = ParkGate()
-        DispatchQueue.global().async { gate.park(timeout: 5) }
+        DispatchQueue(label: "ParkBudgetTests.park").async { gate.park(timeout: 5) }
         await awaitSignal(gate.entered, timeout: 5, "the park never engaged")
         #expect(gate.didPark, "a park that engaged must say so")
         gate.release.signal()
@@ -46,7 +46,7 @@ import Testing
     /// `releasedByTimeout` is deleted, which every consumer's `#require` would miss.
     @Test func aParkThatIsNeverReleasedRecordsItsTimeout() async {
         let gate = ParkGate()
-        DispatchQueue.global().async { gate.park(timeout: 0.2, turns: 0) }
+        DispatchQueue(label: "ParkBudgetTests.park").async { gate.park(timeout: 0.2, turns: 0) }
         await awaitSignal(gate.entered, timeout: 5, "the park never engaged")
         // Deliberately never signalled.
         await waitForCondition("the parked call gives up") { !gate.isParked }
@@ -214,11 +214,9 @@ import Testing
     @Test func everyThreadBlockingWaitInThisTargetIsAccountedFor() throws {
         // file → the distinct blocking-wait lines it is allowed to contain, and why each is fine.
         let known: [String: Set<String>] = [
-            // `awaitSignal`'s wait runs on `DispatchQueue.global()`: GCD's pool, not the cooperative
-            // one. GCD's pool does not overcommit and can start the block seconds late in a package
-            // run. Its deadline is set before the block is queued, so a late start shortens the wait,
-            // but the wait tries the semaphore first, so a signal that came meanwhile still counts.
-            // The two parks are the gates' own; their tests declare them.
+            // `awaitSignal`'s wait runs on a serial queue of its own: neither the cooperative pool
+            // nor GCD's global one, which does not overcommit and can start a block seconds late in
+            // a package run. The two parks are the gates' own; their tests declare them.
             "TestSupport.swift": [
                 "cont.resume(returning: semaphore.wait(until: deadline))",
                 "let expired = !release.wait(until: TurnDeadline(seconds: timeout, turns: turns))",   // ParkGate.park
@@ -275,9 +273,8 @@ import Testing
             // pool thread, so no reservation; bounded, and running out is the failure it records.
             "ColdScanStartsOffTheMainActorTests.swift": ["semaphore.wait(timeout: .now() + timeout)"],
             // A volume that never answers, for `RestructureRootMap.whyGone`'s bound: production runs
-            // the probe on `DispatchQueue.global`, GCD's pool, not the cooperative one; released by
-            // the test's `defer`, bounded at 10 s. A probe GCD starts late reads as one that never
-            // answered, which is what the test asserts.
+            // the probe on a serial queue of its own, not the cooperative pool; released by the
+            // test's `defer`, bounded at 10 s.
             "RestructureRootHistoryTests.swift": [
                 "probe: { _, _ in _ = stuck.wait(timeout: .now() + 10); return true })",
             ],

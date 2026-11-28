@@ -125,7 +125,11 @@ public enum RestructureRootMap {
     ///
     /// And only when the disk answers in time: this runs on the main actor during Setup's Save, and
     /// a stat of a network volume that stopped answering never returns. The folder is asked on
-    /// another thread for at most `deadline`; no answer is not gone.
+    /// another thread for at most `deadline`; no answer is not gone. That thread comes from a
+    /// serial queue of the call's own, not `DispatchQueue.global()`: GCD's global pool does not
+    /// overcommit, and a busy process can keep it from starting the probe for longer than the
+    /// deadline, which would read a deleted folder as one that did not answer. A probe that never
+    /// returns holds its queue's thread, as it would have held a global one.
     static func whyGone(_ entry: Entry, in directory: URL, deadline: DispatchTimeInterval = .seconds(2),
                         probe: @escaping @Sendable (_ root: String, _ parent: String) -> Bool
                             = { isGone($0) && isDirectory($1) }) -> String? {
@@ -141,7 +145,7 @@ public enum RestructureRootMap {
         final class Answer: @unchecked Sendable { var gone = false }
         let answer = Answer()
         let answered = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue(label: "RestructureRootMap.whyGone", qos: .userInitiated).async {
             answer.gone = probe(root, parent)
             answered.signal()
         }

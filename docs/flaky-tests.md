@@ -5381,9 +5381,31 @@ changed its answer, but the provider stayed parked until the wait ended. With 64
 `DispatchQueue.global()` inside the suite, the wait started 40 s late (the suite stayed green), then
 70 s late, when gated tests queued behind its park reservation gave up at their 60 s. On a serial
 queue of its own it started within 0.3 ms both times. At 70 s the suite was red either way:
-`awaitSignal` waits on `DispatchQueue.global()` too, with its deadline set before the block is
-queued, and is still exposed. The comments claiming `DispatchQueue.global()` overcommits are
-corrected: it does not.
+`awaitSignal` waited on `DispatchQueue.global()` too. The comments claiming `DispatchQueue.global()`
+overcommits are corrected: it does not.
+
+`awaitSignal` (`TestSupport.swift`, 37 call sites) moved next. Its deadline is set before the block
+is queued and the semaphore is tried first, so a late start never changed its verdict, but the test
+waited for the pool before hearing it: with 64 blocks sleeping 15 s on `DispatchQueue.global()`, a
+signal already in took 15.0 s to return. On a serial queue of its own it returned at once.
+Three tests had been safe only because `awaitSignal` queued behind the work it waits for on the same
+pool, and moved with it: `ParkBudgetTests`' two parks and `MockFileManagerLockTests`' accesses.
+Mutation-checked with the pool starved for 15 s inside each: back on `DispatchQueue.global()`, all
+three failed `awaitSignal` (the parks at 5 s, the accesses at 10 s); on queues of their own they
+passed. With 64 blocks sleeping 70 s inside `UnansweredListingTests` again, no park reservation
+gave up (12 had).
+
+So did the probe in `RestructureRootMap.whyGone`, production code that bounds a stat of a Setup
+folder at 2 s from the enqueue, on the main actor during Setup's Save. With the pool starved for 6 s
+it read a deleted folder as "did not answer" and kept its history entry; on a queue of its own it
+said "the folder is gone". `RestructureRootHistoryTests` expects that answer at the default bound.
+
+**Left on `DispatchQueue.global()`:** waits whose bound counts from when the block starts and that
+hold no park reservation (`OneWaySyncWritersTests`, `OneWaySyncDropboxGateTests`, 30 s each). A late
+start delays their verdict without changing it. Production's `DatalessFolderReads` is exposed
+too: it reads on a concurrent queue, which draws on the same pool, and in that 70 s run 17 of the
+suite's 19 tests took 70 s, most likely waiting for its reads to start. Not measured further, nor
+changed here.
 
 ### 55. A scan's text layer counted seconds while it waited in the PDFKit lane — FIXED
 

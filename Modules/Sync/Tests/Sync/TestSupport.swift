@@ -16,8 +16,14 @@ func awaitSignal(
     sourceLocation: SourceLocation = #_sourceLocation
 ) async {
     let deadline = TurnDeadline(seconds: timeout, turns: turns)
+    // On a serial queue of its own, not `DispatchQueue.global()`: GCD's global pool does not
+    // overcommit, and a package run can keep it from starting new work for seconds
+    // (`docs/flaky-tests.md`, "A file presenter whose answer waited for a GCD thread past the
+    // writer's deadline"). A late start never cut the wait short, since the semaphore is tried
+    // first, but the test and the park reservation it holds waited for the pool too: 15 s for a
+    // signal already in, with 64 blocks sleeping there.
     let arrived = await withCheckedContinuation { cont in
-        DispatchQueue.global().async {
+        DispatchQueue(label: "awaitSignal").async {
             cont.resume(returning: semaphore.wait(until: deadline))
         }
     }

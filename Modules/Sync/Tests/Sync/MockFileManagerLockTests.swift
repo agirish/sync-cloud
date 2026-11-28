@@ -42,8 +42,11 @@ import Foundation
         let early = LockedBox<[String]>([])
         let done = LockedBox(0)
         let snapshot = LockedBox<Set<String>?>(nil)
+        // A serial queue per access, not `DispatchQueue.global()`: that pool does not overcommit,
+        // and a package run can keep it from starting an access for longer than the
+        // `awaitSignal(started)` below, which starts at once on a queue of its own.
         func onItsOwnThread(_ name: String, _ access: @escaping @Sendable () -> Void) {
-            DispatchQueue.global().async {
+            DispatchQueue(label: "MockFileManagerLockTests.\(name)").async {
                 started.signal()
                 access()
                 if !released.withLock({ $0 }) { early.withLock { $0.append(name) } }

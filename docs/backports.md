@@ -16649,3 +16649,26 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s pictureText=%s ownRead=%
 |---|---|---|
 | `v6.x` | Its own copy of the read and the drawing, behaving the same | RECORDED — not owed (refactor) |
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Save as PDF picture text | CLOSED — does not apply |
+
+## Restructure's gone-folder probe: a queue of its own — main only, recorded, not owed
+
+2026-11-27. `RestructureRootMap.whyGone` asks whether a Setup folder in the history map is gone on
+another thread, for at most 2 s from the enqueue, during Setup's Save. It ran on
+`DispatchQueue.global(qos: .userInitiated)`, which does not overcommit: with the pool busy past the
+bound, a deleted folder read as "did not answer" and its history entry and profile folder were kept
+until a later Save. It now runs on a serial queue of the call's own. Nothing is lost on the old
+code; the entry goes on a Save that finds the pool free.
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s whyGone=%s globalProbe=%s\n' $l \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/RestructureRootMap.swift 2>/dev/null | grep -c 'static func whyGone')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/RestructureRootMap.swift 2>/dev/null | grep -c 'DispatchQueue.global(qos: .userInitiated).async')"; done
+# measured 2026-11-27, before this landed (main reads globalProbe=0 after):
+# main / v6.x  whyGone=1 globalProbe=1
+# v5.x / v4.x / v3.x / v2.x  whyGone=0 globalProbe=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` | The probe on `DispatchQueue.global`, so a busy pool can keep a deleted folder's entry for a Save | RECORDED — not owed |
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No history map | CLOSED — does not apply |
