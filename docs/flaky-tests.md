@@ -5402,10 +5402,20 @@ said "the folder is gone". `RestructureRootHistoryTests` expects that answer at 
 
 **Left on `DispatchQueue.global()`:** waits whose bound counts from when the block starts and that
 hold no park reservation (`OneWaySyncWritersTests`, `OneWaySyncDropboxGateTests`, 30 s each). A late
-start delays their verdict without changing it. Production's `DatalessFolderReads` is exposed
-too: it reads on a concurrent queue, which draws on the same pool, and in that 70 s run 17 of the
-suite's 19 tests took 70 s, most likely waiting for its reads to start. Not measured further, nor
-changed here.
+start delays their verdict without changing it.
+
+**`DatalessFolderReads`, moved after (production).** It listed dataless folders and ran its
+deadline timers on one concurrent queue, which draws on the same pool. With 64 blocks sleeping
+15 s on `DispatchQueue.global()`, a folder whose listing answers at once came back "did not
+answer" after 17.0 s: its listing started 14.7 s late, and the deadline fired before it finished.
+Listings that never answer filled the pool themselves: at 63 every 250 ms verdict came within
+0.7 s, at 64 (`kern.wq_max_constrained_threads`) not one came, the timers having no thread
+either, so a walk would wait for good. Each listing now runs on a serial queue of its own, the
+timers on another, with at most `maxReadsOut` (64) listings out; past that a read waits for a
+thread and its deadline says it was never asked. Starved for 15 s, the answering folder answered
+in 0.16 ms, and 80 listings that never answer each got their verdict in 0.27 s.
+`DatalessFolderReadThreadsTests` holds 70 such listings: on the concurrent queue no verdict came
+until the listings gave up at 30 s.
 
 ### 55. A scan's text layer counted seconds while it waited in the PDFKit lane — FIXED
 

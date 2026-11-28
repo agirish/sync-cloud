@@ -9,10 +9,16 @@ import Foundation
 /// walk but not unblock a syscall, so each Refresh would leak a pool thread and a descriptor until
 /// the pool ran dry and every pane stopped loading. `FileManaging.isDataless(at:)` finds them.
 ///
-/// - **Off the pool.** The listing runs on a dispatch queue, whose threads may block, while the
-///   walk suspends on the answer.
+/// - **Off the pool.** The listing runs on a thread of its own, from a serial dispatch queue of its
+///   own, while the walk suspends on the answer. Not GCD's global pool, nor a concurrent queue that
+///   draws on it: that pool doesn't overcommit and holds at most 64 threads a process
+///   (`kern.wq_max_constrained_threads`), so a busy pool started a listing seconds late, and 64
+///   listings that never answered held every thread for good, the deadlines' own included.
 /// - **Bounded.** After `deadline` the folder comes back unexplored ("Can't be read", never empty),
-///   so the comparison reports nothing under it as missing.
+///   so the comparison reports nothing under it as missing. The deadline runs on a serial queue of
+///   its own and never blocks, so nothing holds it back.
+/// - **At most `maxReadsOut` listings out.** A listing that never answers holds its thread for good,
+///   so past that a read waits for one to come back, its deadline running all the while.
 /// - **One read per folder.** A walk arriving while a read is within its deadline waits on that
 ///   read; one arriving after it is told at once the folder is unanswered. Otherwise a dead provider
 ///   would still cost a blocked thread per Refresh.
@@ -40,8 +46,16 @@ extension FileSyncManager {
         /// How long a walk waits for a folder's provider before calling it unanswered.
         public let deadline: Duration
 
-        public init(deadline: Duration) {
+        /// How many listings may be out at once, each holding a thread. A healthy answer takes about
+        /// a tenth of a second, so only listings whose provider never answers pile up; past this
+        /// many a read waits for one to come back, and its deadline calls it unanswered first.
+        /// Sixty-four is more than every walk's fan-out together asks at once, and an eighth of a
+        /// process's 512 dispatch threads (`kern.wq_max_threads`).
+        public let maxReadsOut: Int
+
+        public init(deadline: Duration, maxReadsOut: Int = 64) {
             self.deadline = deadline
+            self.maxReadsOut = max(1, maxReadsOut)
         }
 
         /// One folder's read in flight, until the provider answers (never, if it isn't running).
@@ -51,6 +65,9 @@ extension FileSyncManager {
             /// Both clocks, for `Elapsed`'s reason: a Mac asleep mid-read is not a slow provider.
             let since = Elapsed()
             var state = State.running
+            /// Whether its listing has been handed a thread. One still waiting for a slot when its
+            /// deadline passes was never asked, and the log says so instead of blaming the provider.
+            var asked = false
             /// Each waiter is told the outcome exactly once, outside the lock.
             var waiters: [Int: @Sendable (Bool) -> Void] = [:]
 
@@ -61,11 +78,18 @@ extension FileSyncManager {
         /// Reads still out, by path: running ones and expired ones. An answered read leaves.
         private var reads: [String: Read] = [:]
         private var nextWaiter = 0
+        /// Listings handed a thread that haven't come back, forgotten reads' included.
+        private var readsOut = 0
+        /// Listings waiting for one of those to come back, oldest first.
+        private var waitingForAThread: [(read: Read, path: String, listing: @Sendable () -> Void)] = []
 
-        /// Concurrent, so two folders' reads never queue behind each other; its threads come from
-        /// the dispatch pool, which is allowed to block.
-        private let queue = DispatchQueue(label: "com.abhishekgirish.SyncCloud.dataless-folder-reads",
-                                          qos: .userInitiated, attributes: .concurrent)
+        /// Each listing's queue is labelled this, for the log and the tests that check where the
+        /// provider was asked.
+        private static let listingLabel = "com.abhishekgirish.SyncCloud.dataless-folder-reads"
+
+        /// Serial, so its timers never wait for GCD's pool; they only take the lock and tell waiters.
+        private let deadlines = DispatchQueue(label: "com.abhishekgirish.SyncCloud.dataless-folder-reads.deadlines",
+                                              qos: .userInitiated)
 
         // MARK: - Reading
 
@@ -84,10 +108,7 @@ extension FileSyncManager {
                     guard await outcome(of: read) else { return nil }
                 case .started(let read):
                     let answer = Answer<T>()
-                    queue.async {
-                        answer.set(body())
-                        self.finish(read, path: path)
-                    }
+                    launch(read, path: path) { answer.set(body()) }
                     expire(read, path: path)
                     guard await outcome(of: read) else { return nil }
                     return answer.value
@@ -110,10 +131,7 @@ extension FileSyncManager {
                     guard outcomeBlocking(of: read) else { return nil }
                 case .started(let read):
                     let answer = Answer<T>()
-                    queue.async {
-                        answer.set(body())
-                        self.finish(read, path: path)
-                    }
+                    launch(read, path: path) { answer.set(body()) }
                     expire(read, path: path)
                     guard outcomeBlocking(of: read) else { return nil }
                     return answer.value
@@ -140,7 +158,8 @@ extension FileSyncManager {
         /// Forgets the unanswered folders at or under `roots`, so walks read them again. For when the
         /// app that syncs them has just launched: a read asked of the old process may never answer,
         /// and the new one isn't asked until a new read is. The stuck read is left to finish
-        /// unheard. Returns how many were forgotten.
+        /// unheard, keeping its thread and its place among the `maxReadsOut` until it does; one
+        /// still waiting for a thread is dropped. Returns how many were forgotten.
         @discardableResult
         public func forgetUnanswered(under roots: [String]) -> Int {
             let keys = roots.map(Self.key)
@@ -148,7 +167,10 @@ extension FileSyncManager {
             let gone = reads.filter { path, read in
                 read.state == .expired && keys.contains { path == $0 || path.hasPrefix($0 + "/") }
             }.map(\.key)
+            let forgotten = gone.compactMap { reads[$0] }
             for path in gone { reads[path] = nil }
+            // One still waiting for a thread was never asked; the next walk asks afresh.
+            waitingForAThread.removeAll { waiting in forgotten.contains { $0 === waiting.read } }
             lock.unlock()
             guard !gone.isEmpty else { return 0 }
             Logger.shared.info("Scan: \(gone.count) unanswered folder(s) will be read again — the app that syncs them launched")
@@ -198,7 +220,31 @@ extension FileSyncManager {
             return .started(read)
         }
 
-        /// The listing came back. Tells every waiter, and lets the next walk read the folder anew.
+        /// Hands the listing a thread, or queues it until one of the `maxReadsOut` comes back.
+        private func launch(_ read: Read, path: String, _ listing: @escaping @Sendable () -> Void) {
+            lock.lock()
+            guard readsOut < maxReadsOut else {
+                waitingForAThread.append((read, path, listing))
+                lock.unlock()
+                return
+            }
+            readsOut += 1
+            read.asked = true
+            lock.unlock()
+            run(read, path: path, listing)
+        }
+
+        /// A serial queue for each listing: serial queues overcommit, so it starts at once however
+        /// busy GCD's pool is, and one that never comes back holds only its own thread.
+        private func run(_ read: Read, path: String, _ listing: @escaping @Sendable () -> Void) {
+            DispatchQueue(label: Self.listingLabel, qos: .userInitiated).async {
+                listing()
+                self.finish(read, path: path)
+            }
+        }
+
+        /// The listing came back. Tells every waiter, lets the next walk read the folder anew, and
+        /// hands its thread's slot to the oldest listing waiting for one.
         private func finish(_ read: Read, path: String) {
             lock.lock()
             let wasExpired = read.state == .expired
@@ -206,7 +252,15 @@ extension FileSyncManager {
             let waiters = read.waiters
             read.waiters = [:]
             if reads[path] === read { reads[path] = nil }
+            readsOut -= 1
+            var next: (read: Read, path: String, listing: @Sendable () -> Void)?
+            if !waitingForAThread.isEmpty {
+                next = waitingForAThread.removeFirst()
+                next?.read.asked = true
+                readsOut += 1
+            }
             lock.unlock()
+            if let next { run(next.read, path: next.path, next.listing) }
             if wasExpired {
                 Logger.shared.info("Scan: “\(path)” answered after \(read.since.text) — walks read it again from now on")
                 announceUnansweredChange()
@@ -217,14 +271,17 @@ extension FileSyncManager {
         /// Arms the deadline. The read stays registered past it, so the next walk is turned away at
         /// once instead of starting another read of a folder that isn't answering.
         private func expire(_ read: Read, path: String) {
-            queue.asyncAfter(deadline: .now() + Self.interval(deadline)) { [deadline] in
+            deadlines.asyncAfter(deadline: .now() + Self.interval(deadline)) { [deadline, maxReadsOut] in
                 self.lock.lock()
                 guard read.state == .running else { self.lock.unlock(); return }
                 read.state = .expired
+                let asked = read.asked
                 let waiters = read.waiters
                 read.waiters = [:]
                 self.lock.unlock()
-                let logLine = "Scan: “\(path)” did not answer in \(Self.text(deadline)) — its contents are not on this Mac and the app that syncs it did not supply them. Shown as unexplored, not empty; walks skip it until it answers"
+                let logLine = asked
+                    ? "Scan: “\(path)” did not answer in \(Self.text(deadline)) — its contents are not on this Mac and the app that syncs it did not supply them. Shown as unexplored, not empty; walks skip it until it answers"
+                    : "Scan: “\(path)” was not asked in \(Self.text(deadline)) — \(maxReadsOut) folders whose contents are not on this Mac are still being read, and it waits for one to answer. Shown as unexplored, not empty; walks skip it until it answers"
                 // A hidden folder is the provider's own (OneDrive's `.Trash`): its silence is its
                 // business, so INFO. A folder the user keeps not answering is the warning.
                 if (path as NSString).lastPathComponent.hasPrefix(".") {

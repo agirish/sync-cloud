@@ -300,6 +300,12 @@ import Testing
                 "reading: { _ in started.signal(); _ = release.wait(timeout: .now() + 30); return .upload(.uploaded) },",
                 "DispatchQueue.global().async { _ = started.wait(timeout: .now() + 30); continuation.resume() }",
             ],
+            // A listing whose provider doesn't answer, for `DatalessFolderReads`' threads: it runs
+            // on the reads' own dispatch thread, never the cooperative pool or GCD's global one;
+            // bounded at 30 s and released by the test.
+            "DatalessFolderReadThreadsTests.swift": [
+                "{ counts.start(); let answered = hold.wait(timeout: .now() + 30) == .success; counts.end(); return answered }",
+            ],
             // `OneThreadExecutor`'s wait for its probe job: on a serial queue of its own, neither
             // the cooperative pool nor GCD's global one, so nothing starts it late; bounded at 5 s.
             // The parks it measures are `ParkGate`'s, and every test that uses it declares

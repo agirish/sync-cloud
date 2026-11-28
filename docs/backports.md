@@ -16672,3 +16672,27 @@ for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s whyGone=%s globalProbe=%
 |---|---|---|
 | `v6.x` | The probe on `DispatchQueue.global`, so a busy pool can keep a deleted folder's entry for a Save | RECORDED — not owed |
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No history map | CLOSED — does not apply |
+
+## A folder whose provider doesn't answer: listings and deadlines off GCD's pool — main only, recorded, not owed
+
+2026-11-27. `FileSyncManager.DatalessFolderReads` listed dataless folders and ran their 5 s
+deadline on one concurrent queue, which draws on GCD's pool of at most 64 threads a process. A
+busy pool started a listing late, so a folder that would answer at once was called "did not
+answer" (17 s, measured with the pool held 15 s), and 64 listings whose provider never answers
+held every thread for good: no deadline fired after that, and every walk reaching a cloud-only
+folder waited for good. Each listing now has a serial queue of its own and the deadlines another,
+with at most 64 listings out at once.
+
+```sh
+for l in main v6.x v5.x v4.x v3.x v2.x; do printf '%-5s reads=%s concurrentQueue=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/DatalessFolderReads.swift | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/DatalessFolderReads.swift 2>/dev/null | grep -c 'attributes: .concurrent')"; done
+# measured 2026-11-27, before this landed (main reads concurrentQueue=0 after):
+# main / v6.x / v5.x  reads=1 concurrentQueue=1
+# v4.x / v3.x / v2.x  reads=0 concurrentQueue=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` | The concurrent queue, so a busy pool can call a healthy folder unanswered, and 64 dead listings stop every deadline | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No `DatalessFolderReads` | CLOSED — does not apply |
