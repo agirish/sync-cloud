@@ -392,9 +392,9 @@ import Testing
         #expect(store.people.map(\.displayName) == ["Maya"], "removed before the answer")
 
         model.personAwaitingRemoval = nil
-        model.newPersonField = "Ravi"
+        model.newPersonField = "Ilse"
         model.commitTypedPerson()
-        model.requestRemovePerson(named: "Ravi")
+        model.requestRemovePerson(named: "Ilse")
         #expect(model.personAwaitingRemoval == nil, "a name added a moment ago asked first")
         #expect(store.people.map(\.displayName) == ["Maya"])
     }
@@ -1038,7 +1038,7 @@ import Testing
     @Test func aPersonAddedAfterSaveIsSavedAgain() async throws {
         let s = try Scratch("rehousehold")
         defer { s.remove() }
-        let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Maya", "Family/Ravi"]),
+        let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Maya", "Family/Ilse"]),
                                      syncManager: s.engine,
                                      onProfileWritten: {
                                          guard let id = FilingProfileStore.activeProfileId(in: s.profiles) else { return }
@@ -1054,7 +1054,7 @@ import Testing
                 "Save was offered again straight after it wrote, with nothing changed")
 
         model.screen = .people
-        model.newPersonField = "Ravi"
+        model.newPersonField = "Ilse"
         model.commitTypedPerson()
         _ = model.advance()
 
@@ -1065,9 +1065,9 @@ import Testing
         #expect(second != first)
         let before = try #require(FilingProfileStore.profile(id: first, in: s.profiles))
         let after = try #require(FilingProfileStore.profile(id: second, in: s.profiles))
-        #expect(before.folders["Family/Ravi"]?.axes["person"] == nil, "premise: the first had no Ravi")
-        #expect(after.folders["Family/Ravi"]?.axes["person"] == "Ravi",
-                "the second Save's profile does not hold Ravi")
+        #expect(before.folders["Family/Ilse"]?.axes["person"] == nil, "premise: the first had no Ilse")
+        #expect(after.folders["Family/Ilse"]?.axes["person"] == "Ilse",
+                "the second Save's profile does not hold Ilse")
         #expect(!model.canWriteProfile)
     }
 

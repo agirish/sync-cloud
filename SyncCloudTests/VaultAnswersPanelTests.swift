@@ -30,9 +30,9 @@ import Testing
 
     /// Edit says what a corrected ID's documents read for it.
     @Test func theEditorSaysWhatACorrectedIDsDocumentsRead() {
-        #expect(VaultCard.readingsLine(["WZ88319122"]) == "Its document reads WZ88319122 for this ID.")
-        #expect(VaultCard.readingsLine(["WZ88319122", "WZ8831912Z"])
-                == "Its documents read WZ88319122 and WZ8831912Z for this ID.")
+        #expect(VaultCard.readingsLine(["WZ74605142"]) == "Its document reads WZ74605142 for this ID.")
+        #expect(VaultCard.readingsLine(["WZ74605142", "WZ7460514Z"])
+                == "Its documents read WZ74605142 and WZ7460514Z for this ID.")
         #expect(VaultCard.readingsLine(["A", "B", "C"]) == "Its documents read A, B and C for this ID.")
         #expect(VaultCard.readingsLine([]).isEmpty)
     }
@@ -100,8 +100,8 @@ import Testing
                 == "Close to the saved Dental · Member ID ●●●●2401: one character differs.")
         #expect(VaultCard.notAnIDMessage(printedForSubscriber: false).hasPrefix("It comes off the Vault"))
         #expect(VaultCard.notAnIDMessage(printedForSubscriber: true).hasPrefix("The card prints this as the subscriber’s ID"))
-        let values = [VaultCardValue(label: "Member ID", value: "W288319122"), VaultCardValue(label: "Subscriber ID", value: "W288319115")]
-        #expect(VaultCard.otherValues(values, excluding: ["w2883-19122"]) == [values[1]])
+        let values = [VaultCardValue(label: "Member ID", value: "W274605142"), VaultCardValue(label: "Subscriber ID", value: "W274605137")]
+        #expect(VaultCard.otherValues(values, excluding: ["w2746-05142"]) == [values[1]])
     }
 
     /// Moving a waiting ID to Current by hand draws You moved it here under Tab; letting the Vault

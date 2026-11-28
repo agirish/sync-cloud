@@ -27,8 +27,8 @@ import Testing
     private static let width = SettingsSheetMetrics.contentWidth(textScale: 1)
 
     /// Somebody the tree files for whom the roster doesn't know: the gap the section exists for.
-    private static let ravi = PeopleOverview.UnclaimedPerson(
-        name: "Ravi", folders: 2, exampleFolder: "Family/Ravi")
+    private static let ilse = PeopleOverview.UnclaimedPerson(
+        name: "Ilse", folders: 2, exampleFolder: "Family/Ilse")
 
     // MARK: Harness
 
@@ -118,7 +118,7 @@ import Testing
         // The same overview with a gap, which swaps the reassurance for the amber line: only it
         // should carry caution ink.
         let withGap = PeopleOverview(claimedFolders: 12, claimedDocuments: 140,
-                                     unclaimed: [Self.ravi], peopleWithNoFolders: [])
+                                     unclaimed: [Self.ilse], peopleWithNoFolders: [])
         #expect(coverageOnly > 200, "the complete roster drew almost nothing (\(coverageOnly) pixels)")
         #expect(cautionInk(Self.row(complete)) == 0,
                 "the complete roster is drawing something in the caution colour — nothing here is a warning")
@@ -143,7 +143,7 @@ import Testing
     /// leading-aligned prose reaches.
     @Test func anUnreachablePersonBringsAnOfferAndNotJustASentence() {
         let gap = PeopleOverview(claimedFolders: 12, claimedDocuments: 140,
-                                 unclaimed: [Self.ravi], peopleWithNoFolders: [])
+                                 unclaimed: [Self.ilse], peopleWithNoFolders: [])
         let none = PeopleOverview(claimedFolders: 12, claimedDocuments: 140,
                                   unclaimed: [], peopleWithNoFolders: [])
         #expect(ink(Self.row(none)) > 200,
@@ -158,12 +158,12 @@ import Testing
     /// check above.
     @Test func everyUnreachablePersonGetsTheirOwnLine() {
         let one = PeopleOverview(claimedFolders: 12, claimedDocuments: 140,
-                                 unclaimed: [Self.ravi], peopleWithNoFolders: [])
+                                 unclaimed: [Self.ilse], peopleWithNoFolders: [])
         let two = PeopleOverview(
             claimedFolders: 12, claimedDocuments: 140,
-            unclaimed: [Self.ravi,
-                        PeopleOverview.UnclaimedPerson(name: "Kavya", folders: 1,
-                                                       exampleFolder: "School/Kavya")],
+            unclaimed: [Self.ilse,
+                        PeopleOverview.UnclaimedPerson(name: "Maren", folders: 1,
+                                                       exampleFolder: "School/Maren")],
             peopleWithNoFolders: [])
         let first = cautionInk(Self.row(one))
         let both = cautionInk(Self.row(two))

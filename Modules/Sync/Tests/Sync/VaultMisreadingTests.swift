@@ -405,7 +405,7 @@ import Testing
     }
 
     @Test func aLicenseNamesStopAtTheNextLabel() {
-        #expect(VaultReading.labelledName("Name : RAVI KUMAR Blood Group : O+") == "Ravi Kumar")
+        #expect(VaultReading.labelledName("Name : ILSE KUMAR Blood Group : O+") == "Ilse Kumar")
         #expect(VaultReading.labelledName("Name : Blood Group") == nil)
     }
 

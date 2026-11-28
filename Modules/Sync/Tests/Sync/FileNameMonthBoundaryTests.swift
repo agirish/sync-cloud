@@ -6,7 +6,7 @@ import Testing
 ///
 /// `FileNameDate.monthSuffix` reads a letter run ending in a month name, to reach glued provider
 /// names like `DetailedBillApr2025`. Ordinary words end that way too (`Kumar`, `codec`), and beside
-/// a year (`Sanjay Kumar 2023.pdf`) the rename pass would propose a date for a file with none.
+/// a year (`Tobias Kumar 2023.pdf`) the rename pass would propose a date for a file with none.
 /// Inside one run only a change of case marks a word boundary: a title-cased month carries its own
 /// (`HDFC|Apr`), an all-caps month needs a lowercase character before it (`KU|MAR` has none). The
 /// uppercase and acronym cases tell the candidate rules apart; the simple cases pass under all.
@@ -52,9 +52,9 @@ import Testing
 
     /// And the end-to-end consequence of the upper-case half, at the level the user sees.
     @Test func anAllCapsNameAndAYearMineNoDate() {
-        #expect(FileNameDate.spelledMonth(in: FileNameDate.tokenRuns("SANJAY KUMAR 2023")) == nil,
+        #expect(FileNameDate.spelledMonth(in: FileNameDate.tokenRuns("TOBIAS KUMAR 2023")) == nil,
                 "an all-caps surname and a year still mine a date out of nothing")
-        #expect(FileNameDate.spelledMonth(in: FileNameDate.tokenRuns("Sanjay Kumar 2023")) == nil,
+        #expect(FileNameDate.spelledMonth(in: FileNameDate.tokenRuns("Tobias Kumar 2023")) == nil,
                 "a surname and a year still mine a date out of nothing")
         #expect(FileNameDate.spelledMonth(in: FileNameDate.tokenRuns("ACME export 2024")) == nil,
                 "a vendor token and a year still mine a date out of nothing")

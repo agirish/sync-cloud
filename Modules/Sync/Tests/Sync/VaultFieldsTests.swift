@@ -10,7 +10,7 @@ import Testing
     @Test func aPlanCodeShowsAsPrintedAndAnIDShapedValueIsHidden() {
         #expect(VaultModel.fieldValue(label: "RxBIN", value: "610502") == .text("610502"))
         #expect(VaultModel.fieldValue(label: "RxPCN", value: " ADV ") == .text("ADV"))
-        #expect(VaultModel.fieldValue(label: "Dependent Code", value: "W2883-19115") == .number("W2883-19115"))
+        #expect(VaultModel.fieldValue(label: "Dependent Code", value: "W2746-05137") == .number("W2746-05137"))
         #expect(VaultModel.fieldValue(label: "Plan", value: "PPO 2") == .text("PPO 2"))
     }
 

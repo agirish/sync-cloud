@@ -1,6 +1,6 @@
 import Foundation
 
-/// One value a card prints beside its label: "Subscriber ID" and "W288319115". What the editor's
+/// One value a card prints beside its label: "Subscriber ID" and "W274605137". What the editor's
 /// On this card row offers in place of a misread ID.
 public struct VaultCardValue: Equatable, Hashable, Sendable {
     /// The label as the card prints it, without its colon: "Subscriber ID", "RxBIN".
@@ -36,8 +36,8 @@ extension VaultReading {
     ]
 
     /// Every labeled value the pages print, each value once, in reading order: on a label's own
-    /// line ("Member ID: W288319115", two columns read as one line "Member ID W288 Group 0012"),
-    /// or under a label that stands alone ("Subscriber ID" over "W288319115").
+    /// line ("Member ID: W274605137", two columns read as one line "Member ID W274 Group 0012"),
+    /// or under a label that stands alone ("Subscriber ID" over "W274605137").
     public static func cardValues(on pages: [[String]]) -> [VaultCardValue] {
         var out: [VaultCardValue] = []
         var seen = Set<String>()

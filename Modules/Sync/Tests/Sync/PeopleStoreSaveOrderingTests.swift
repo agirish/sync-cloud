@@ -94,8 +94,8 @@ import Testing
         #expect(before?.isEmpty == false, "the fixture produced no fingerprint to compare")
         let revision = store.savedRevision
 
-        store.dismissSuggestion(PersonNameSuggestion(personId: store.people[0].id, form: "Mukta",
-                                                     occurrences: 3, exampleFile: "Mukta bill.pdf"))
+        store.dismissSuggestion(PersonNameSuggestion(personId: store.people[0].id, form: "Odile",
+                                                     occurrences: 3, exampleFile: "Odile bill.pdf"))
 
         // It really did land: read it back rather than trusting a counter.
         let data = try #require(try? Data(contentsOf: dir.appendingPathComponent("p/people.json")))

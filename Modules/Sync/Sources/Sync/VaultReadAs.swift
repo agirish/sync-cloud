@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 
 /// What one document reads for a saved ID whose number was corrected by hand: "this card reads
-/// WZ88319122 for this ID". The reader checks it before anything else, so the card's dates keep
+/// WZ74605142 for this ID". The reader checks it before anything else, so the card's dates keep
 /// coming to the ID and the old reading never comes back To Confirm.
 ///
 /// The document is known by its bytes (``VaultFileContents``), not its path: SyncCloud moves a

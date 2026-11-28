@@ -130,7 +130,7 @@ import Testing
     /// An axis value the registry can't pin to exactly one person resolves to nil rather than
     /// guessing: the veto reads this, and a wrong resolution refuses a correct folder.
     @Test func anUnresolvableAxisValueIsNil() {
-        #expect(Self.household.person(forAxisValue: "Ravi") == nil)
+        #expect(Self.household.person(forAxisValue: "Ilse") == nil)
         #expect(Self.household.person(forAxisValue: "Father and Mother") == nil)
     }
 

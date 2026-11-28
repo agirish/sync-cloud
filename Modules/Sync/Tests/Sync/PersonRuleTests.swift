@@ -71,8 +71,8 @@ import Testing
 
     /// A rule pointing at a removed person is incomplete by value, not a crash and not a match-all.
     @Test func aRuleNamingNobodyMatchesNothing() {
-        let rule = AutomationRule(name: "Ghost", conditions: [.personIs("ravi")],
-                                  destinationTemplate: "Family/Ravi")
+        let rule = AutomationRule(name: "Ghost", conditions: [.personIs("ilse")],
+                                  destinationTemplate: "Family/Ilse")
         #expect(!AutomationEvaluator.matches(rule, Self.facts("Daughter - Report.pdf"), now: Self.now))
         #expect(AutomationCondition.personIs("").isComplete == false)
         #expect(AutomationCondition.personIs("daughter").isComplete)

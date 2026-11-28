@@ -23,12 +23,12 @@ import EventsTestSupport
                                  because: "just tell me which folder you checked"),
                             ownWords: ["Just tell me which folder you checked from now on"]).get()
         _ = try notes.apply(.add(text: "Amma is your mother.", section: .about, because: mom), ownWords: [mom]).get()
-        _ = try notes.apply(.add(text: "- Your sister is Priya.", section: .about, because: "my sister Priya"),
-                            ownWords: ["my sister Priya sent this"]).get()
+        _ = try notes.apply(.add(text: "- Your sister is Greta.", section: .about, because: "my sister Greta"),
+                            ownWords: ["my sister Greta sent this"]).get()
         #expect(notes.read() == """
             ## About you
             - Amma is your mother.
-            - Your sister is Priya.
+            - Your sister is Greta.
 
             ## How you like answers
             - Brief. Say which folder you looked in.
@@ -124,11 +124,11 @@ import EventsTestSupport
         _ = try notes.apply(.add(text: "Your accountant is Raj.", section: .about, because: "accountant is Raj"),
                             ownWords: ["my accountant is Raj"]).get()
         // Line 2: the heading is line 1.
-        #expect(notes.apply(.replace(line: 2, old: "Someone else.", text: "Your accountant is Ravi.", because: "it's Ravi"),
-                            ownWords: ["no, it's Ravi"]) == .failure(.noSuchLine))
-        let replaced = try notes.apply(.replace(line: 2, old: "Your accountant is Raj.", text: "Your accountant is Ravi.",
-                                                because: "it's Ravi"), ownWords: ["no, it's Ravi"]).get()
-        #expect(notes.read() == "## About you\n- Your accountant is Ravi.\n")
+        #expect(notes.apply(.replace(line: 2, old: "Someone else.", text: "Your accountant is Ilse.", because: "it's Ilse"),
+                            ownWords: ["no, it's Ilse"]) == .failure(.noSuchLine))
+        let replaced = try notes.apply(.replace(line: 2, old: "Your accountant is Raj.", text: "Your accountant is Ilse.",
+                                                because: "it's Ilse"), ownWords: ["no, it's Ilse"]).get()
+        #expect(notes.read() == "## About you\n- Your accountant is Ilse.\n")
         #expect(notes.origin(of: "Your accountant is Raj.") == nil, "a gone line keeps no record")
         #expect(notes.undo(replaced))
         #expect(notes.read() == "## About you\n- Your accountant is Raj.\n")
@@ -142,8 +142,8 @@ import EventsTestSupport
         let notes = store()
         #expect(notes.save("## About you\n- Amma is your mother.\n\n## How you like answers\n- Brief."))
         // Claude had "Brief." as line 5; its own add above it makes that line 6.
-        _ = try notes.apply(.add(text: "Your sister is Priya.", section: .about, because: "my sister Priya"),
-                            ownWords: ["my sister Priya"]).get()
+        _ = try notes.apply(.add(text: "Your sister is Greta.", section: .about, because: "my sister Greta"),
+                            ownWords: ["my sister Greta"]).get()
         _ = try notes.apply(.replace(line: 5, old: "Brief.", text: "Brief, with sizes in MB.", because: "sizes in MB"),
                             ownWords: ["give sizes in MB"]).get()
         #expect(notes.read().hasSuffix("## How you like answers\n- Brief, with sizes in MB.\n"))
@@ -169,8 +169,8 @@ import EventsTestSupport
         let notes = store()
         #expect(notes.save("## About you\n- Your accountant is Raj."))
         let theirs = try #require(notes.origin(of: "Your accountant is Raj."))
-        let replaced = try notes.apply(.replace(line: 2, old: "Your accountant is Raj.", text: "Your accountant is Ravi.",
-                                                because: "it's Ravi"), ownWords: ["no, it's Ravi"]).get()
+        let replaced = try notes.apply(.replace(line: 2, old: "Your accountant is Raj.", text: "Your accountant is Ilse.",
+                                                because: "it's Ilse"), ownWords: ["no, it's Ilse"]).get()
         #expect(notes.undo(replaced))
         #expect(notes.origin(of: "Your accountant is Raj.") == theirs)
         let removed = try notes.apply(.remove(line: 2, old: "Your accountant is Raj."), ownWords: []).get()

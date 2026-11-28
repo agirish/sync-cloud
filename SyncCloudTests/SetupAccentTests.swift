@@ -61,7 +61,7 @@ import Testing
         try expectWearsTheHue({ SetupChip(mark: .tick(true), title: "Father", isFilled: true,
                                           accent: $0.accentColor) },
                               size: size, scale: 4, atLeast: 1_000, "a ticked chip's tick")
-        try expectWearsTheHue({ SetupChip(mark: .add, title: "Priya", accent: $0.accentColor) },
+        try expectWearsTheHue({ SetupChip(mark: .add, title: "Greta", accent: $0.accentColor) },
                               size: size, scale: 4, atLeast: 10, "an add chip's +")
     }
 

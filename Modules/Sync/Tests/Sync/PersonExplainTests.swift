@@ -94,19 +94,19 @@ import Testing
     /// A person the tree files for who isn't on the roster is the actionable gap: documents naming
     /// them are attributed to nobody, their folders get no protection, and nothing else says so.
     @Test func aPersonWithFoldersButNoRecordIsReported() throws {
-        let profile = Self.profile([("Family/Ravi", "Ravi"),
-                                    ("Immigration/Passport/Ravi", "Ravi"),
+        let profile = Self.profile([("Family/Ilse", "Ilse"),
+                                    ("Immigration/Passport/Ilse", "Ilse"),
                                     ("Family/Daughter", "Daughter")])
         let memory = FilingMemory(profileId: "t", salt: "s", folders: [
-            "Family/Ravi": FilingMemoryEntry(docs: 7, anchors: [], idHashes: []),
+            "Family/Ilse": FilingMemoryEntry(docs: 7, anchors: [], idHashes: []),
             "Family/Daughter": FilingMemoryEntry(docs: 3, anchors: [], idHashes: []),
         ])
         let overview = PeopleOverview.make(registry: Self.household, profile: profile, memory: memory)
 
-        let ravi = try #require(overview.unclaimed.first)
-        #expect(ravi.name == "Ravi", "the offer must propose the spelling the tree uses")
-        #expect(ravi.folders == 2)
-        #expect(ravi.exampleFolder == "Family/Ravi", "the shallowest folder is the recognisable one")
+        let ilse = try #require(overview.unclaimed.first)
+        #expect(ilse.name == "Ilse", "the offer must propose the spelling the tree uses")
+        #expect(ilse.folders == 2)
+        #expect(ilse.exampleFolder == "Family/Ilse", "the shallowest folder is the recognisable one")
         #expect(overview.claimedFolders == 1)
         #expect(overview.claimedDocuments == 3)
     }

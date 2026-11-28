@@ -54,9 +54,9 @@ import Testing
     }
 
     @Test func twoColumnsReadAsOneLineGiveEachValueItsOwnLabel() {
-        #expect(Self.values(["Member ID W28831 Plan Code 4412A"])
-                == [Self.pair("Member ID", "W28831"), Self.pair("Plan Code", "4412A")])
-        #expect(Self.values(["Member ID W28831 Group 2468135"]) == [Self.pair("Member ID", "W28831")])
+        #expect(Self.values(["Member ID W27460 Plan Code 4412A"])
+                == [Self.pair("Member ID", "W27460"), Self.pair("Plan Code", "4412A")])
+        #expect(Self.values(["Member ID W27460 Group 2468135"]) == [Self.pair("Member ID", "W27460")])
     }
 
     @Test func groupsOfDigitsASpaceApartAreOneNumber() {

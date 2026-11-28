@@ -348,8 +348,8 @@ extension VaultReading {
     /// The words that end a labelled name: a card's own words and the labels printed after a name.
     private static let labelledNameStops: Set<String> = cardWords.union(["blood", "group", "gender", "sex", "age", "dob", "relation"])
 
-    /// The name after "Name :" on a line, up to the next label: "Name : RAVI KUMAR Blood Group :
-    /// O+" is Ravi Kumar. Nil when what follows is a label, or not two words.
+    /// The name after "Name :" on a line, up to the next label: "Name : ILSE KUMAR Blood Group :
+    /// O+" is Ilse Kumar. Nil when what follows is a label, or not two words.
     static func labelledName(_ line: String) -> String? {
         let ns = line as NSString
         guard let m = printedName.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { return nil }

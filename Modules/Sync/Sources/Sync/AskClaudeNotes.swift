@@ -388,7 +388,7 @@ public struct AskClaudeNotes {
     }
 
     /// Whether the word at `range` is a dictionary word, by its English lemma: "Prefers" is
-    /// "prefer", "Accountant" is "accountant"; a name has none ("Priya") or keeps its capital
+    /// "prefer", "Accountant" is "accountant"; a name has none ("Greta") or keeps its capital
     /// ("Mallory"). Unsure is a name: a note refused is safer than one a share wrote.
     private static func isOrdinaryWord(at range: Range<String.Index>, in line: String) -> Bool {
         let tagger = NLTagger(tagSchemes: [.lemma])

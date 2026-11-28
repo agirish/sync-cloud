@@ -245,7 +245,7 @@ public enum FileNameDate {
     /// 1–12 when a letter run is a month name, or ends with one at a word boundary.
     ///
     /// The suffix reaches glued provider names (`DetailedBillApr`), but ordinary words end in
-    /// month letters too: `Kumar`, `Rajan`, `codec`. `Sanjay Kumar 2023.pdf` has a year beside it,
+    /// month letters too: `Kumar`, `Rajan`, `codec`. `Tobias Kumar 2023.pdf` has a year beside it,
     /// so a bare suffix would rename it `03. Mar 2023`. Inside one letter run only a change of case
     /// marks a word boundary, so two shapes qualify:
     ///

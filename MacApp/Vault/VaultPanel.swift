@@ -4178,7 +4178,7 @@ struct VaultCard: View {
         }
     }
 
-    /// "Its document reads WZ88319122 for this ID.": what a corrected ID's documents read.
+    /// "Its document reads WZ74605142 for this ID.": what a corrected ID's documents read.
     static func readingsLine(_ readings: [String]) -> String {
         guard let last = readings.last else { return "" }
         if readings.count == 1 { return "Its document reads \(last) for this ID." }

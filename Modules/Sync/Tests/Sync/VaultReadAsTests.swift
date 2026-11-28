@@ -118,13 +118,13 @@ import Testing
 
     @Test func aReadingIsGivenTheNotedNumberOnlyWhereTheNoteSaysSo() {
         let source = VaultSource(path: "/a.pdf", role: "Card", rank: 30)
-        let find = VaultFind(title: "Member ID", value: "WZ88319122", note: "",
+        let find = VaultFind(title: "Member ID", value: "WZ74605142", note: "",
                              facts: VaultReadFacts(category: .health, details: [], sources: [source]))
         let other = VaultFind(title: "Member ID", value: "XX1", note: "",
                               facts: VaultReadFacts(category: .health, details: [], sources: [source]))
-        let read = VaultModel.reading((finds: [find, other], mentions: [VaultMention(value: "wz8831-9122", category: .health, source: source)]),
-                                      instead: ["WZ88319122": "W288319122"])
-        #expect(read.finds.map(\.value) == ["W288319122", "XX1"])
-        #expect(read.mentions.map(\.value) == ["W288319122"])
+        let read = VaultModel.reading((finds: [find, other], mentions: [VaultMention(value: "wz7460-5142", category: .health, source: source)]),
+                                      instead: ["WZ74605142": "W274605142"])
+        #expect(read.finds.map(\.value) == ["W274605142", "XX1"])
+        #expect(read.mentions.map(\.value) == ["W274605142"])
     }
 }
